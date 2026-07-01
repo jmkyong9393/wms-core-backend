@@ -1,0 +1,18 @@
+from fastapi import FastAPI
+from app.core.config import settings
+from app.core.database import init_db
+from app.api.routes import orders, returns, inventory
+
+app = FastAPI(title=settings.PROJECT_NAME)
+
+@app.on_event("startup")
+def on_startup():
+    init_db()
+
+app.include_router(orders.router, prefix="/api/orders", tags=["Orders"])
+app.include_router(returns.router, prefix="/api/returns", tags=["Returns"])
+app.include_router(inventory.router, prefix="/api/inventory", tags=["Inventory"])
+
+@app.get("/")
+def read_root():
+    return {"message": "Welcome to B2B WMS Platform API"}

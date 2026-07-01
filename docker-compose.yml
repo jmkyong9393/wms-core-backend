@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: wms-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: wms_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  worker:
+    image: python:3.11-slim
+    container_name: wms-worker
+    depends_on:
+      - db
+    volumes:
+      - .:/app
+    working_dir: /app
+    environment:
+      DATABASE_URL: postgresql://admin:password@db:5432/wms_db
+    command: pip install -r requirements.txt && python -m app.worker
+
+volumes:
+  postgres_data:
