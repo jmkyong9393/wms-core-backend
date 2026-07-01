@@ -21,11 +21,11 @@
 
 ## 📂 Repository Structure & Documentations
 
-팀원 및 기여자는 개발 시작 전 반드시 `WMS_docs` 폴더 내의 기획 문서들을 숙지하시기 바랍니다.
+팀원 및 기여자는 개발 시작 전 반드시 `docs` 폴더 내의 기획 문서들을 숙지하시기 바랍니다.
 
-- 📄 [B2B_WMS_AI_Platform_기획서_ver1.3.md](WMS_docs/B2B_WMS_AI_Platform_기획서_ver1.3.md): 전체 시스템 구조 및 백엔드 요구사항
-- 📊 [B2B_WMS_AI_Platform_워크플로우_ver1.3.md](WMS_docs/B2B_WMS_AI_Platform_워크플로우_ver1.3.md): 서비스 시퀀스 다이어그램 및 데이터 흐름도
-- ⚙️ **wms-core-backend/**: FastAPI 기반 메인 API 서버 및 워커 스켈레톤 (현재 브랜치 기준)
+- 📄 [B2B_WMS_AI_Platform_기획서_ver1.3.md](docs/B2B_WMS_AI_Platform_기획서_ver1.3.md): 전체 시스템 구조 및 백엔드 요구사항
+- 📊 [B2B_WMS_AI_Platform_워크플로우_ver1.3.md](docs/B2B_WMS_AI_Platform_워크플로우_ver1.3.md): 서비스 시퀀스 다이어그램 및 데이터 흐름도
+- ⚙️ **app/**: FastAPI 기반 메인 API 서버 및 워커 스켈레톤 소스 코드
 
 ---
 
