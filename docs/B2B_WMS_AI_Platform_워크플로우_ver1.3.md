@@ -199,7 +199,7 @@ graph TD
 
 ### 🛑 1. Multi-Agent 레이턴시 지연 (Agent Latency)
 * **Risk:** 4개의 에이전트가 순차적으로 LLM API를 호출하므로 검수 1건당 15초 이상의 지연이 발생할 수 있습니다.
-* **Mitigation:** **Star Topology & Fast-track 라우팅.** 정상품(MINT)은 Policy/Critic을 거치지 않고 즉시 Auto-Refund 처리하여 대기시간을 최소화합니다. 또한 API는 DB에 큐만 적재 후 즉시 `202 Accepted`를 반환하고, Worker가 Celery/Redis 없이 PostgreSQL `SKIP LOCKED`로 가져가 비동기 처리합니다.
+* **Mitigation:** **Star Topology & Fast-track 라우팅.** 정상품(MINT)은 Policy/Critic을 거치지 않고 즉시 Auto-Refund 처리하여 대기시간을 최소화합니다. 또한 API는 DB에 큐만 적재 후 즉시 `202 Accepted`를 반환하고, Worker가 Celery/Redis 없이 Redis & Celery로 가져가 비동기 처리합니다.
 
 ### 🛑 2. K8s 러닝 커브로 인한 개발 기한 초과 (Learning Curve)
 * **Risk:** 7주 기한 내에 주니어 팀원들이 K8s 환경을 완벽히 이해하고 배포하는 것은 프로젝트 좌초 리스크가 있습니다.
