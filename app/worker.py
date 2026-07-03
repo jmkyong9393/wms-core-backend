@@ -1,70 +1,17 @@
-import time
-import os
-from celery import Celery
-from sqlmodel import Session
-from app.core.database import engine
-from app.models.wms import ReturnJob
+# TODO: 팀원 실습 과제
+# 이 파일은 비동기 작업 처리를 위한 Celery 워커 스크립트입니다.
+# Redis를 브로커로 사용하는 Celery 애플리케이션 객체를 생성하세요.
 
-# Celery Broker 연동 (Managed Redis 권장)
-broker_url = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
-app = Celery('wms_tasks', broker=broker_url, backend=broker_url)
-
-app.conf.update(
-    task_serializer='json',
-    accept_content=['json'],
-    result_serializer='json',
-    timezone='Asia/Seoul',
-    enable_utc=True,
-    worker_concurrency=2, # OOM 방지를 위해 워커당 동시성 제한
-    task_soft_time_limit=30, # AI API 무한 대기 방지
-    task_time_limit=45
-)
-
-@app.task(bind=True, max_retries=3)
-def process_book_inspection(self, order_id: str, image_url: str):
+def process_book_inspection(order_id: str, image_url: str):
     """
-    Celery 기반 비동기 백그라운드 워커.
-    LangGraph Supervisor 파이프라인을 호출하여 상태를 분석하고, 결과를 Redis 및 DB에 기록합니다.
+    [과제 목표]
+    Celery 백그라운드 워커를 통해 도서 상태 검수(LangGraph)를 비동기로 수행하는 함수를 구현하세요.
+    
+    [구현 지침]
+    1. DB에 접근하여 ReturnJob 테이블의 상태를 'PROCESSING'으로 변경하세요.
+    2. LangGraph Supervisor (app_graph) 파이프라인을 호출하여 AI 검수를 수행하세요.
+    3. AI 검수 결과(UBCI 상대적 비율 BBox 결과)를 분석하여 최종 UBCI 점수를 계산하세요.
+    4. 검수 결과에 따라 Dynamic Pricing(동적 가격 책정) 로직을 적용하여 DB 상태를 최종 커밋하세요.
+    5. 에러 발생 시 재시도(Retry) 로직을 포함해야 합니다.
     """
-    try:
-        task_id = self.request.id
-        print(f"[Celery Worker] Started Task {task_id} for Order {order_id}")
-        
-        # 1. DB 상태 업데이트 (PROCESSING)
-        with Session(engine) as session:
-            # task_id로 찾기
-            from sqlmodel import select
-            statement = select(ReturnJob).where(ReturnJob.task_id == task_id)
-            job = session.exec(statement).first()
-            if job:
-                job.status = 'PROCESSING'
-                session.commit()
-                print(f"[Celery Worker] Job {job.id} marked as PROCESSING.")
-        
-        # -------------------------------------------------------------
-        # TODO: 2. LangGraph Supervisor (Star Topology) 호출 로직 구현
-        # -------------------------------------------------------------
-        # app.ai.supervisor.app_graph 를 import 한 뒤 invoke() 하세요.
-        print(f"[Celery Worker] Running LangGraph Supervisor Pipeline for task {task_id}... (Not Implemented)")
-        time.sleep(2) # 더미 대기
-        
-        # -------------------------------------------------------------
-        # TODO: 3. 결과 분석 및 DB 트랜잭션 종료 로직 구현
-        # -------------------------------------------------------------
-        # 그래프가 종료되면 반환된 ubci_score와 final_report를 추출하여 
-        # status='APPROVED' 또는 'WAITING_HUMAN'과 함께 UPDATE 하세요.
-        with Session(engine) as session:
-            statement = select(ReturnJob).where(ReturnJob.task_id == task_id)
-            job = session.exec(statement).first()
-            if job:
-                job.status = 'WAITING_HUMAN' # 예시
-                job.ubci_score = 85
-                session.commit()
-                
-        print(f"[Celery Worker] Task {task_id} completed.")
-        return {"status": "SUCCESS", "ubci_score": 85}
-        
-    except Exception as exc:
-        print(f"[Celery Worker Error] {exc}")
-        # DB 상태를 FAILED로 변경하는 로직 추가 가능
-        raise self.retry(exc=exc, countdown=5) # 5초 후 재시도
+    raise NotImplementedError("백엔드 파트 팀원들이 직접 구현해야 할 영역입니다.")

@@ -1,68 +1,32 @@
-from fastapi import APIRouter, status, Depends
-from sqlmodel import Session
-from app.core.database import get_session
-from app.models.wms import ReturnJob, Order, Book
-from app.worker import process_book_inspection
-from celery.result import AsyncResult
-from app.worker import app as celery_app
-import uuid
+from fastapi import APIRouter
 
 router = APIRouter()
 
-@router.post("/upload", status_code=status.HTTP_202_ACCEPTED)
-def upload_return_image(session: Session = Depends(get_session)):
-    # 1. 외래키(FK) 제약조건 우회를 위한 더미 Order/Book 생성 로직 (시연용)
-    order = session.query(Order).first()
-    book = session.query(Book).first()
+# TODO: 팀원 실습 과제
+# 이 파일은 반품(Return) 관련 API 엔드포인트를 정의하는 라우터입니다.
+
+@router.post("/upload")
+def upload_return_image():
+    """
+    [과제 목표]
+    사용자로부터 반품 이미지(또는 S3 URL)를 받아 Celery 워커에 작업을 비동기로 위임하는 엔드포인트를 구현하세요.
     
-    if not order:
-        order = Order(customer_name="Test Customer")
-        session.add(order)
-    if not book:
-        book = Book(title="Test Book", isbn="1234567890")
-        session.add(book)
-    session.commit()
-    
-    # 2. Celery 워커로 비동기 작업 즉시 위임 (대기 안 함)
-    image_url = "s3://dummy-bucket/test_return_image.jpg"
-    task = process_book_inspection.apply_async(args=[str(order.id), image_url])
-    
-    # 3. DB에 초기 상태 기록 (task_id 포함)
-    new_job = ReturnJob(
-        order_id=order.id,
-        book_id=book.id,
-        status="PENDING",
-        task_id=task.id,
-        image_url=image_url
-    )
-    
-    session.add(new_job)
-    session.commit()
-    session.refresh(new_job)
-    
-    return {
-        "message": "Image uploaded and Celery task dispatched successfully.",
-        "job_id": str(new_job.id),
-        "task_id": task.id
-    }
+    [구현 지침]
+    1. HTTP 상태 코드 202(Accepted)를 반환하도록 데코레이터를 설정하세요.
+    2. DB 세션(Dependency Injection)을 활용하여 ReturnJob 테이블에 초기 상태('PENDING')를 기록하세요.
+    3. worker.py에 정의된 `process_book_inspection` Task를 `apply_async`로 호출하여 큐에 밀어 넣으세요.
+    4. 생성된 DB 레코드의 ID와 Celery Task ID를 JSON으로 반환하세요.
+    """
+    raise NotImplementedError("API 라우터 - /upload 엔드포인트를 구현하세요.")
 
 @router.get("/{task_id}")
-def get_return_status(task_id: str, session: Session = Depends(get_session)):
-    try:
-        # Celery Result Backend(Redis)에서 실시간 상태 조회
-        task_result = AsyncResult(task_id, app=celery_app)
-        
-        # DB에서도 조회 (옵션)
-        from sqlmodel import select
-        statement = select(ReturnJob).where(ReturnJob.task_id == task_id)
-        job = session.exec(statement).first()
-        
-        return {
-            "task_id": task_id,
-            "celery_status": task_result.state,
-            "db_status": job.status if job else "UNKNOWN",
-            "agent_logs": job.agent_logs if job else None,
-            "result": task_result.result if task_result.state == 'SUCCESS' else None
-        }
-    except Exception as e:
-         return {"error": str(e)}
+def get_return_status(task_id: str):
+    """
+    [과제 목표]
+    작업 ID(task_id)를 통해 현재 검수 진행 상태를 조회하는 엔드포인트를 구현하세요.
+    
+    [구현 지침]
+    1. Celery의 AsyncResult 객체를 통해 Redis에 기록된 워커의 실시간 상태를 조회하세요.
+    2. 데이터베이스(Postgres)를 조회하여 현재 DB에 기록된 최종 처리 상태를 교차 검증하세요.
+    """
+    raise NotImplementedError("API 라우터 - 상태 조회 엔드포인트를 구현하세요.")
