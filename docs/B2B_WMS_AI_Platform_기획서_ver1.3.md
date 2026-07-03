@@ -177,13 +177,13 @@ graph TD
 개발 기간 단축(7주)과 백엔드 부하 상승에 대응하기 위해 조기 코드 프리즈(Code Freeze) 및 프론트엔드/데이터 팀원의 병렬 QA 체제를 가동한다.
 
 - **4.1 역량 맞춤형 분업 전략 (7인 체제 - 실명 R&R 기반):**
-  - **Tech PM (장문경):** Git Gatekeeper (main 브랜치 단독 머지 권한), DevOps/EKS 인프라 매니저, 전체 스프린트 Kanban 마스터.
+  - **Tech PM (장문경):** WMS 통합 관리자, Git Gatekeeper, DevOps/EKS 인프라 매니저, Redis 연동 및 전체 E2E(Front/Back/AI) 테스트 코드 통합 제어.
   - **Frontend Lead (박준희):** Next.js 기반 반응형 웹앱 및 관리자 대시보드 아키텍처 설계, API 연동, 프로젝트 프론트엔드 총괄.
-  - **AI Lead (홍경표):** LangGraph 다중 에이전트 파이프라인(Vision, Policy, Critic, Report) 조립 및 최적화, 대시보드용 AI 트렌드 리포트 프롬프트 튜닝.
-  - **Backend Core (박민우):** 주문, 출고, 입고, 반품, 재고 증감을 포괄하는 WMS 코어 API 구현 및 **Celery/Redis 분산 큐 아키텍처 최적화**, CI/CD 파이프라인 구축.
+  - **AI Lead (홍경표):** LangGraph 다중 에이전트 파이프라인 조립 및 최적화, 프롬프트 튜닝, 타사 정책 데이터 리서치.
+  - **Backend Core (박민우):** 주문, 출고, 입고, 반품, 재고 증감을 포괄하는 WMS 코어 API 구현 및 Celery/Redis 분산 큐 아키텍처 최적화, CI/CD 구축.
   - **Backend Orchestration (서다은):** LangGraph 에이전트와 FastAPI 연동, Redis 기반 실시간 작업 상태 폴링 API 구현, 통합 테스트 수행.
-  - **Frontend UI/UX & Data (고영빈):** 모바일 카메라/Canvas 최적화(PWA) 연동, 정책 데이터 RAG 청크 수집 및 지식베이스 구축.
-  - **Data/MLOps (소한민):** 원시 이미지 데이터 정제, 오토 라벨링 파이프라인 구축, 소형 모델 지식 증류 리서치.
+  - **Frontend UI/UX & Data (고영빈):** 모바일 PWA 연동, 3인 리서치 데이터 취합 및 마스터 지식베이스 구축.
+  - **Data/MLOps (소한민):** 원시 이미지 데이터 정제, 오토 라벨링 파이프라인 구축, 모델 지식 증류 리서치 및 타사 정책 데이터 리서치.
 
 - **4.2 6+1주 연구개발 마일스톤:**
   - **[1주차 / PoC 및 기획]:** 더미 API 배포, 도서 훼손 이미지 데이터 구축, LangGraph 기본 노드 구조 설계.
