@@ -180,8 +180,8 @@ graph TD
   - **Tech PM (장문경):** Git Gatekeeper (main 브랜치 단독 머지 권한), DevOps/EKS 인프라 매니저, 전체 스프린트 Kanban 마스터.
   - **WMS Core API (박민우):** 주문, 출고, 입고, 반품, 재고 증감을 모두 포괄하는 WMS 코어 API 1인 전담 (DB 트랜잭션 충돌 방지).
   - **Backend Orchestration (서다은):** LangGraph 에이전트와 WMS API 연동, 관리자 대시보드 통계/리포트용 데이터 제공 API 구현.
-  - **AI Lead (박준희):** LangGraph 다중 에이전트 파이프라인(Vision, Policy, Critic, Report) 조립 및 최적화, 대시보드용 AI 트렌드 리포트 프롬프트 튜닝.
-  - **Policy Data Research (소한민, 홍경표):** 타사 물류 플랫폼(교보문고, 아마존 등)의 약관 및 가이드라인을 리서치하고 RAG 청크(YAML) 형태로 수집.
+  - **AI Lead (홍경표):** LangGraph 다중 에이전트 파이프라인(Vision, Policy, Critic, Report) 조립 및 최적화, 대시보드용 AI 트렌드 리포트 프롬프트 튜닝.
+  - **Policy Data Research (소한민):** 타사 물류 플랫폼(교보문고, 아마존 등)의 약관 및 가이드라인을 리서치하고 RAG 청크(YAML) 형태로 수집.
   - **Data/MLOps (소한민):** 원시 이미지 데이터 정제, 오토 라벨링 파이프라인 구축, 소형 모델 지식 증류 리서치.
   - **QA/CI-CD (박민우):** 백엔드 단위/통합 테스트, GitHub Actions 기반 린팅(Linting) 및 자동 배포 파이프라인 구축.
   - **Frontend UI/UX & Policy Data Integration (고영빈 - FE & Data 통합 메인 리드):** FE-1(모바일 카메라/Canvas 리사이징 전담) 개발 및 UI/UX 총괄, 타사 정책 데이터 RAG 청크 통합 및 지식베이스 마스터 관리.
