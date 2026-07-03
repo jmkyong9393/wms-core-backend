@@ -43,6 +43,7 @@ class Order(SQLModel, table=True):
 class ReturnJob(SQLModel, table=True):
     __tablename__ = "return_jobs"
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    task_id: Optional[str] = Field(default=None, index=True) # Celery의 task_id 매핑용
     order_id: uuid.UUID = Field(foreign_key="orders.id")
     book_id: uuid.UUID = Field(foreign_key="books.id")
     status: str = Field(default="PENDING") # PENDING, PROCESSING, APPROVED, REJECTED
