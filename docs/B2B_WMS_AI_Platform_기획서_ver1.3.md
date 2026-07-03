@@ -95,7 +95,7 @@ graph TD
     subgraph "Mitigation: Zero Data Loss Architecture"
         B -->|IndexedDB Offline Sync| C["FastAPI: INSERT PENDING & 202 응답"]
         C --> DBQueue[(AWS RDS PostgreSQL DB Queue)]
-        DBQueue -->|FOR UPDATE SKIP LOCKED 비동기 폴링| W["Worker Daemon 무중단 데몬"]
+        DBQueue -->|FOR UPDATE Celery 큐 비동기 폴링| W["Worker Daemon 무중단 데몬"]
     end
 
     %% Multi-Agent Workflow

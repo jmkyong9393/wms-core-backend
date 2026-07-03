@@ -6,8 +6,8 @@
 
 본 시스템은 단순한 AI API 호출을 넘어, 대규모 트래픽과 데이터 유실 방지를 위한 엔터프라이즈급 아키텍처를 적용했습니다.
 
-### 1. Zero Data Loss & 비동기 워커 (DB Queue)
-- 클라이언트의 대기 시간을 최소화하기 위해 **비동기 DB 큐(PostgreSQL `SKIP LOCKED`)** 구조를 채택했습니다.
+### 1. Zero Data Loss & 비동기 워커 (Redis/Celery)
+- 클라이언트의 대기 시간을 최소화하기 위해 **비동기 분산 큐(Redis & Celery)** 구조를 채택했습니다.
 - FastAPI 백엔드는 접수만 받고 빠르게 응답(202 Accepted)하며, 백그라운드 AI 워커 데몬이 트래픽 스파이크에도 무너지지 않고 순차적으로 추론을 수행합니다.
 
 ### 2. 대용량 이미지 처리 파이프라인 최적화 (S3 Pre-signed URL)
@@ -31,4 +31,4 @@
 
 ## 🔒 Copyright & Authorship
 - **Project Manager & Chief Architect:** 장문경
-- 본 레포지토리의 핵심 아키텍처(S3-JSON Decoupling, DB Queue 제어 구조 등)의 설계 기획 및 IP는 장문경 PM에게 귀속되어 있으며, 본 레포지토리 내의 구조는 추후 논문 및 포트폴리오로 활용될 예정입니다. 참여 팀원 여러분의 구현 기여 내역은 명확히 기록되며 우수 기여 시 공동 기여자(Acknowledgement) 혜택이 주어집니다.
+- 본 레포지토리의 핵심 아키텍처(S3-JSON Decoupling, Redis/Celery 비동기 제어 구조 등)의 설계 기획 및 IP는 장문경 PM에게 귀속되어 있으며, 본 레포지토리 내의 구조는 추후 논문 및 포트폴리오로 활용될 예정입니다. 참여 팀원 여러분의 구현 기여 내역은 명확히 기록되며 우수 기여 시 공동 기여자(Acknowledgement) 혜택이 주어집니다.

@@ -57,7 +57,7 @@ graph TD
     subgraph "API & Orchestration (AWS EKS / FastAPI & Worker)"
         C[FastAPI Router] -->|3. DB Queue INSERT & 202 반환| E[(AWS RDS PostgreSQL)]
         C -->|클라이언트 SSE 실시간 푸시| A
-        E -->|4. SKIP LOCKED 비동기 폴링| W[Worker Daemon]
+        E -->|4. Celery 큐 비동기 폴링| W[Worker Daemon]
         W -->|5. Multi-Agent 위임| D[LangGraph Workflow]
         D -->|6. 에이전트 로그 및 결과 DB 저장| E
     end
@@ -105,9 +105,9 @@ sequenceDiagram
     %% [3] DB Queue & Worker (Decoupling)
     API->>DB: 8. INSERT PENDING 상태 저장
     API-->>Worker: 9. 202 Accepted (API 응답 종료)
-    DB->>WorkerDaemon: 10. FOR UPDATE SKIP LOCKED 큐 폴링
+    DB->>WorkerDaemon: 10. FOR UPDATE Celery 큐 큐 폴링
     %% [4] LangGraph Supervisor Star Topology 처리
-    DB->>Graph(Supervisor): 11. SKIP LOCKED 워커 할당
+    DB->>Graph(Supervisor): 11. Celery 큐 워커 할당
     Graph(Supervisor)->>Graph(Vision): 12. [Vision Agent] 외관/내지 불량 탐지 지시
     Graph(Vision)-->>Graph(Supervisor): 13. 불량 유무 및 BBox 결과 보고
     

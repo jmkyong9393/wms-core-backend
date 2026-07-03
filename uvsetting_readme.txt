@@ -4,7 +4,7 @@ B2B AI Book Inspection & WMS Platform Backend (FastAPI + SQLModel + LangGraph)
 Tech Stack#
 Python 3.11+
 FastAPI
-SQLModel / PostgreSQL (SKIP LOCKED Queue)
+SQLModel / PostgreSQL (Celery 큐 Queue)
 LangGraph (Agentic Workflow & Star Topology)
 LangChain (LLMOps & Tracing)
 Setup#
