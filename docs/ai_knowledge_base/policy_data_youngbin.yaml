@@ -497,6 +497,18 @@
     정산대금 지급: 구매확정되는 경우, 파이낸셜은 정산일정 및 정책에 따라 판매대금에서 서비스이용수수료, 미납금 등을 공제한 정산대금을 판매회원에게 지급합니다.
     거래 종료 의무: 판매회원은 상품 주문일로부터 90일 이내 해당 주문건의 원활한 배송 및 취소/반품/교환 처리가 종료될 수 있도록 필요한 조치를 취하여야 합니다.
 
+- chunk_id: naver_ss_tos_art27_29
+  platform: NaverSmartStore
+  authority_level: Contract
+  doc_title: "네이버 스마트스토어 판매회원 이용약관"
+  clause_ref: "제27조, 제29조 (비즈월렛 출금 제한 및 정산 보류)"
+  category: [Settlement, Dispute, Seller_Obligation]
+  parent_context: "스마트스토어 구매회원 이의제기, 배송지연, 정책위반 시 정산금 출금 제한 및 보류 사유"
+  content: |
+    정산 보류/출금 제한 사유: 구매회원의 거래취소/항변권 행사(이의제기), 배송지연 및 계약불이행, 장기간 배송지연 건 자동종결, 이용계약 종료 시 클레임 대비, 매출 비정상적 증감, 약관/정책 위반 의심, 법원 가압류/압류 등.
+    조치 내용: 네이버페이 비즈월렛 정산 잔액 및 충전 머니의 일부 또는 전부 이용/출금 제한.
+    해제 조건: 제한 사유가 해소되어야 출금 가능.
+
 - chunk_id: 11st_tos_art16
   platform: 11st
   authority_level: Contract
@@ -571,3 +583,74 @@
     정산 시기: 구매확정 또는 자동구매확정 후 2일(토요일 및 법정공휴일 제외) 이내에 서비스이용료 등 공제 후 송금.
     셀러캐시: 정산대금 입금 계좌 오류 등 회사 입금 불가 시 또는 판매자가 지정한 경우 '셀러캐시'로 지급. 셀러캐시는 은행계좌 송금 신청 가능(2영업일 내 송금).
     정산 보류: 귀책사유 비용 공제, 장기간 배송지연 건, 구매자 클레임 대비, 법원 압류 등 사유 발생 시 정산 보류 또는 상계 가능.
+
+- chunk_id: aliexpress_tos_art7
+  platform: AliExpress
+  authority_level: Contract
+  doc_title: "AliExpress 이용약관 (한국)"
+  clause_ref: "제7조 (구매자와 판매자 간 거래)"
+  category: [Marketplace, Platform_Liability]
+  parent_context: "AliExpress 플랫폼의 통신판매중개자 지위 및 거래 책임 소재"
+  content: |
+    AliExpress.com은 구매자와 판매자 간 정보 교환 및 거래를 위한 전자 웹 기반 플랫폼(통신판매중개자)을 제공할 뿐, 특정 거래에서 판매자나 구매자를 대표하지 않습니다.
+    상품의 품질, 안전성, 합법성, 배송, 반품, 보증 등 거래 조건의 설정과 이행에 대한 전적인 책임은 구매자와 판매자에게 있습니다.
+    플랫폼은 고의 또는 과실이 인정되지 않는 이상 거래 위험으로 인해 발생하는 손해, 클레임, 책임에 대해 면책됩니다.
+
+- chunk_id: aliexpress_tos_art6_8
+  platform: AliExpress
+  authority_level: Contract
+  doc_title: "AliExpress 이용약관 (한국)"
+  clause_ref: "제6조, 제7조, 제8조 (책임의 제한 및 면책)"
+  category: [Dispute, Platform_Liability]
+  parent_context: "분쟁 발생 시 AliExpress의 면책 범위 및 귀책 비율에 따른 책임 분담"
+  content: |
+    사용자(구매자/판매자) 간 분쟁 발생 시, 플랫폼은 모든 클레임 및 손해로부터 면책됩니다.
+    단, AliExpress의 귀책사유가 있는 경우 면책 범위는 귀책비율에 따라 감소(경감)됩니다.
+    플랫폼은 한국 민법 등 관계 법령에 따라 고의/과실로 발생한 손해 및 특별한 사정으로 인한 손해에 대해서만 책임을 부담합니다.
+
+- chunk_id: aliexpress_tos_art12
+  platform: AliExpress
+  authority_level: Contract
+  doc_title: "AliExpress 이용약관 (한국)"
+  clause_ref: "제12조 제7항 (준거법 및 관할)"
+  category: [Common_Law, Jurisdiction]
+  parent_context: "한국 소비자 및 사업자에 대한 준거법 및 분쟁 해결 기준"
+  content: |
+    본 계약은 한국 법령의 적용을 받으며, 이와 관련하여 발생하는 모든 분쟁은 한국 민사소송법상의 절차에 따라 해결됩니다.
+    (따라서 한국 소비자의 경우 '전자상거래 등에서의 소비자보호에 관한 법률' 제17조 등 강행법규에 따른 청약철회권 및 반품 정책이 플랫폼 약관보다 우선하여 적용됩니다.)
+
+- chunk_id: aliexpress_policy_buyer_protection
+  platform: AliExpress
+  authority_level: Policy
+  doc_title: "AliExpress 구매자 보호 정책 (Buyer Protection)"
+  clause_ref: "N/A"
+  category: [Delivery, Refund, Dispute]
+  parent_context: "AliExpress 구매자 보호 기간 내 미배송 및 하자 시 환불 절차"
+  content: |
+    구매자 보호 기간: 주문 결제 시점부터 시작되며, 주문 상세 페이지에 카운트다운 시계로 표시됨.
+    전액 환불: 이 기간 내에 상품이 도착하지 않거나 하자가 있을 경우 전액 환불을 요청할 수 있음.
+    자동 확정: 보호 기간 종료 전 반드시 분쟁을 제기해야 하며, 기간 경과 시 자동 구매확정되어 판매자에게 대금이 지급됨.
+
+- chunk_id: aliexpress_policy_free_return
+  platform: AliExpress
+  authority_level: Policy
+  doc_title: "AliExpress 구매자 보호 정책 (Buyer Protection)"
+  clause_ref: "N/A"
+  category: [Return, Refund, Free_Return]
+  parent_context: "AliExpress 무료 반품 배지 적용 상품 및 반품 기간"
+  content: |
+    무료 반품(Free Return): 'Free Return' 배지가 부착된 상품은 수령 후 15일 이내 단순 변심(reason: changed mind)으로도 무료 반품이 가능.
+    배송비 부담: 반품 배송비는 플랫폼 또는 판매자가 부담하며, 구매자는 별도 비용 없이 반품 신청 및 택배 회수 절차를 진행할 수 있음.
+    제한 사항: 단, 상품 훼손, 포장 분실 등 재판매가 불가능한 상태는 제외.
+
+- chunk_id: aliexpress_policy_dispute_escalation
+  platform: AliExpress
+  authority_level: Policy
+  doc_title: "AliExpress 구매자 보호 정책 (Buyer Protection)"
+  clause_ref: "N/A"
+  category: [Dispute, Platform_Liability]
+  parent_context: "AliExpress 판매자와의 분쟁 발생 시 플랫폼 중재 요청 절차"
+  content: |
+    분쟁 중재(Escalate): 판매자와의 협의 후 합의가 도출되지 않으면, 구매자가 플랫폼(AliExpress)에 분쟁 개입(Escalate)을 요청할 수 있음.
+    증거 기반 결정: 플랫폼이 증거(사진, 동영상, 택배 추적 정보 등)를 기반으로 강제 환불 또는 부분 환불 등을 결정함.
+    주의 사항: 구매자 보호 기간 내에 분쟁을 에스컬레이션해야 플랫폼의 도움을 받을 수 있음.
