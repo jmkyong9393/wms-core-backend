@@ -55,7 +55,7 @@ graph TD
     end
 
     subgraph "API & Orchestration (AWS EKS / FastAPI & Worker)"
-        C[FastAPI Router] -->|3. DB Queue INSERT & 202 반환| E[(AWS RDS PostgreSQL)]
+        C[FastAPI Router] -->|3. Redis 브로커 및 Celery Worker 기반 비동기 큐 INSERT & 202 반환| E[(AWS RDS PostgreSQL)]
         C -->|클라이언트 SSE 실시간 푸시| A
         E -->|4. Celery 큐 비동기 폴링| W[Worker Daemon]
         W -->|5. Multi-Agent 위임| D[LangGraph Workflow]
@@ -102,7 +102,7 @@ sequenceDiagram
     API->>DB: 6. 상태 '검수중(Processing)'
     API-->>Worker: 7. 202 Accepted 및 SSE 연결
     
-    %% [3] DB Queue & Worker (Decoupling)
+    %% [3] Redis 브로커 및 Celery Worker 기반 비동기 큐 & Worker (Decoupling)
     API->>DB: 8. INSERT PENDING 상태 저장
     API-->>Worker: 9. 202 Accepted (API 응답 종료)
     DB->>WorkerDaemon: 10. FOR UPDATE Celery 큐 큐 폴링
