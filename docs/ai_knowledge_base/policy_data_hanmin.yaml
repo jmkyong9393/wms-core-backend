@@ -105,3 +105,58 @@
     가액 미기재 시 사업자의 손해배상한도액은 50만원으로 제한됨.
     전부 멸실된 경우 인도예정일의 인도예정장소에서의 운송물 가액을 기준으로 손해액을 산정함.
     일부 멸실 시 인도일의 인도장소에서의 운송물 가액을 기준으로 함.
+
+#전자상거래법 관련 정책 데이터
+#출처: 전자상거래 등에서의 소비자보호에 관한 법률 (https://www.law.go.kr/법령/전자상거래등에서의소비자보호에관한법률)
+#17조 청약 철회
+- chunk_id: e_commerce_act_art17_1
+  platform: Common
+  authority_level: Statute
+  doc_title: "전자상거래 등에서의 소비자보호에 관한 법률"
+  clause_ref: "제17조 제1항"
+  category: [Return, Refund, Deadline]
+  parent_context: "청약철회(반품) 기본 기한 및 예외 연장"
+  content: |
+    기본 기한: 계약 서면 수령일 또는 재화 공급(시작)일 중 늦은 날로부터 7일 이내.
+    예외 기한 연장: 판매자의 주소 미기재/변경으로 7일 내 철회가 불가능했던 경우 '주소를 안 날'부터 7일 이내.
+    방해 행위 연장: 판매자의 청약철회 방해 행위가 있었던 경우 '방해 행위가 종료한 날'부터 7일 이내.
+    당사자 간 7일보다 긴 기간으로 약정한 경우에는 그 약정 기간을 우선함.
+
+- chunk_id: e_commerce_act_art17_2_and_6
+  platform: Common
+  authority_level: Statute
+  doc_title: "전자상거래 등에서의 소비자보호에 관한 법률"
+  clause_ref: "제17조 제2항 및 제6항"
+  category: [Return, Exception, Reject, Seller_Duty]
+  parent_context: "청약철회 제한 사유와 판매자의 사전 고지 의무"
+  content: |
+    [반품 불가 사유]
+    1. 소비자 책임으로 재화가 멸실/훼손된 경우 (단, 내용 확인을 위한 포장 훼손은 반품 가능).
+    2. 소비자의 사용/일부 소비로 가치가 현저히 감소한 경우.
+    3. 시간 경과로 재판매가 곤란할 정도로 가치가 현저히 감소한 경우.
+    4. 복제 가능한 재화의 포장을 훼손한 경우.
+    
+    [핵심 예외 조건 - 제6항 연계]
+    위 2~4호의 사유가 발생하더라도, 판매자가 사전에 "청약철회 불가 사실"을 포장 등 쉽게 알 수 있는 곳에 명확히 표시하지 않았다면 소비자는 청약철회를 할 수 있음.
+
+- chunk_id: e_commerce_act_art17_3
+  platform: Common
+  authority_level: Statute
+  doc_title: "전자상거래 등에서의 소비자보호에 관한 법률"
+  clause_ref: "제17조 제3항"
+  category: [Return, Defect, Dispute]
+  parent_context: "표시·광고 및 계약 불일치 시 특례"
+  content: |
+    재화 내용이 표시·광고 내용이나 계약 내용과 다르게 이행된 경우, 1항(7일)과 2항(훼손 등 제한)의 규정에도 불구하고 특례 적용.
+    재화를 공급받은 날부터 3개월 이내, 또는 그 사실을 안 날(알 수 있었던 날)부터 30일 이내에 청약철회 가능.
+
+- chunk_id: e_commerce_act_art17_4_and_5
+  platform: Common
+  authority_level: Statute
+  doc_title: "전자상거래 등에서의 소비자보호에 관한 법률"
+  clause_ref: "제17조 제4항 및 제5항"
+  category: [Return, Effective_Date, Proof]
+  parent_context: "효력 발생 시점 및 입증 책임"
+  content: |
+    효력 발생일: 청약철회를 서면으로 할 경우, 서면을 발송한 날(우체국 소인 등)에 효력이 발생함 (도달주의의 예외).
+    입증 책임: 재화 훼손에 대한 소비자의 책임 여부, 계약 및 공급 사실과 시기 등에 다툼이 있을 경우, 모든 증명 책임은 통신판매업자(판매자)에게 있음.
