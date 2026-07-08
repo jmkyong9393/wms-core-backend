@@ -19,6 +19,24 @@ services:
       timeout: 5s
       retries: 5
 
+  vector-db:
+    image: pgvector/pgvector:15-alpine
+    container_name: wms-vector-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: wms_vector_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_vector_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d wms_vector_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   redis:
     image: redis:7-alpine
     container_name: wms-redis
@@ -38,12 +56,15 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      vector-db:
+        condition: service_healthy
       redis:
         condition: service_healthy
     ports:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql://admin:password@db:5432/wms_db
+      VECTOR_DATABASE_URL: postgresql://admin:password@vector-db:5432/wms_vector_db
       REDIS_URL: redis://redis:6379/0
     # Hot-reload mapping for local dev (overrides CMD to use reload)
     volumes:
@@ -57,10 +78,13 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      vector-db:
+        condition: service_healthy
       redis:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://admin:password@db:5432/wms_db
+      VECTOR_DATABASE_URL: postgresql://admin:password@vector-db:5432/wms_vector_db
       REDIS_URL: redis://redis:6379/0
     # Hot-reload mapping for local dev
     volumes:
@@ -69,3 +93,4 @@ services:
 
 volumes:
   postgres_data:
+  postgres_vector_data:
