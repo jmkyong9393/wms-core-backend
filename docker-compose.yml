@@ -19,20 +19,19 @@ services:
       timeout: 5s
       retries: 5
 
-  vector-db:
-    image: pgvector/pgvector:15-alpine
-    container_name: wms-vector-postgres
+  chroma-server:
+    image: chromadb/chroma:0.5.3
+    container_name: wms-chroma
     restart: always
-    environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: wms_vector_db
     ports:
-      - "5433:5432"
+      - "8001:8000"
     volumes:
-      - postgres_vector_data:/var/lib/postgresql/data
+      - chroma_data:/chroma/data
+    environment:
+      - IS_PERSISTENT=TRUE
+      - PERSIST_DIRECTORY=/chroma/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U admin -d wms_vector_db"]
+      test: ["CMD-SHELL", "nc -z localhost 8000 || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -56,7 +55,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      vector-db:
+      chroma-server:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -64,7 +63,8 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql://admin:password@db:5432/wms_db
-      VECTOR_DATABASE_URL: postgresql://admin:password@vector-db:5432/wms_vector_db
+      CHROMA_SERVER_HOST: chroma-server
+      CHROMA_SERVER_PORT: 8000
       REDIS_URL: redis://redis:6379/0
     # Hot-reload mapping for local dev (overrides CMD to use reload)
     volumes:
@@ -78,13 +78,14 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      vector-db:
+      chroma-server:
         condition: service_healthy
       redis:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://admin:password@db:5432/wms_db
-      VECTOR_DATABASE_URL: postgresql://admin:password@vector-db:5432/wms_vector_db
+      CHROMA_SERVER_HOST: chroma-server
+      CHROMA_SERVER_PORT: 8000
       REDIS_URL: redis://redis:6379/0
     # Hot-reload mapping for local dev
     volumes:
@@ -93,4 +94,4 @@ services:
 
 volumes:
   postgres_data:
-  postgres_vector_data:
+  chroma_data:
