@@ -20,6 +20,7 @@ CHROMA_HOST = os.getenv("CHROMA_SERVER_HOST", "localhost")
 CHROMA_PORT = int(os.getenv("CHROMA_SERVER_PORT", 8000))
 COLLECTION_NAME = "wms_return_policies"
 
+#TO-DO 한 번에 처리하지 않고 Batch단위로 처리하도록 수정해야함. 정책이 늘어날 경우를 대비
 def load_yaml_data(file_path: str) -> List[Dict[str, Any]]:
     """YAML 파일을 읽어서 리스트 형태로 반환합니다."""
     if not os.path.exists(file_path):
