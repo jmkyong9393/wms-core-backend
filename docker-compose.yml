@@ -61,6 +61,8 @@ services:
         condition: service_healthy
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgresql://admin:password@db:5432/wms_db
       CHROMA_SERVER_HOST: chroma-server
@@ -82,6 +84,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgresql://admin:password@db:5432/wms_db
       CHROMA_SERVER_HOST: chroma-server
