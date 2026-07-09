@@ -20,7 +20,7 @@ services:
       retries: 5
 
   chroma-server:
-    image: chromadb/chroma:0.5.3
+    image: chromadb/chroma:1.5.9
     container_name: wms-chroma
     restart: always
     ports:
@@ -32,11 +32,7 @@ services:
       - PERSIST_DIRECTORY=/chroma/chroma
       - ALLOW_RESET=TRUE
       - ANONYMIZED_TELEMETRY=FALSE
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+
 
   redis:
     image: redis:7-alpine
@@ -58,7 +54,7 @@ services:
       db:
         condition: service_healthy
       chroma-server:
-        condition: service_healthy
+        condition: service_started
       redis:
         condition: service_healthy
     ports:
@@ -83,7 +79,7 @@ services:
       db:
         condition: service_healthy
       chroma-server:
-        condition: service_healthy
+        condition: service_started
       redis:
         condition: service_healthy
     env_file:

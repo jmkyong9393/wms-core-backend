@@ -20,6 +20,8 @@ dependencies = [
     "celery>=5.6.3",
     "redis>=8.0.1",
     "gevent>=26.5.0",
+    "langchain-text-splitters>=1.1.2",
+    "langchain-community>=0.4.2",
 ]
 
 [build-system]

@@ -15,6 +15,16 @@
   * `wms-worker` (Celery AI 워커)
   * `wms-frontend` (Next.js 웹 - 3000)
 
+### 📝 필수 초기 설정: `.env` 파일 생성
+프로젝트 최상위 폴더에 `.env` 파일을 생성하고 아래 환경변수를 반드시 추가해야 합니다. (`.env` 파일은 보안상 Git에 공유되지 않으므로 팀원 각자가 로컬에 세팅해야 합니다.)
+
+```env
+OPENAI_API_KEY=여기에 OpenAI API Key 입력
+CHROMA_SERVER_HOST=localhost
+CHROMA_SERVER_PORT=8001
+```
+이 변수들이 설정되어야 로컬 파이썬 스크립트(`ingest.py`, `test_search.py` 등)가 백그라운드에 떠있는 도커 컨테이너(ChromaDB)와 정상적으로 통신할 수 있습니다.
+
 ### 📌 실행 명령어
 터미널을 열고 **프로젝트 최상위 폴더(예: `wms-ai-platform/` 등 본인이 Clone 받은 루트 폴더)** 로 이동한 뒤 아래 명령어를 실행하세요.
 
@@ -50,6 +60,21 @@ docker-compose down
 ### 🧠 AI 워커 파트 (LangGraph)
 - AI 검수 로직 수정 및 테스트는 백엔드 폴더 내부의 `app/ai/` 하위에서 진행합니다.
 - 코드를 변경한 뒤에는 워커가 변경사항을 물고 다시 뜰 수 있도록 `docker-compose restart worker`를 실행해 주세요.
+
+### 📚 AI RAG 파이프라인 (ChromaDB) 테스트
+Docker를 통해 전체 시스템(`docker-compose up -d`)이 구동된 상태에서 로컬 터미널을 열고 다음 명령어를 통해 RAG 시스템을 개별 테스트할 수 있습니다. (파이썬 환경 관리자인 `uv`를 사용합니다)
+
+1. **정책 데이터 적재 (Ingestion)**
+   `policy_data_master.yaml`의 정책/약관 데이터를 청크 분할하여 ChromaDB 벡터로 변환/저장합니다.
+   ```bash
+   uv run python app/ai/rag/ingest.py
+   ```
+
+2. **유사도 검색 테스트 (Retrieval)**
+   적재된 데이터가 잘 검색되는지 확인합니다. `test_search.py` 코드 맨 아래쪽의 검색어(`test_search("...")`)를 자유롭게 수정하며 품질을 테스트할 수 있습니다.
+   ```bash
+   uv run python app/ai/rag/test_search.py
+   ```
 
 ---
 
