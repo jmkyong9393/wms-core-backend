@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from app.core.config import settings
 from app.core.database import init_db
-from app.api.routes import orders, returns, inventory
+from app.api.routes import db, orders, returns, inventory
 
 app = FastAPI(title=settings.PROJECT_NAME)
 
@@ -12,6 +12,7 @@ def on_startup():
 app.include_router(orders.router, prefix="/api/orders", tags=["Orders"])
 app.include_router(returns.router, prefix="/api/returns", tags=["Returns"])
 app.include_router(inventory.router, prefix="/api/inventory", tags=["Inventory"])
+app.include_router(db.router, prefix="/api/db", tags=["Database"])
 
 @app.get("/")
 def read_root():
