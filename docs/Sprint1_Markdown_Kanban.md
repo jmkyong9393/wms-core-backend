@@ -7,7 +7,6 @@
 ## 📊 1주 차 (Week 1) Kanban Board
 
 ### 📝 To Do (할 일 대기열)
-- `[ ]` **[BE-1.1]** PostgreSQL DB 연동, 코어 스키마(DDL) 설계 및 FastAPI 세팅 (@박민우(Main))
 - `[ ]` **[BE-1.2]** S3 Pre-signed URL 발급 API 개발 및 통합 (@박민우(Main))
 - `[ ]` **[BE-2.1]** Managed Redis 환경 세팅 및 Celery 브로커/워커 연동 파이프라인 구축 (@서다은(Main))
 - `[ ]` **[BE-2.2]** SSE 스트리밍 라우팅 및 Celery Flower / 작업 소요 시간 측정 API 구현 (@서다은(Main))
