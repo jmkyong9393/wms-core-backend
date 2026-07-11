@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from app.core.config import settings
 from app.core.database import init_db
-from app.api.routes import db, orders, returns, inventory
+from app.api.routes import db, inventory, mock, orders, returns
 
 app = FastAPI(title=settings.PROJECT_NAME)
 
@@ -13,6 +13,7 @@ app.include_router(orders.router, prefix="/api/orders", tags=["Orders"])
 app.include_router(returns.router, prefix="/api/returns", tags=["Returns"])
 app.include_router(inventory.router, prefix="/api/inventory", tags=["Inventory"])
 app.include_router(db.router, prefix="/api/db", tags=["Database"])
+app.include_router(mock.router, prefix="/api/mock", tags=["Mock"])
 
 @app.get("/")
 def read_root():
