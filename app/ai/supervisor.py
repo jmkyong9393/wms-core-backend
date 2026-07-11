@@ -46,11 +46,10 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
     
     if state.get("reason_code") is None:
         return "critic_agent"
-    
-    if state.get("reason_code") == "OK":
+    elif state.get("reason_code") == "OK":
         return "report_agent"
-    
-    return "policy_agent"
+    else:
+        return "policy_agent"
 
 def supervisor_node(state: WMSInspectionState) -> WMSInspectionState:
     """
@@ -91,7 +90,6 @@ def build_supervisor_graph():
         "human_node": "human_node",
         "auto_refund_agent": "auto_refund_agent",
         "report_agent": "report_agent",
-        "__end__": END,
         },
     )
     

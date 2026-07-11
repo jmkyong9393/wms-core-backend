@@ -32,12 +32,11 @@ def policy_agent(state: WMSInspectionState) -> WMSInspectionState:
     """
     print("[Agent] Policy Agent 스켈레톤 로직 실행...")
     #raise NotImplementedError("Policy Agent 로직을 구현해주세요.")
-    dummy_ubci_score = 80
+    dummy_ubci_score = 150
 
     return{
         "ubci_score" : dummy_ubci_score,
         "reason_code": None,
-        "repair_directive": None,
         "messages": [
             AIMessage(content="[Policy Agent] UBCI 점수 산정 완료")
         ],
@@ -129,4 +128,28 @@ def human_node(state: WMSInspectionState) -> WMSInspectionState:
     - 주의: 이 노드는 MemorySaver에 의해 일시 정지(Pause)를 유발하는 용도이므로 빈 상태로 둡니다.
     """
     print("[Agent] HITL 노드 진입 - 관리자의 수동 개입(승인/수정) 대기 중")
+    human_feedback = state.get("human_feedback")
+
+    if human_feedback == "approve":
+        return {
+            "reason_code": "OK",
+            "repair_directive": None,
+            "revision_count": 0,
+            "human_feedback": None,
+            "messages": [
+                AIMessage(content="[Human Node] 관리자 승인 완료 - revision_count 초기화")
+            ],
+        }
+
+    if human_feedback == "recalculate":
+        return {
+            "ubci_score": None,
+            "reason_code": None,
+            "repair_directive": "관리자 수정 요청으로 Policy Agent 재실행 필요",
+            "revision_count": 0,
+            "human_feedback": None,
+            "messages": [
+                AIMessage(content="[Human Node] 관리자 수정 요청 완료 - revision_count 초기화")
+            ],
+        }
     return state
