@@ -31,14 +31,11 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
     # 6. Critic 검증 완벽히 통과 시 report_agent 반환
     
     #raise NotImplementedError("Supervisor 라우팅 로직을 구현해주세요.")
-    
-    if state.get("final_report") is not None:
-        return "__end__"
-    
+
     if state.get("revision_count",0) >=2:
         return "human_node"
     
-    if state.get("is_mint") is None:
+    if state.get("is_mint") is None and state.get("defects") is None:
         return "vision_agent"
     
     if state.get("is_mint") is True:
@@ -47,13 +44,13 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
     if state.get("ubci_score") is None:
         return "policy_agent"
     
-    if state.get("reson_code") is None:
+    if state.get("reason_code") is None:
         return "critic_agent"
     
-    if state.get("resonn_code") != "OK":
-        return "policy_agent"
+    if state.get("reason_code") == "OK":
+        return "report_agent"
     
-    return "report_agent"
+    return "policy_agent"
 
 def supervisor_node(state: WMSInspectionState) -> WMSInspectionState:
     """

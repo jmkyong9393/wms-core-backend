@@ -36,6 +36,8 @@ def policy_agent(state: WMSInspectionState) -> WMSInspectionState:
 
     return{
         "ubci_score" : dummy_ubci_score,
+        "reason_code": None,
+        "repair_directive": None,
         "messages": [
             AIMessage(content="[Policy Agent] UBCI 점수 산정 완료")
         ],
@@ -51,12 +53,35 @@ def critic_agent(state: WMSInspectionState) -> WMSInspectionState:
     """
     print("[Agent] Critic Agent 스켈레톤 로직 실행...")
     #raise NotImplementedError("Critic Agent 로직을 구현해주세요.")
-    dummy_reason_code = "OK"
+    
+    revision_count = state.get("revision_count",0)
+    ubci_score = state.get("ubci_score")
+    
+    if ubci_score is None:
+        return{
+            "reason_code" : "UBCI_POLICY_VIOLATION",
+            "repair_directive" : "UBCI 점수가 없어 Policy Agent 재실행이 필요합니다.",
+            "revision_count": revision_count + 1,
+            "messages":[
+                AIMessage(content="[Critic Agent] 검증 실패 - revision_count 증가")
+            ],
+        }
+    
+    if ubci_score < 0 or ubci_score > 100:
+        return {
+            "reason_code": "UBCI_POLICY_VIOLATION",
+            "repair_directive": "UBCI 점수는 0~100 사이여야 합니다.",
+            "revision_count": revision_count + 1,
+            "messages": [
+                AIMessage(content="[Critic Agent] 검증 실패 - UBCI 점수 범위 오류")
+            ],
+        }
+
     
     return{
-        "reason_code" : dummy_reason_code,
+        "reason_code" : "OK",
         "repair_directive" : None,
-        "revision_count" : state.get("revision_count", 0),
+        "revision_count" : revision_count,
         "messages": [
             AIMessage(content="[Critic Agent] 검증 통과")
         ],
