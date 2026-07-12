@@ -1,11 +1,32 @@
+from typing import List
+from uuid import UUID, uuid4
+
 from fastapi import APIRouter
+from pydantic import BaseModel
 
 router = APIRouter()
 
-@router.post("/")
-def create_order():
-    return {"message": "Order created successfully (Dummy)", "order_id": "dummy-uuid"}
 
-@router.get("/")
-def list_orders():
-    return [{"order_id": "dummy-uuid", "status": "PENDING"}]
+class OrderItemRequest(BaseModel):
+    book_id: UUID
+    quantity: int
+
+
+class CreateOrderRequest(BaseModel):
+    customer_name: str
+    items: List[OrderItemRequest]
+
+
+class CreateOrderResponse(BaseModel):
+    order_id: UUID
+    total_price: int
+    applied_discount: str
+
+
+@router.post("", response_model=CreateOrderResponse)
+def create_order(request: CreateOrderRequest):
+    return CreateOrderResponse(
+        order_id=uuid4(),
+        total_price=15000,
+        applied_discount="UBCI S급 적용",
+    )

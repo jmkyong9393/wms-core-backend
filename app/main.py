@@ -2,7 +2,16 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.database import init_db
-from app.api.routes import db, inventory, mock, orders, returns
+from app.api.routes import (
+    certificates,
+    db,
+    inspections,
+    inventory,
+    mock,
+    orders,
+    outbound,
+    returns,
+)
 
 app = FastAPI(title=settings.PROJECT_NAME)
 
@@ -27,6 +36,9 @@ app.include_router(returns.router, prefix="/api/returns", tags=["Returns"])
 app.include_router(inventory.router, prefix="/api/inventory", tags=["Inventory"])
 app.include_router(db.router, prefix="/api/db", tags=["Database"])
 app.include_router(mock.router, prefix="/api/mock", tags=["Mock"])
+app.include_router(inspections.router, prefix="/api/v1/inspections", tags=["Inspections"])
+app.include_router(outbound.router, prefix="/api/outbound", tags=["Outbound"])
+app.include_router(certificates.router, prefix="/api/certificate", tags=["Certificate"])
 
 @app.get("/")
 def read_root():
