@@ -10,7 +10,17 @@ def vision_agent(state: WMSInspectionState) -> WMSInspectionState:
     - 출력: is_mint (bool), defects (list of relative ratios)
     """
     print("[Agent] Vision Agent 스켈레톤 로직 실행...")
-    raise NotImplementedError("Vision Agent 로직을 구현해주세요.")
+    #raise NotImplementedError("Vision Agent 로직을 구현해주세요.")
+    dummy_is_mint = False
+    dummy_defects = [{"type": "표지 찢김", "ratio": 15}]
+
+    return{
+        "is_mint": dummy_is_mint,
+        "defects": dummy_defects,
+        "messages": [
+            AIMessage(content="[Vision Agent] 이미지 판독 완료")
+        ],    
+    }
 
 def policy_agent(state: WMSInspectionState) -> WMSInspectionState:
     """
@@ -21,7 +31,17 @@ def policy_agent(state: WMSInspectionState) -> WMSInspectionState:
     - 출력: ubci_score (int), rule_reference (str)
     """
     print("[Agent] Policy Agent 스켈레톤 로직 실행...")
-    raise NotImplementedError("Policy Agent 로직을 구현해주세요.")
+    #raise NotImplementedError("Policy Agent 로직을 구현해주세요.")
+    dummy_ubci_score = 150
+
+    return{
+        "ubci_score" : dummy_ubci_score,
+        "reason_code": None,
+        "messages": [
+            AIMessage(content="[Policy Agent] UBCI 점수 산정 완료")
+        ],
+    }
+
 
 def critic_agent(state: WMSInspectionState) -> WMSInspectionState:
     """
@@ -31,7 +51,40 @@ def critic_agent(state: WMSInspectionState) -> WMSInspectionState:
     - 출력: reason_code ("OK", "REJECT"), revision_count 증가
     """
     print("[Agent] Critic Agent 스켈레톤 로직 실행...")
-    raise NotImplementedError("Critic Agent 로직을 구현해주세요.")
+    #raise NotImplementedError("Critic Agent 로직을 구현해주세요.")
+    
+    revision_count = state.get("revision_count",0)
+    ubci_score = state.get("ubci_score")
+    
+    if ubci_score is None:
+        return{
+            "reason_code" : "UBCI_POLICY_VIOLATION",
+            "repair_directive" : "UBCI 점수가 없어 Policy Agent 재실행이 필요합니다.",
+            "revision_count": revision_count + 1,
+            "messages":[
+                AIMessage(content="[Critic Agent] 검증 실패 - revision_count 증가")
+            ],
+        }
+    
+    if ubci_score < 0 or ubci_score > 100:
+        return {
+            "reason_code": "UBCI_POLICY_VIOLATION",
+            "repair_directive": "UBCI 점수는 0~100 사이여야 합니다.",
+            "revision_count": revision_count + 1,
+            "messages": [
+                AIMessage(content="[Critic Agent] 검증 실패 - UBCI 점수 범위 오류")
+            ],
+        }
+
+    
+    return{
+        "reason_code" : "OK",
+        "repair_directive" : None,
+        "revision_count" : revision_count,
+        "messages": [
+            AIMessage(content="[Critic Agent] 검증 통과")
+        ],
+    }
 
 def auto_refund_agent(state: WMSInspectionState) -> WMSInspectionState:
     """
@@ -40,7 +93,15 @@ def auto_refund_agent(state: WMSInspectionState) -> WMSInspectionState:
     - 출력: final_report (str, JSON format)
     """
     print("[Agent] Auto Refund Agent 스켈레톤 로직 실행...")
-    raise NotImplementedError("Auto Refund Agent 로직을 구현해주세요.")
+    #raise NotImplementedError("Auto Refund Agent 로직을 구현해주세요.")
+    dummy_report = '{"result" : "AUTO_REFUND_APPROVED", "reason": "MINT 자동 승인"}'
+
+    return{
+        "final_report": dummy_report,
+        "messages": [
+            AIMessage(content="[Auto Refund Agent] 자동 환불 승인 리포트 생성 완료")
+        ],
+    }
 
 def report_agent(state: WMSInspectionState) -> WMSInspectionState:
     """
@@ -50,7 +111,15 @@ def report_agent(state: WMSInspectionState) -> WMSInspectionState:
     - 출력: final_report (str, JSON format)
     """
     print("[Agent] Report Agent 스켈레톤 로직 실행...")
-    raise NotImplementedError("Report Agent 로직을 구현해주세요.")
+    #raise NotImplementedError("Report Agent 로직을 구현해주세요.")
+    dummy_report = '{"result": "INSPECTION_COMPLETED", "message": "검수 완료"}'
+
+    return{
+        "final_report" : dummy_report,
+        "messages": [
+            AIMessage(content="[Report Agent] 최종 리포트 생성 완료")
+        ],
+    }
 
 def human_node(state: WMSInspectionState) -> WMSInspectionState:
     """
@@ -59,4 +128,28 @@ def human_node(state: WMSInspectionState) -> WMSInspectionState:
     - 주의: 이 노드는 MemorySaver에 의해 일시 정지(Pause)를 유발하는 용도이므로 빈 상태로 둡니다.
     """
     print("[Agent] HITL 노드 진입 - 관리자의 수동 개입(승인/수정) 대기 중")
+    human_feedback = state.get("human_feedback")
+
+    if human_feedback == "approve":
+        return {
+            "reason_code": "OK",
+            "repair_directive": None,
+            "revision_count": 0,
+            "human_feedback": None,
+            "messages": [
+                AIMessage(content="[Human Node] 관리자 승인 완료 - revision_count 초기화")
+            ],
+        }
+
+    if human_feedback == "recalculate":
+        return {
+            "ubci_score": None,
+            "reason_code": None,
+            "repair_directive": "관리자 수정 요청으로 Policy Agent 재실행 필요",
+            "revision_count": 0,
+            "human_feedback": None,
+            "messages": [
+                AIMessage(content="[Human Node] 관리자 수정 요청 완료 - revision_count 초기화")
+            ],
+        }
     return state
