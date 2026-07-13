@@ -46,7 +46,7 @@ class ReturnJob(SQLModel, table=True):
     task_id: Optional[str] = Field(default=None, index=True) # Celery의 task_id 매핑용
     order_id: uuid.UUID = Field(foreign_key="orders.id")
     book_id: uuid.UUID = Field(foreign_key="books.id")
-    status: str = Field(default="PENDING") # PENDING, PROCESSING, APPROVED, REJECTED
+    status: str = Field(default="PENDING") # PENDING, PROCESSING, APPROVED, REJECTED, FAILED(추가)
     image_url: Optional[str] = Field(default=None)
     agent_logs: Optional[dict] = Field(default={}, sa_column=Column(JSONB))
     final_report: Optional[str] = Field(default=None)
