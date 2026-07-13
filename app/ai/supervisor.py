@@ -30,7 +30,26 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
     #    - 검증 실패 시 policy_agent 재처리 또는 human_node 에스컬레이션 구현
     # 6. Critic 검증 완벽히 통과 시 report_agent 반환
     
-    raise NotImplementedError("Supervisor 라우팅 로직을 구현해주세요.")
+    #raise NotImplementedError("Supervisor 라우팅 로직을 구현해주세요.")
+
+    if state.get("revision_count",0) >=2:
+        return "human_node"
+    
+    if state.get("is_mint") is None and state.get("defects") is None:
+        return "vision_agent"
+    
+    if state.get("is_mint") is True:
+        return "auto_refund_agent"
+    
+    if state.get("ubci_score") is None:
+        return "policy_agent"
+    
+    if state.get("reason_code") is None:
+        return "critic_agent"
+    elif state.get("reason_code") == "OK":
+        return "report_agent"
+    else:
+        return "policy_agent"
 
 def supervisor_node(state: WMSInspectionState) -> WMSInspectionState:
     """
@@ -47,6 +66,13 @@ def build_supervisor_graph():
 
     # 1. 노드 등록 (add_node)
     builder.add_node("supervisor", supervisor_node)
+    builder.add_node("vision_agent", vision_agent)
+    builder.add_node("policy_agent", policy_agent)
+    builder.add_node("critic_agent", critic_agent)
+    builder.add_node("human_node", human_node)
+    builder.add_node("auto_refund_agent", auto_refund_agent)
+    builder.add_node("report_agent", report_agent)
+
     # TODO: 나머지 6개의 에이전트 노드 등록
     
     # 2. 시작 시 무조건 supervisor로 이동 (add_edge)
@@ -54,12 +80,30 @@ def build_supervisor_graph():
 
     # 3. Supervisor 라우팅 엣지 (supervisor -> 각 에이전트)
     # TODO: builder.add_conditional_edges() 구현
+    builder.add_conditional_edges(
+        "supervisor",
+        route_from_supervisor,
+         {
+        "vision_agent": "vision_agent",
+        "policy_agent": "policy_agent",
+        "critic_agent": "critic_agent",
+        "human_node": "human_node",
+        "auto_refund_agent": "auto_refund_agent",
+        "report_agent": "report_agent",
+        },
+    )
     
     # 4. Star Topology: 워커 에이전트 작업 후 다시 supervisor로 반환
     # TODO: 모든 일반 노드의 종료 엣지를 supervisor로 연결
+    builder.add_edge("vision_agent","supervisor")
+    builder.add_edge("policy_agent", "supervisor")
+    builder.add_edge("critic_agent", "supervisor")
+    builder.add_edge("human_node", "supervisor")
     
     # 5. End 엣지 (종료)
     # TODO: auto_refund_agent 와 report_agent 를 END 로 연결
+    builder.add_edge("auto_refund_agent",END)
+    builder.add_edge("report_agent", END)
     
     # 6. MemorySaver 연동 (HITL 중단점)
     memory = MemorySaver()

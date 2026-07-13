@@ -19,6 +19,23 @@ services:
       timeout: 5s
       retries: 5
 
+  chroma-server:
+    image: chromadb/chroma:1.5.9
+    container_name: wms-chroma
+    restart: always
+    ports:
+      - "8001:8000"
+    volumes:
+      - chroma_data:/chroma/data
+    environment:
+      - IS_PERSISTENT=TRUE
+      - PERSIST_DIRECTORY=/chroma/data
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/heartbeat')\" || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   redis:
     image: redis:7-alpine
     container_name: wms-redis
@@ -38,12 +55,18 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      chroma-server:
+        condition: service_started
       redis:
         condition: service_healthy
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgresql://admin:password@db:5432/wms_db
+      CHROMA_SERVER_HOST: chroma-server
+      CHROMA_SERVER_PORT: 8000
       REDIS_URL: redis://redis:6379/0
     # Hot-reload mapping for local dev (overrides CMD to use reload)
     volumes:
@@ -57,10 +80,16 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      chroma-server:
+        condition: service_started
       redis:
         condition: service_healthy
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgresql://admin:password@db:5432/wms_db
+      CHROMA_SERVER_HOST: chroma-server
+      CHROMA_SERVER_PORT: 8000
       REDIS_URL: redis://redis:6379/0
     # Hot-reload mapping for local dev
     volumes:
@@ -84,3 +113,4 @@ services:
 
 volumes:
   postgres_data:
+  chroma_data:
