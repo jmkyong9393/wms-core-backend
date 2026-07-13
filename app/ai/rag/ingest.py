@@ -20,7 +20,6 @@ CHROMA_HOST = os.getenv("CHROMA_SERVER_HOST", "localhost")
 CHROMA_PORT = int(os.getenv("CHROMA_SERVER_PORT", 8000))
 COLLECTION_NAME = "wms_return_policies"
 
-#TO-DO 한 번에 처리하지 않고 Batch단위로 처리하도록 수정해야함. 정책이 늘어날 경우를 대비
 def load_yaml_data(file_path: str) -> List[Dict[str, Any]]:
     """YAML 파일을 읽어서 리스트 형태로 반환합니다."""
     if not os.path.exists(file_path):
@@ -75,13 +74,6 @@ def ingest_to_chroma(documents: List[Document]):
     embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
     
     # 3. LangChain Chroma 래퍼를 사용하여 적재
-    # ALLOW_RESET=TRUE 환경 변수가 켜져있다면, 기존 컬렉션을 삭제하고 새로 만들 수 있습니다.
-    try:
-        chroma_client.delete_collection(COLLECTION_NAME)
-        print(f"기존 컬렉션 '{COLLECTION_NAME}'을(를) 삭제하고 새로 생성합니다.")
-    except Exception:
-        pass # 컬렉션이 없으면 무시
-        
     vectorstore = Chroma.from_documents(
         documents=documents,
         embedding=embeddings,
@@ -94,16 +86,30 @@ def ingest_to_chroma(documents: List[Document]):
 def main():
     print("🚀 정책 데이터 파싱 및 임베딩 파이프라인 시작")
     try:
+        # 0. 기존 컬렉션 초기화 (전체 배치 시작 전 한 번만 실행)
+        chroma_client = chromadb.HttpClient(host=CHROMA_HOST, port=CHROMA_PORT)
+        try:
+            chroma_client.delete_collection(COLLECTION_NAME)
+            print(f"기존 컬렉션 '{COLLECTION_NAME}'을(를) 삭제하고 초기화합니다.")
+        except Exception:
+            pass
+            
         # 1. 데이터 로드
         raw_data = load_yaml_data(YAML_FILE_PATH)
         print(f"YAML 파일 로드 완료: {len(raw_data)} 개의 조항 발견")
         
-        # 2. 전처리 및 Document 변환
-        documents = process_documents(raw_data)
-        print(f"텍스트 분할 완료: {len(documents)} 개의 청크 생성")
+        # 2. 배치 단위로 분할하여 전처리 및 DB 적재
+        BATCH_SIZE = 30  # 한 번에 처리할 조항 수
         
-        # 3. DB 적재
-        ingest_to_chroma(documents)
+        for i in range(0, len(raw_data), BATCH_SIZE):
+            batch = raw_data[i:i + BATCH_SIZE]
+            print(f"\n📦 [Batch {i//BATCH_SIZE + 1}] {i+1} ~ {min(i+BATCH_SIZE, len(raw_data))} 번째 조항 처리 중...")
+            
+            documents = process_documents(batch)
+            print(f"텍스트 분할 완료: {len(documents)} 개의 청크 생성")
+            ingest_to_chroma(documents)
+            
+        print("\n🎉 모든 데이터의 BATCH 적재가 완료되었습니다!")
         
     except Exception as e:
         print(f"❌ 에러 발생: {e}")
