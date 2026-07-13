@@ -94,7 +94,22 @@ services:
     # Hot-reload mapping for local dev
     volumes:
       - ./app:/app/app
-    command: ["celery", "-A", "app.core.celery_app", "worker", "-l", "info", "--pool=gevent"]
+    
+    # AI 검수 비동기 작업을 처리하는 Celery Worker
+    command: ["celery", "-A", "app.worker", "worker", "-l", "info", "--pool=gevent", "-E"]
+
+  # flower 컨테이너 추가
+  flower:
+    image: mher/flower
+    container_name: wms-flower
+    restart: always
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "5555:5555"
+    command: ["celery", "--broker=redis://redis:6379/0", "flower", "--port=5555"]
+
 
 volumes:
   postgres_data:

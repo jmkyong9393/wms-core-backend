@@ -175,13 +175,26 @@ class ReturnJob(SQLModel, table=True):
     __tablename__ = "return_jobs"
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+
     order_id: Optional[uuid.UUID] = Field(default=None, foreign_key="orders.id")
     book_id: uuid.UUID = Field(foreign_key="books.id")
-    status: ReturnJobStatus = Field(nullable=False)
+
+    task_id: Optional[str] = Field(default=None)
+
+    status: str = Field(default="PENDING")
+
+    image_url: Optional[str] = Field(default=None)
     image_urls: Optional[list] = Field(default=None, sa_column=Column(JSONB))
+
     ubci_score: Optional[int] = Field(default=None)
-    agent_logs: Optional[dict] = Field(default=None, sa_column=Column(JSONB))
+
+    agent_logs: Optional[dict] = Field(
+        default_factory=dict,
+        sa_column=Column(JSONB),
+    )
+
     final_report: Optional[str] = Field(default=None)
+
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
