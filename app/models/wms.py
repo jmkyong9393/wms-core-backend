@@ -27,6 +27,7 @@ class InboundStatus(str, Enum):
 
 class ConditionGrade(str, Enum):
     MINT = "MINT"
+    EXCELLENT = "EXCELLENT"
     GOOD = "GOOD"
     NORMAL = "NORMAL"
     REJECT = "REJECT"
@@ -91,6 +92,7 @@ class Book(SQLModel, table=True):
     isbn: Optional[str] = Field(default=None)
     standard_size: Optional[StandardSize] = Field(default=None)
     thickness_mm: Optional[int] = Field(default=None)
+    base_price: int = Field(default=0, nullable=False)
     virtual_stock: int = Field(default=0)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -167,6 +169,19 @@ class Order(SQLModel, table=True):
     type: OrderType = Field(nullable=False)
     total_price: int = Field(nullable=False)
     status: OrderStatus = Field(nullable=False)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class OrderItem(SQLModel, table=True):
+    __tablename__ = "order_items"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    order_id: uuid.UUID = Field(foreign_key="orders.id")
+    book_id: uuid.UUID = Field(foreign_key="books.id")
+    quantity: int = Field(nullable=False)
+    unit_price: int = Field(nullable=False)
+    final_price: int = Field(nullable=False)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
