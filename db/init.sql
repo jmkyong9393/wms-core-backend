@@ -1,7 +1,7 @@
 CREATE TYPE standard_size AS ENUM ('A5', 'B5');
 CREATE TYPE inbound_type AS ENUM ('NEW_STOCK', 'USED_PURCHASE', 'CUSTOMER_RETURN');
 CREATE TYPE inbound_status AS ENUM ('RECEIVED', 'CHECKING', 'COMPLETED');
-CREATE TYPE condition_grade AS ENUM ('MINT', 'GOOD', 'NORMAL', 'REJECT');
+CREATE TYPE condition_grade AS ENUM ('MINT', 'EXCELLENT', 'GOOD', 'NORMAL', 'REJECT');
 CREATE TYPE order_type AS ENUM ('B2B_ORDER', 'AUTO_PO');
 CREATE TYPE order_status AS ENUM ('PENDING', 'PICKING', 'SHIPPED', 'RETURN_REQUESTED');
 CREATE TYPE return_job_status AS ENUM ('PENDING', 'PROCESSING', 'APPROVED', 'REJECTED', 'HITL_REQUIRED');
@@ -17,6 +17,7 @@ CREATE TABLE books (
     isbn VARCHAR,
     standard_size standard_size,
     thickness_mm INTEGER,
+    base_price INTEGER NOT NULL DEFAULT 0,
     virtual_stock INTEGER DEFAULT 0,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -79,6 +80,17 @@ CREATE TABLE orders (
     type order_type NOT NULL,
     total_price INTEGER NOT NULL,
     status order_status NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE order_items (
+    id UUID PRIMARY KEY,
+    order_id UUID NOT NULL REFERENCES orders(id),
+    book_id UUID NOT NULL REFERENCES books(id),
+    quantity INTEGER NOT NULL,
+    unit_price INTEGER NOT NULL,
+    final_price INTEGER NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
