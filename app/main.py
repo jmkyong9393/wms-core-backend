@@ -13,6 +13,7 @@ from app.api.routes import (
     outbound,
     returns,
     stream,
+    auth,
 )
 
 app = FastAPI(title=settings.PROJECT_NAME)
@@ -45,6 +46,8 @@ app.include_router(mock.router, prefix="/api/mock", tags=["Mock"])
 app.include_router(inspections.router, prefix="/api/v1/inspections", tags=["Inspections"])
 app.include_router(outbound.router, prefix="/api/outbound", tags=["Outbound"])
 app.include_router(certificates.router, prefix="/api/certificate", tags=["Certificate"])
+
+app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
 
 
 @app.get("/")

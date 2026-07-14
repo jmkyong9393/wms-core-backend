@@ -62,8 +62,6 @@ class InventoryTransactionType(str, Enum):
 class UserRole(str, Enum):
     MASTER = "MASTER"
     WORKER = "WORKER"
-    GUEST = "GUEST"
-    PENDING = "PENDING"
 
 
 class UserStatus(str, Enum):
@@ -217,8 +215,16 @@ class User(SQLModel, table=True):
     __tablename__ = "users"
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    employee_id: Optional[str] = Field(default=None)
-    email: Optional[str] = Field(default=None)
+    employee_id: str = Field(    # 사번은 필수값, 중복 불가로 변경
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    email: Optional[str] = Field(    # 이메일 중복 불가로 변경
+        default=None,
+        unique=True,
+        index=True,
+    )
     name: str = Field(nullable=False)
     password_hash: str = Field(nullable=False)
     role: UserRole = Field(nullable=False)
