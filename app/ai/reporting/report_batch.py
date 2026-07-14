@@ -119,7 +119,7 @@ def save_insight_report(insights: Dict[str, Any]):
     # TO-DO: weekly_insights 통계 전용 테이블에 INSERT
 
 def main():
-    from app.ai.fds.detector import detect_black_consumers
+    from app.ai.reporting.detector import detect_black_consumers
     from datetime import datetime
     import sys
     
