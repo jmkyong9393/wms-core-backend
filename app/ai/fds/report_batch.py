@@ -8,14 +8,26 @@ def fetch_recent_returns() -> List[Dict[str, Any]]:
     """DB에서 분석 대상이 되는 최근 반품 데이터를 가져오는 함수"""
     logger.info("DB에서 최근 반품 데이터를 조회합니다...")
     # TO-DO: SQLModel / SQLAlchemy 조회 로직 구현
-    # 향후 DB(orders, return_jobs JOIN)에서 아래와 같은 Group By 형태로 추출하게 됩니다.
+    # 향후 DB(orders, return_jobs, books JOIN)에서 추출하게 됩니다.
     dummy_data = [
         # 악성 유저 (반품 4회, 평균 도서 상태 최악, 고액 환불)
-        {"user_id": "고객사_A", "return_count": 4, "avg_ubci_score": 25.5, "total_refund_amount": 550000, "return_reasons": ["파손", "완전파손", "파손", "단순변심"]},
+        {
+            "user_id": "고객사_A", "return_count": 4, "avg_ubci_score": 25.5, "total_refund_amount": 550000, 
+            "return_reasons": ["파손", "완전파손", "파손", "단순변심"],
+            "publisher": "A출판사", "logistics_center": "서초_3센터"
+        },
         # 정상 유저 (반품 1회, 도서 상태 양호)
-        {"user_id": "고객사_B", "return_count": 1, "avg_ubci_score": 95.0, "total_refund_amount": 20000, "return_reasons": ["오주문"]},
+        {
+            "user_id": "고객사_B", "return_count": 1, "avg_ubci_score": 95.0, "total_refund_amount": 20000, 
+            "return_reasons": ["오주문"],
+            "publisher": "B비전북스", "logistics_center": "경기_광주센터"
+        },
         # 주의 유저 (반품 빈도 높으나 금액/상태는 애매한 경우)
-        {"user_id": "고객사_C", "return_count": 5, "avg_ubci_score": 85.0, "total_refund_amount": 600000, "return_reasons": ["단순변심", "단순변심", "단순변심", "단순변심", "오주문"]}
+        {
+            "user_id": "고객사_C", "return_count": 5, "avg_ubci_score": 85.0, "total_refund_amount": 600000, 
+            "return_reasons": ["단순변심", "단순변심", "파손", "파손", "오주문"],
+            "publisher": "A출판사", "logistics_center": "서초_3센터"
+        }
     ]
     return dummy_data
 
@@ -62,17 +74,39 @@ def generate_weekly_insights(
     if df.empty:
         return_insights = {}
     else:
+        total_returns = int(df["return_count"].sum())
+        
+        # 재무적 임팩트(Cost Saved) 산출
+        # (이번 주 총 반품 건수) × (수작업 대비 절감된 검수 시간 90초) × (최저시급 9860원) / 3600초
+        saved_labor_cost = int(total_returns * 90 * 9860 / 3600)
+        
+        # 품질 핫스팟(Quality Trend) 분석
+        top_defective_publishers = df["publisher"].value_counts().head(2).to_dict() if "publisher" in df.columns else {}
+        logistics_hotspots = df["logistics_center"].value_counts().head(2).to_dict() if "logistics_center" in df.columns else {}
+        
         return_insights = {
-            "total_returns_this_week": int(df["return_count"].sum()),
+            "total_returns_this_week": total_returns,
+            "saved_labor_cost_krw": saved_labor_cost,
             "avg_ubci_score": float(df["avg_ubci_score"].mean()),
-            "top_return_reasons": df.explode("return_reasons")["return_reasons"].value_counts().head(3).to_dict()
+            "top_return_reasons": df.explode("return_reasons")["return_reasons"].value_counts().head(3).to_dict(),
+            "top_defective_publishers": top_defective_publishers,
+            "logistics_hotspots": logistics_hotspots
         }
         
-    # 2. 재고 및 발주 통계 병합 (Integrated WMS Analytics)
+    # [신규 C] 예측(Forecasting) 로직
+    # 이번 주 출고량의 3%가 다음 주 반품으로 돌아온다고 가정한 Rule-based 예측
+    weekly_outbound = order_stats.get("weekly_outbound_orders", 0)
+    predicted_returns_next_week = int(weekly_outbound * 0.03)
+    forecast_stats = {
+        "predicted_returns_next_week": predicted_returns_next_week
+    }
+        
+    # 2. 통합 리포트 병합 (Integrated WMS Analytics)
     insights = {
         **return_insights,
         **inventory_stats,
-        **order_stats
+        **order_stats,
+        **forecast_stats
     }
     
     return insights
