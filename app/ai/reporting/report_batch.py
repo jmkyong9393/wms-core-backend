@@ -16,7 +16,7 @@ def fetch_recent_returns() -> List[Dict[str, Any]]:
             "historical_return_count": 4, "weekly_return_count": 2, 
             "avg_ubci_score": 25.5, "total_refund_amount": 550000, 
             "final_report": "파손,완전파손,파손,단순변심",
-            "publisher": "A출판사", "logistics_center": "서초_3센터"
+            "publisher": "A출판사", "location_zone": "Zone_A", "logistics_center": "서초_3센터"
         },
         # 정상 유저
         {
@@ -24,7 +24,7 @@ def fetch_recent_returns() -> List[Dict[str, Any]]:
             "historical_return_count": 1, "weekly_return_count": 1, 
             "avg_ubci_score": 95.0, "total_refund_amount": 20000, 
             "final_report": "오주문",
-            "publisher": "B비전북스", "logistics_center": "경기_광주센터"
+            "publisher": "B비전북스", "location_zone": "Zone_C", "logistics_center": "경기_광주센터"
         },
         # 주의 유저
         {
@@ -32,7 +32,7 @@ def fetch_recent_returns() -> List[Dict[str, Any]]:
             "historical_return_count": 5, "weekly_return_count": 3, 
             "avg_ubci_score": 85.0, "total_refund_amount": 600000, 
             "final_report": "단순변심,단순변심,파손,파손,오주문",
-            "publisher": "A출판사", "logistics_center": "서초_3센터"
+            "publisher": "A출판사", "location_zone": "Zone_A", "logistics_center": "서초_3센터"
         }
     ]
     return dummy_data
@@ -87,6 +87,7 @@ def generate_weekly_insights(
     
     # 품질 핫스팟(Quality Trend) 분석
     top_defective_publishers = df["publisher"].value_counts().head(2).to_dict() if "publisher" in df.columns else {}
+    location_hotspots = df["location_zone"].value_counts().head(2).to_dict() if "location_zone" in df.columns else {}
     logistics_hotspots = df["logistics_center"].value_counts().head(2).to_dict() if "logistics_center" in df.columns else {}
         
     # [신규 C] 예측(Forecasting) 로직
@@ -102,6 +103,7 @@ def generate_weekly_insights(
         "report_week": current_week,
         "saved_labor_cost_krw": saved_labor_cost_krw,
         "top_defective_publishers": top_defective_publishers,
+        "location_hotspots": location_hotspots,
         "logistics_hotspots": logistics_hotspots,
         "predicted_returns": predicted_returns
     }
