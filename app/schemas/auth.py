@@ -1,7 +1,14 @@
 from datetime import date
-from pydantic import BaseModel, EmailStr, Field
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.models.wms import UserRole, UserStatus
+
+class AuthSchema(BaseModel):
+    model_config = ConfigDict(
+        str_strip_whitespace=True,
+    )
 
 # 로그인 요청
 class LoginRequest(BaseModel):
@@ -23,7 +30,7 @@ class TokenResponse(BaseModel):
 
 
 # 관리자용 직원 계정 생성 요청
-class EmployeeCreateRequest(BaseModel):
+class EmployeeCreateRequest(AuthSchema):
     name: str = Field(
         min_length=2,
         max_length=50,
@@ -31,17 +38,20 @@ class EmployeeCreateRequest(BaseModel):
     email: EmailStr | None = None
     hire_date: date
 
-
-# 직원 계정 생성 결과 응답
-class EmployeeCreateResponse(BaseModel):
-    id: str
+# 현재 사용자 정보 응답
+class UserResponse(AuthSchema):
+    id: UUID
     employee_id: str
     email: EmailStr | None
     name: str
     role: UserRole
-    status: str
-    temporary_password: str
+    status: UserStatus
     must_change_password: bool
+
+
+# 직원 계정 생성 결과 응답
+class EmployeeCreateResponse(UserResponse):
+    temporary_password: str
 
 # 비밀번호 변경 요청
 class PasswordChangeRequest(BaseModel):
@@ -53,16 +63,6 @@ class PasswordChangeRequest(BaseModel):
         min_length=8,
         max_length=100,
     )
-
-# 현재 사용자 정보 응답
-class UserResponse(BaseModel):
-    id: str
-    employee_id: str
-    email: EmailStr | None
-    name: str
-    role: UserRole
-    status: str
-    must_change_password: bool
 
 # 사용자 권한 변경 요청
 class UserRoleUpdateRequest(BaseModel):

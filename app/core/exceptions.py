@@ -32,15 +32,6 @@ class InactiveUserException(AppException):
             error_code="INACTIVE_USER",
         )
 
-# 사번 중복
-class DuplicateEmployeeIdException(AppException):
-    def __init__(self) -> None:
-        super().__init__(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="이미 사용 중인 사번입니다.",
-            error_code="DUPLICATE_EMPLOYEE_ID",
-        )
-
 
 # 이메일 중복
 class DuplicateEmailException(AppException):
@@ -49,16 +40,6 @@ class DuplicateEmailException(AppException):
             status_code=status.HTTP_409_CONFLICT,
             detail="이미 사용 중인 이메일입니다.",
             error_code="DUPLICATE_EMAIL",
-        )
-
-
-# 가입 코드 오류
-class InvalidSignupCodeException(AppException):
-    def __init__(self) -> None:
-        super().__init__(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="가입 코드가 올바르지 않습니다.",
-            error_code="INVALID_SIGNUP_CODE",
         )
 
 

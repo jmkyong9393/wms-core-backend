@@ -1,4 +1,6 @@
 from datetime import date, datetime
+from uuid import UUID
+
 from sqlalchemy import func
 from sqlmodel import Session, select
 
@@ -18,28 +20,56 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
-from app.models.wms import User, UserStatus, UserRole
+from app.models.wms import User, UserRole, UserStatus
 from app.schemas.auth import EmployeeCreateRequest
 
+EMPLOYEE_ID_PREFIX = "AV"
+MAX_DAILY_EMPLOYEE_SEQUENCE = 99
 
-# 사번으로 사용자를 조회하는 함수 (같은 사번이 이미 존재하는지 확인할 때 사용)
+
+# 사번으로 사용자를 조회하는 함수
 def get_user_by_employee_id(
-        session: Session,
-        employee_id: str,
+    session: Session,
+    employee_id: str,
 ) -> User | None:
-    return session.exec(
-        select(User).where(User.employee_id == employee_id)
-    ).first()
+    statement = select(User).where(
+        User.employee_id == employee_id
+    )
+    return session.exec(statement).first()
 
 
-# 이메일로 사용자를 조회하는 함수 (같은 이메일이 이미 존재하는지 확인할 때 사용)
+# 이메일로 사용자를 조회하는 함수
 def get_user_by_email(
-        session: Session,
-        email: str,
+    session: Session,
+    email: str,
 ) -> User | None:
-    return session.exec(
-        select(User).where(User.email == email)
-    ).first()
+    statement = select(User).where(
+        User.email == email
+    )
+    return session.exec(statement).first()
+
+# 사용자 조회 중복 제거
+def get_user_or_raise(
+        session: Session,
+        user_id: UUID,
+) -> User:
+    user = session.get(User, user_id)
+
+    if user is None:
+        raise UserNotFoundException()
+    
+    return user
+
+# 저장 코드 통일
+def save_user(
+    session: Session,
+    user: User,
+) -> None:
+    user.updated_at = datetime.utcnow()
+
+    session.add(user)
+    session.commit()
+    session.refresh(user)
 
 
 # 입사일 기준으로 직원 사번 자동 생성
@@ -49,7 +79,7 @@ def generate_employee_id(
         hire_date: date,
 ) -> str:
     date_part = hire_date.strftime("%y%m%d")
-    prefix = f"AV{date_part}"
+    prefix = f"{EMPLOYEE_ID_PREFIX}{date_part}"
 
     # 같은 입사일로 발급된 기존 사번 조회
     employee_ids = session.exec(
@@ -58,18 +88,19 @@ def generate_employee_id(
         )
     ).all()
 
-    sequences: list[int] = []
-
-    for employee_id in employee_ids:
-        suffix = employee_id[-2:]
-
-        if suffix.isdigit():
-            sequences.append(int(suffix))
+    issued_sequences = [
+        int(employee_id[-2:])
+        for employee_id in employee_ids
+        if employee_id[-2:].isdigit()
+    ]
 
     # 기존 번호 중 가장 큰 값 다음 번호 발급
-    next_sequence = max(sequences, default=0) + 1 
+    next_sequence = max(
+        issued_sequences,
+        default=0,
+    ) + 1
 
-    if next_sequence > 99: # 인원 수정 가능.
+    if next_sequence > MAX_DAILY_EMPLOYEE_SEQUENCE: 
         raise ValueError(
             "해당 입사일의 사번 발급 가능 인원을 초과했습니다."
         )
@@ -83,8 +114,13 @@ def create_employee(
         session: Session,
         request: EmployeeCreateRequest,
 ) -> tuple[User, str]:
-    
-    if request.email and get_user_by_email(session, str(request.email)):
+    email = (
+        str(request.email)
+        if request.email
+        else None
+    )
+
+    if email and get_user_by_email(session, email):
         raise DuplicateEmailException()
     
     # 입사일을 기준으로 사번 자동 생성
@@ -97,7 +133,7 @@ def create_employee(
 
     user = User(
         employee_id=employee_id,
-        email=str(request.email) if request.email else None,
+        email=email,
         name=request.name,
         password_hash=hash_password(temporary_password),
         role=UserRole.WORKER,
@@ -137,8 +173,8 @@ def authenticate_user(
     if user.status != UserStatus.ACTIVE:
         raise InactiveUserException()
 
-    
     return user
+
 
 # 현재 비밀번호를 확인하고 새 비밀번호로 변경
 def change_password(
@@ -162,8 +198,10 @@ def change_password(
     user.password_hash = hash_password(new_password)
     user.must_change_password = False
 
-    session.add(user)
-    session.commit()
+    save_user(
+        session=session,
+        user=user,
+    )
 
 
 # 활성 MASTER 계정 수 조회
@@ -181,14 +219,14 @@ def count_active_masters(session: Session) -> int:
 # 사용자 권한 변경
 def update_user_role(
     session: Session,
-    target_user_id,
-    current_master_id,
+    target_user_id: UUID,
+    current_master_id: UUID,
     new_role: UserRole,
 ) -> User:
-    target_user = session.get(User, target_user_id)
-
-    if target_user is None:
-        raise UserNotFoundException()
+    target_user = get_user_or_raise(
+        session=session,
+        user_id=target_user_id,
+    )
 
     if target_user.id == current_master_id:
         raise SelfRoleChangeNotAllowedException()
@@ -198,19 +236,21 @@ def update_user_role(
         and target_user.status == UserStatus.ACTIVE
     )
 
-    if (
+    is_last_active_master = (
         is_active_master
         and new_role != UserRole.MASTER
         and count_active_masters(session) <= 1
-    ):
+    )
+
+    if is_last_active_master:
         raise LastActiveMasterException()
 
     target_user.role = new_role
-    target_user.updated_at = datetime.utcnow()
 
-    session.add(target_user)
-    session.commit()
-    session.refresh(target_user)
+    save_user(
+        session=session,
+        user=target_user,
+    )
 
     return target_user
 
@@ -218,11 +258,14 @@ def update_user_role(
 # 사용자 계정 상태 변경
 def update_user_status(
     session: Session,
-    target_user_id,
-    current_master_id,
+    target_user_id: UUID,
+    current_master_id: UUID,
     new_status: UserStatus,
 ) -> User:
-    target_user = session.get(User, target_user_id)
+    target_user = get_user_or_raise(
+        session=session,
+        user_id=target_user_id,
+    )
 
     if target_user is None:
         raise UserNotFoundException()
@@ -241,10 +284,10 @@ def update_user_status(
         raise LastActiveMasterException()
 
     target_user.status = new_status
-    target_user.updated_at = datetime.utcnow()
-
-    session.add(target_user)
-    session.commit()
-    session.refresh(target_user)
+    
+    save_user(
+        session=session,
+        user=target_user,
+    )
 
     return target_user

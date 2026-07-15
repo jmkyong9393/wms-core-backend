@@ -1,11 +1,11 @@
 import logging
-import uuid
-from typing import Any, Dict, Tuple
+from typing import Any
+from uuid import UUID
 
 import httpx
 
 from app.core.celery_app import celery_app
-from app.models.wms import ReturnJob
+from app.models.wms import ReturnJob, ReturnJobStatus
 from app.services.langgraph_wrapper import LangGraphInspectionWrapper
 from app.services.redis_pubsub import publish_return_job_event
 from app.services.return_job_service import (
@@ -18,22 +18,25 @@ from app.services.wms_client import (
     call_wms_reject_api,
 )
 
-
 logger = logging.getLogger(__name__)
+
+TASK_NAME = "app.worker.process_inspection"
+MAX_RETRIES = 3
+RETRY_DELAY_SECONDS = 5
 
 
 # PROCESSING 상태를 프론트에 전달
 def publish_processing_event(
-    return_job_id: uuid.UUID,
-    celery_task_id: str,
+    job_id: UUID,
+    task_id: str,
 ) -> None:
     publish_return_job_event(
-        return_job_id=str(return_job_id),
+        job_id=str(job_id),
         event={
             # 외부 응답 필드명은 job_id로 통일
-            "job_id": str(return_job_id),
-            "task_id": celery_task_id,
-            "status": "PROCESSING",
+            "job_id": str(job_id),
+            "task_id": task_id,
+            "status": ReturnJobStatus.PROCESSING.value,
             "progress": 50,
         },
     )
@@ -42,14 +45,20 @@ def publish_processing_event(
 # 최종 검수 결과를 프론트에 전달
 def publish_final_event(
     job: ReturnJob,
-    celery_task_id: str,
+    task_id: str,
 ) -> None:
+    status = (
+        job.status.value
+        if hasattr(job.status, "value")
+        else str(job.status)
+    )
+
     publish_return_job_event(
-        return_job_id=str(job.id),
+        job_id=str(job.id),
         event={
             "job_id": str(job.id),
-            "task_id": celery_task_id,
-            "status": job.status,
+            "task_id": task_id,
+            "status": status,
             "progress": 100,
             "ubci_score": job.ubci_score,
         },
@@ -58,16 +67,16 @@ def publish_final_event(
 
 # Worker 처리 실패 상태를 프론트에 전달
 def publish_failed_event(
-    return_job_id: uuid.UUID,
-    celery_task_id: str,
+    job_id: UUID,
+    task_id: str,
     error: Exception,
 ) -> None:
     publish_return_job_event(
-        return_job_id=str(return_job_id),
+        job_id=str(job_id),
         event={
-            "job_id": str(return_job_id),
-            "task_id": celery_task_id,
-            "status": "FAILED",
+            "job_id": str(job_id),
+            "task_id": task_id,
+            "status": ReturnJobStatus.FAILED.value,
             "progress": 100,
             "error_message": str(error),
         },
@@ -77,14 +86,14 @@ def publish_failed_event(
 # AI 판정에 따라 WMS 승인 또는 반려 API 호출
 def execute_wms_action(
     decision: str,
-    book_id: uuid.UUID,
-) -> Tuple[str, Dict[str, Any]]:
+    book_id: UUID,
+) -> tuple[str, dict[str, Any]]:
     if decision == "APPROVE":
         wms_result = call_wms_approve_api(
             book_id=str(book_id),
         )
 
-        return "APPROVED", {
+        return ReturnJobStatus.APPROVED.value, {
             "wms_result": wms_result,
         }
 
@@ -96,25 +105,44 @@ def execute_wms_action(
             reason=reject_reason,
         )
 
-        return "REJECTED", {
+        return ReturnJobStatus.REJECTED.value, {
             "wms_result": wms_result,
             "reject_reason": reject_reason,
         }
 
     raise ValueError(
-        f"Unknown decision: {decision}"
+        f"지원하지 않는 AI 판정값입니다: {decision}"
     )
+
+def handle_inspection_failure(
+        job_id: UUID,
+        task_id: str,
+        error: Exception,
+) -> None:
+    failed_job = save_inspection_failed(
+        return_job_id=job_id,
+        celery_task_id=task_id,
+        error=error,
+    )
+
+    if failed_job is not None:
+        publish_failed_event(
+            job_id=failed_job.id,
+            task_id=task_id,
+            error=error,
+        )
+
 
 @celery_app.task(
     bind=True,
-    name="app.worker.process_inspection",
-    max_retries=3,          # 최대 3번 재시도
-    default_retry_delay=5,  # 기본 5초 후 재시도
+    name=TASK_NAME,
+    max_retries=MAX_RETRIES,          # 최대 3번 재시도
+    default_retry_delay=RETRY_DELAY_SECONDS,  # 기본 5초 후 재시도
 )
 def process_inspection(
     self,
     return_job_id: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     LangGraph 기반 AI 검수 Celery 작업.
 
@@ -127,48 +155,36 @@ def process_inspection(
     6. 최종 상태를 Redis Pub/Sub로 전달
     """
 
-    # Flower와 Celery에서 사용하는 비동기 작업 ID
-    celery_task_id = self.request.id
-
-    # 문자열 ID를 UUID로 변환
-    parsed_return_job_id = uuid.UUID(return_job_id)
+    task_id = self.request.id
+    job_id = UUID(return_job_id)
 
     try:
         logger.info(
-            "process_inspection started. task_id=%s job_id=%s",
-            celery_task_id,
-            return_job_id,
+            "Inspection started. task_id=%s job_id=%s",
+            task_id,
+            job_id,
         )
 
         # 1. ReturnJob 조회 및 PROCESSING 상태 변경
-        #
-        # 변경된 prepare_processing_job은 다음 값을 반환해야 함:
-        # return_job_id, book_id, mode, image_paths
         (
-            parsed_return_job_id,
+            job_id,
             book_id,
             mode,
             image_paths,
         ) = prepare_processing_job(
             return_job_id=return_job_id,
-            celery_task_id=celery_task_id,
+            celery_task_id=task_id,
         )
 
         # 2. PROCESSING 상태 실시간 전달
         publish_processing_event(
-            return_job_id=parsed_return_job_id,
-            celery_task_id=celery_task_id,
-        )
-
-        logger.info(
-            "published inspection event. job_id=%s status=PROCESSING",
-            parsed_return_job_id,
+            job_id=job_id,
+            task_id=task_id,
         )
 
         # 3. LangGraph 실행
-        langgraph_wrapper = LangGraphInspectionWrapper()
-
-        ai_result = langgraph_wrapper.run_inspection(
+        ai_result = LangGraphInspectionWrapper().run_inspection(
+            job_id=job_id,
             book_id=book_id,
             mode=mode,
             image_paths=image_paths,
@@ -179,41 +195,45 @@ def process_inspection(
 
         if decision not in ["APPROVE", "REJECT"]:
             raise ValueError(
-                f"Unknown decision: {decision}"
+                f"지원하지 않는 AI 판정입니다: {decision}"
             )
 
         # 4. AI 판정에 따라 WMS 승인 또는 반려 처리
-        final_status, extra_logs = execute_wms_action(
+        final_status, wms_logs = execute_wms_action(
             decision=decision,
             book_id=book_id,
         )
 
         # 5. AI 결과와 WMS 결과를 DB에 저장
         job = save_inspection_result(
-            return_job_id=parsed_return_job_id,
+            return_job_id=job_id,
             ai_result=ai_result,
             final_status=final_status,
-            extra_logs=extra_logs,
+            extra_logs=wms_logs,
         )
 
         # 6. 최종 상태 실시간 전달
         publish_final_event(
             job=job,
-            celery_task_id=celery_task_id,
+            task_id=task_id,
         )
 
         logger.info(
-            "process_inspection completed. task_id=%s job_id=%s status=%s",
-            celery_task_id,
+            "Inspection completed. task_id=%s job_id=%s status=%s",
+            task_id,
             job.id,
             job.status,
         )
 
         return {
-            "task_id": celery_task_id,
+            "task_id": task_id,
             "job_id": str(job.id),
             "book_id": str(job.book_id),
-            "status": job.status,
+            "status": (
+                job.status.value
+                if hasattr(job.status, "value")
+                else str(job.status)
+            ),
             "ubci_score": job.ubci_score,
         }
 
@@ -221,67 +241,44 @@ def process_inspection(
     except httpx.HTTPError as error:
         logger.warning(
             (
-                "HTTP error occurred. "
+                "WMS request failed. "
                 "task_id=%s job_id=%s retry=%s/%s error=%s"
             ),
-            celery_task_id,
-            return_job_id,
+            task_id,
+            job_id,
             self.request.retries,
             self.max_retries,
-            str(error),
+            error,
         )
 
         # 남은 재시도 횟수가 있으면 다시 실행
         if self.request.retries < self.max_retries:
-            raise self.retry(
-                exc=error,
-                countdown=5,
-            )
+            raise self.retry(exc=error)
 
         logger.exception(
-            (
-                "HTTP retry exhausted. "
-                "Marking ReturnJob as FAILED. "
-                "task_id=%s job_id=%s"
-            ),
-            celery_task_id,
-            return_job_id,
+            "WMS retry exhausted. task_id=%s job_id=%s",
+            task_id,
+            job_id,
         )
 
-        failed_job = save_inspection_failed(
-            return_job_id=parsed_return_job_id,
-            celery_task_id=celery_task_id,
+        handle_inspection_failure(
+            job_id=job_id,
+            task_id=task_id,
             error=error,
         )
-
-        if failed_job is not None:
-            publish_failed_event(
-                return_job_id=failed_job.id,
-                celery_task_id=celery_task_id,
-                error=error,
-            )
-
         raise
 
     # LangGraph, DB 처리 등의 일반 오류
     except Exception as error:
         logger.exception(
-            "process_inspection failed. task_id=%s job_id=%s",
-            celery_task_id,
-            return_job_id,
+            "Inspection failed. task_id=%s job_id=%s",
+            task_id,
+            job_id,
         )
 
-        failed_job = save_inspection_failed(
-            return_job_id=parsed_return_job_id,
-            celery_task_id=celery_task_id,
+        handle_inspection_failure(
+            job_id=job_id,
+            task_id=task_id,
             error=error,
         )
-
-        if failed_job is not None:
-            publish_failed_event(
-                return_job_id=failed_job.id,
-                celery_task_id=celery_task_id,
-                error=error,
-            )
-
         raise

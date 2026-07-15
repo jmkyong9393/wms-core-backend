@@ -1,12 +1,15 @@
-from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
 from sqlmodel import Session
 
-from app.core.database import engine
-from app.models.wms import ReturnJob, ReturnJobStatus
+from app.core.database import get_session
+from app.models.wms import (
+    InspectionMode,
+    ReturnJob,
+    ReturnJobStatus,
+)
 from app.services.inspection_task_service import enqueue_inspection
 
 router = APIRouter()
@@ -14,14 +17,14 @@ router = APIRouter()
 
 class CreateInspectionRequest(BaseModel):
     book_id: UUID
-    mode: Literal["RETURN", "USED_PURCHASE"]
+    mode: InspectionMode
     image_paths: list[str] = Field(min_length=1)
 
 
 class CreateInspectionResponse(BaseModel):
     job_id: UUID
     task_id: str
-    status: str
+    status: ReturnJobStatus
     message: str
     stream_url: str
 
@@ -33,15 +36,13 @@ class CreateInspectionResponse(BaseModel):
 )
 def create_inspection(
     request: CreateInspectionRequest,
-) -> CreateInspectionResponse:
-    with Session(engine) as session:
-
-        # 1. WMS Core 영역:
-        # 검수 요청을 ReturnJob으로 저장
+    session: Session = Depends(get_session),
+) -> CreateInspectionResponse:       
+        #1. 검수 요청을 ReturnJob으로 저장
         return_job = ReturnJob(
             book_id=request.book_id,
             mode=request.mode,
-            image_urls=request.image_paths,
+            image_paths=request.image_paths,
             status=ReturnJobStatus.PENDING,
         )
 
@@ -49,8 +50,7 @@ def create_inspection(
         session.commit()
         session.refresh(return_job)
 
-        # 2. BE-2 오케스트레이션 영역:
-        # 생성된 ReturnJob을 Celery Queue에 등록
+        #2. 생성된 ReturnJob을 Celery Queue에 등록
         task_id = enqueue_inspection(
             session=session,
             return_job=return_job,
@@ -60,11 +60,7 @@ def create_inspection(
         return CreateInspectionResponse(
             job_id=return_job.id,
             task_id=task_id,
-            status=(
-                return_job.status.value
-                if hasattr(return_job.status, "value")
-                else str(return_job.status)
-            ),
+            status = return_job.status,
             message="검수 파이프라인 가동 시작",
             stream_url=(
                 f"/api/v1/inspections/"

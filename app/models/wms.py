@@ -64,6 +64,8 @@ class InventoryTransactionType(str, Enum):
 class UserRole(str, Enum):
     MASTER = "MASTER"
     WORKER = "WORKER"
+    GUEST = "GUEST"
+    PENDING = "PENDING"
 
 
 class UserStatus(str, Enum):
@@ -203,9 +205,7 @@ class ReturnJob(SQLModel, table=True):
 
     status: ReturnJobStatus = Field(default=ReturnJobStatus.PENDING)
 
-
-    image_url: Optional[str] = Field(default=None)
-    image_urls: Optional[list] = Field(default=None, sa_column=Column(JSONB))
+    image_paths: Optional[list] = Field(default=None, sa_column=Column(JSONB))
 
     ubci_score: Optional[int] = Field(default=None)
 

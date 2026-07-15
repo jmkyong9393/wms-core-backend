@@ -1,7 +1,9 @@
-from typing import Any, Dict
+from typing import Any
 from uuid import UUID
 
 from langchain_core.messages import HumanMessage
+
+APPROVAL_SCORE_THRESHOLD = 70
 
 
 # LangGraph Supervisor 파이프라인 호출 Wrapper
@@ -13,8 +15,7 @@ class LangGraphInspectionWrapper:
         book_id: UUID,
         mode: str,
         image_paths: list[str],
-    ) -> Dict[str, Any]:
-        # 이미지 경로 목록을 프롬프트에 표시할 문자열로 변환
+    ) -> dict[str, Any]:
         image_path_text = "\n".join(
             f"- {path}"
             for path in image_paths
@@ -33,8 +34,6 @@ class LangGraphInspectionWrapper:
                     )
                 )
             ],
-
-            # 검수 요청 기본 정보
             "book_id": str(book_id),
             "mode": mode,
             "image_paths": image_paths,
@@ -60,9 +59,8 @@ class LangGraphInspectionWrapper:
     # LangGraph 최종 State를 Worker 판정값으로 변환
     def convert_state_to_decision(
         self,
-        final_state: Dict[str, Any],
+        final_state: dict[str, Any],
     ) -> str:
-
         is_mint = final_state.get("is_mint")
         reason_code = final_state.get("reason_code")
         ubci_score = final_state.get("ubci_score")
@@ -71,12 +69,11 @@ class LangGraphInspectionWrapper:
         if is_mint is True:
             return "APPROVE"
 
-        # 현재 임시 승인 기준
-        # 정확한 UBCI 기준은 AI 담당자와 추후 확정 필요
+        # 임시 승인 기준이며 AI 정책 확정 후 조정 필요
         if (
             reason_code == "OK"
             and ubci_score is not None
-            and ubci_score >= 70
+            and ubci_score >= APPROVAL_SCORE_THRESHOLD
         ):
             return "APPROVE"
 
@@ -85,14 +82,12 @@ class LangGraphInspectionWrapper:
     # LangGraph 최종 State를 Worker 결과 형식으로 변환
     def convert_final_state_to_worker_result(
         self,
-        final_state: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        decision = self.convert_state_to_decision(
-            final_state
-        )
-
+        final_state: dict[str, Any],
+    ) -> dict[str, Any]:
         return {
-            "decision": decision,
+            "decision": self.convert_state_to_decision(
+                final_state
+            ),
             "ubci_score": final_state.get("ubci_score"),
             "final_report": final_state.get(
                 "final_report"
@@ -118,11 +113,12 @@ class LangGraphInspectionWrapper:
     # Supervisor 실행 후 최종 결과를 dict로 반환
     def run_inspection(
         self,
+        job_id: UUID,
         book_id: UUID,
         mode: str,
         image_paths: list[str],
-    ) -> Dict[str, Any]:
-        # 순환 import 방지를 위해 함수 내부에서 import
+    ) -> dict[str, Any]:
+        # supervisor가 wrapper를 참조할 수 있어 순환 import를 방지한다.
         from app.ai.supervisor import (
             app_graph,
             build_supervisor_graph,
@@ -130,20 +126,16 @@ class LangGraphInspectionWrapper:
 
         graph = app_graph or build_supervisor_graph()
 
-        initial_state = (
-            self.build_initial_inspection_state(
-                book_id=book_id,
-                mode=mode,
-                image_paths=image_paths,
-            )
+        initial_state = self.build_initial_inspection_state(
+            book_id=book_id,
+            mode=mode,
+            image_paths=image_paths,
         )
 
         # 하나의 검수 작업을 구분하기 위한 thread_id
         config = {
             "configurable": {
-                "thread_id": (
-                    f"inspection-{book_id}"
-                )
+                "thread_id": f"inspection-{job_id}",
             }
         }
 
@@ -152,8 +144,6 @@ class LangGraphInspectionWrapper:
             config=config,
         )
 
-        return (
-            self.convert_final_state_to_worker_result(
-                final_state
-            )
+        return self.convert_final_state_to_worker_result(
+            final_state
         )
