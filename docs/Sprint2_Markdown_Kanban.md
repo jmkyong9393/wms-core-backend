@@ -8,9 +8,6 @@
 
 ### 📝 To Do (할 일 대기열)
 - `[ ]` **[BE-3.2]** 정상 도서 입고 및 DB 재고 편입 API 구현 (@박민우(Main))
-- `[ ]` **[BE-2.3]** WMS API 자동 입/출고 연동 및 Redis & Celery 기반 오케스트레이션 사전 설계 (@서다은(Main))
-- `[ ]` **[BE-2.4]** JWT 기반 회원가입/로그인 API 및 토큰 발급 로직 구현 (@서다은(Main))
-- `[ ]` **[BE-2.5]** RBAC 권한 제어(MASTER/WORKER 등) 가드 및 관리자용 회원 승인 API 개발 (@서다은(Main))
 - `[ ]` **[AI-2.1]** LangGraph Supervisor (Star Topology) 기반 다중 에이전트 조립 및 제어 (@홍경표(Main))
 - `[ ]` **[AI-2.2]** Fast-track Routing (Mint 등급 Auto-refund) 로직 및 조건부 엣지 구현 (@홍경표(Main))
 - `[ ]` **[DATA-2.1]** FDS(블랙컨슈머 이상거래탐지) 파이프라인 뼈대 구축 및 K8s CronJob용 `report_batch.py` 인프라 셋업 (@소한민(Main))
@@ -23,6 +20,9 @@
 
 ### 🏃 In Progress (현재 진행 중)
 - (Empty)
+- `[ ]` **[BE-2.3]** WMS API 자동 입/출고 연동 및 Redis & Celery 기반 오케스트레이션 사전 설계 (@서다은(Main))
+- `[ ]` **[BE-2.4]** JWT 기반 회원가입/로그인 API 및 토큰 발급 로직 구현 (@서다은(Main))
+- `[ ]` **[BE-2.5]** RBAC 권한 제어(MASTER/WORKER 등) 가드 및 관리자용 회원 승인 API 개발 (@서다은(Main))
 
 ### 🚨 Blocked (이슈 발생 / 대기 중)
 - (Empty)
