@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from fastapi import APIRouter, Depends
 from sqlalchemy import func
 from sqlmodel import Session, select
@@ -39,9 +41,11 @@ def _count(session: Session, model: type) -> int:
 
 @router.post("/seed")
 def seed_mock_data(session: Session = Depends(get_session)):
+    seed_suffix = str(uuid4().int)[-10:]
     book = Book(
         title="Mock WMS Book",
-        isbn="9780000000000",
+        isbn=f"978{seed_suffix}",
+        publisher="Mock Publisher",
         standard_size=StandardSize.A5,
         thickness_mm=22,
         base_price=15000,
@@ -132,8 +136,8 @@ def seed_mock_data(session: Session = Depends(get_session)):
     session.add(inventory_log)
 
     user = User(
-        employee_id="mock-worker",
-        email="mock-worker@example.com",
+        employee_id=f"mock-worker-{seed_suffix}",
+        email=f"mock-worker-{seed_suffix}@example.com",
         name="Mock Worker",
         password_hash="mock-password-hash",
         role=UserRole.WORKER,
@@ -169,9 +173,11 @@ def seed_mock_data(session: Session = Depends(get_session)):
 
 @router.post("/seed/order-outbound")
 def seed_order_outbound_data(session: Session = Depends(get_session)):
+    seed_suffix = str(uuid4().int)[-10:]
     book = Book(
         title="Order Outbound Seed Book",
-        isbn="9781111111111",
+        isbn=f"979{seed_suffix}",
+        publisher="Order Seed Publisher",
         standard_size=StandardSize.A5,
         thickness_mm=20,
         base_price=18000,

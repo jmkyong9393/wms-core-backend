@@ -1,3 +1,4 @@
+from decimal import Decimal
 from typing import List
 from uuid import UUID
 
@@ -23,7 +24,7 @@ class CreateOrderRequest(BaseModel):
 
 class CreateOrderResponse(BaseModel):
     order_id: UUID
-    total_price: int
+    total_price: Decimal
     applied_discount: str  # 할인 적용되었는지 상태를 나타내는 str 값. 
     status: OrderStatus
 

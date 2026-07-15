@@ -1,10 +1,12 @@
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from enum import Enum
 from typing import Optional
 
 from sqlalchemy import Column, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.types import Numeric
 from sqlmodel import Field, SQLModel
 
 
@@ -89,10 +91,14 @@ class Book(SQLModel, table=True):
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     title: str = Field(nullable=False)
-    isbn: Optional[str] = Field(default=None)
+    isbn: Optional[str] = Field(default=None, unique=True)
+    publisher: Optional[str] = Field(default=None)
     standard_size: Optional[StandardSize] = Field(default=None)
     thickness_mm: Optional[int] = Field(default=None)
-    base_price: int = Field(default=0, nullable=False)
+    base_price: Decimal = Field(
+        default=Decimal("0"),
+        sa_column=Column(Numeric(12, 2), nullable=False, default=0),
+    )
     virtual_stock: int = Field(default=0)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -127,7 +133,7 @@ class Location(SQLModel, table=True):
     zone: str = Field(nullable=False)
     rack: str = Field(nullable=False)
     shelf: str = Field(nullable=False)
-    barcode: Optional[str] = Field(default=None)
+    barcode: Optional[str] = Field(default=None, unique=True)
     is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -167,7 +173,7 @@ class Order(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     customer_name: Optional[str] = Field(default=None)
     type: OrderType = Field(nullable=False)
-    total_price: int = Field(nullable=False)
+    total_price: Decimal = Field(sa_column=Column(Numeric(12, 2), nullable=False))
     status: OrderStatus = Field(nullable=False)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -180,8 +186,8 @@ class OrderItem(SQLModel, table=True):
     order_id: uuid.UUID = Field(foreign_key="orders.id")
     book_id: uuid.UUID = Field(foreign_key="books.id")
     quantity: int = Field(nullable=False)
-    unit_price: int = Field(nullable=False)
-    final_price: int = Field(nullable=False)
+    unit_price: Decimal = Field(sa_column=Column(Numeric(12, 2), nullable=False))
+    final_price: Decimal = Field(sa_column=Column(Numeric(12, 2), nullable=False))
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -232,12 +238,13 @@ class User(SQLModel, table=True):
     __tablename__ = "users"
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    employee_id: Optional[str] = Field(default=None)
-    email: Optional[str] = Field(default=None)
+    employee_id: str = Field(nullable=False, unique=True)
+    email: Optional[str] = Field(default=None, unique=True)
     name: str = Field(nullable=False)
     password_hash: str = Field(nullable=False)
     role: UserRole = Field(nullable=False)
     status: UserStatus = Field(default=UserStatus.ACTIVE)
+    must_change_password: bool = Field(default=False)
     last_login: Optional[datetime] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

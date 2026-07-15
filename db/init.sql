@@ -14,10 +14,11 @@ CREATE TYPE post_category AS ENUM ('NOTICE', 'MANUAL', 'GENERAL');
 CREATE TABLE books (
     id UUID PRIMARY KEY,
     title VARCHAR NOT NULL,
-    isbn VARCHAR,
+    isbn VARCHAR(13) UNIQUE,
+    publisher VARCHAR,
     standard_size standard_size,
     thickness_mm INTEGER,
-    base_price INTEGER NOT NULL DEFAULT 0,
+    base_price DECIMAL(12, 2) NOT NULL DEFAULT 0,
     virtual_stock INTEGER DEFAULT 0,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -46,7 +47,7 @@ CREATE TABLE locations (
     zone VARCHAR NOT NULL,
     rack VARCHAR NOT NULL,
     shelf VARCHAR NOT NULL,
-    barcode VARCHAR,
+    barcode VARCHAR UNIQUE,
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -78,7 +79,7 @@ CREATE TABLE orders (
     id UUID PRIMARY KEY,
     customer_name VARCHAR,
     type order_type NOT NULL,
-    total_price INTEGER NOT NULL,
+    total_price DECIMAL(12, 2) NOT NULL,
     status order_status NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -89,8 +90,8 @@ CREATE TABLE order_items (
     order_id UUID NOT NULL REFERENCES orders(id),
     book_id UUID NOT NULL REFERENCES books(id),
     quantity INTEGER NOT NULL,
-    unit_price INTEGER NOT NULL,
-    final_price INTEGER NOT NULL,
+    unit_price DECIMAL(12, 2) NOT NULL,
+    final_price DECIMAL(12, 2) NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -122,12 +123,13 @@ CREATE TABLE inventory_logs (
 
 CREATE TABLE users (
     id UUID PRIMARY KEY,
-    employee_id VARCHAR,
-    email VARCHAR,
+    employee_id VARCHAR NOT NULL UNIQUE,
+    email VARCHAR UNIQUE,
     name VARCHAR NOT NULL,
     password_hash VARCHAR NOT NULL,
     role user_role NOT NULL,
     status user_status DEFAULT 'ACTIVE',
+    must_change_password BOOLEAN DEFAULT FALSE,
     last_login TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
