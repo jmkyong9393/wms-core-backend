@@ -10,22 +10,28 @@ def fetch_recent_returns() -> List[Dict[str, Any]]:
     # TO-DO: SQLModel / SQLAlchemy 조회 로직 구현
     # 향후 DB(orders, return_jobs, books JOIN)에서 추출하게 됩니다.
     dummy_data = [
-        # 악성 유저 (반품 4회, 평균 도서 상태 최악, 고액 환불)
+        # 악성 유저 (FDS용 누적 반품 4회, 이번 주 반품 2회)
         {
-            "user_id": "고객사_A", "return_count": 4, "avg_ubci_score": 25.5, "total_refund_amount": 550000, 
-            "return_reasons": ["파손", "완전파손", "파손", "단순변심"],
+            "customer_id": "550e8400-e29b-41d4-a716-446655440000", "customer_name": "홍길동",
+            "historical_return_count": 4, "weekly_return_count": 2, 
+            "avg_ubci_score": 25.5, "total_refund_amount": 550000, 
+            "final_report": "파손,완전파손,파손,단순변심",
             "publisher": "A출판사", "logistics_center": "서초_3센터"
         },
-        # 정상 유저 (반품 1회, 도서 상태 양호)
+        # 정상 유저
         {
-            "user_id": "고객사_B", "return_count": 1, "avg_ubci_score": 95.0, "total_refund_amount": 20000, 
-            "return_reasons": ["오주문"],
+            "customer_id": "123e4567-e89b-12d3-a456-426614174000", "customer_name": "이영희",
+            "historical_return_count": 1, "weekly_return_count": 1, 
+            "avg_ubci_score": 95.0, "total_refund_amount": 20000, 
+            "final_report": "오주문",
             "publisher": "B비전북스", "logistics_center": "경기_광주센터"
         },
-        # 주의 유저 (반품 빈도 높으나 금액/상태는 애매한 경우)
+        # 주의 유저
         {
-            "user_id": "고객사_C", "return_count": 5, "avg_ubci_score": 85.0, "total_refund_amount": 600000, 
-            "return_reasons": ["단순변심", "단순변심", "파손", "파손", "오주문"],
+            "customer_id": "987e6543-e21b-34d5-c678-426614174999", "customer_name": "김철수",
+            "historical_return_count": 5, "weekly_return_count": 3, 
+            "avg_ubci_score": 85.0, "total_refund_amount": 600000, 
+            "final_report": "단순변심,단순변심,파손,파손,오주문",
             "publisher": "A출판사", "logistics_center": "서초_3센터"
         }
     ]
@@ -72,41 +78,32 @@ def generate_weekly_insights(
     
     # 1. 반품 관련 통계 (Pandas 연산)
     if df.empty:
-        return_insights = {}
-    else:
-        total_returns = int(df["return_count"].sum())
+        return {}
         
-        # 재무적 임팩트(Cost Saved) 산출
-        # (이번 주 총 반품 건수) × (수작업 대비 절감된 검수 시간 90초) × (최저시급 9860원) / 3600초
-        saved_labor_cost = int(total_returns * 90 * 9860 / 3600)
-        
-        # 품질 핫스팟(Quality Trend) 분석
-        top_defective_publishers = df["publisher"].value_counts().head(2).to_dict() if "publisher" in df.columns else {}
-        logistics_hotspots = df["logistics_center"].value_counts().head(2).to_dict() if "logistics_center" in df.columns else {}
-        
-        return_insights = {
-            "total_returns_this_week": total_returns,
-            "saved_labor_cost_krw": saved_labor_cost,
-            "avg_ubci_score": float(df["avg_ubci_score"].mean()),
-            "top_return_reasons": df.explode("return_reasons")["return_reasons"].value_counts().head(3).to_dict(),
-            "top_defective_publishers": top_defective_publishers,
-            "logistics_hotspots": logistics_hotspots
-        }
+    total_returns_this_week = int(df["weekly_return_count"].sum())
+    
+    # 재무적 임팩트(Cost Saved) 산출
+    saved_labor_cost_krw = int(total_returns_this_week * 90 * 9860 / 3600)
+    
+    # 품질 핫스팟(Quality Trend) 분석
+    top_defective_publishers = df["publisher"].value_counts().head(2).to_dict() if "publisher" in df.columns else {}
+    logistics_hotspots = df["logistics_center"].value_counts().head(2).to_dict() if "logistics_center" in df.columns else {}
         
     # [신규 C] 예측(Forecasting) 로직
     # 이번 주 출고량의 3%가 다음 주 반품으로 돌아온다고 가정한 Rule-based 예측
     weekly_outbound = order_stats.get("weekly_outbound_orders", 0)
-    predicted_returns_next_week = int(weekly_outbound * 0.03)
-    forecast_stats = {
-        "predicted_returns_next_week": predicted_returns_next_week
-    }
+    predicted_returns = int(weekly_outbound * 0.03)
         
-    # 2. 통합 리포트 병합 (Integrated WMS Analytics)
+    # 2. 통합 리포트 스냅샷 생성 (ERD weekly_insights 스키마 1:1 매칭)
+    from datetime import datetime
+    current_week = f"{datetime.now().year}-W{datetime.now().isocalendar()[1]}"
+    
     insights = {
-        **return_insights,
-        **inventory_stats,
-        **order_stats,
-        **forecast_stats
+        "report_week": current_week,
+        "saved_labor_cost_krw": saved_labor_cost_krw,
+        "top_defective_publishers": top_defective_publishers,
+        "logistics_hotspots": logistics_hotspots,
+        "predicted_returns": predicted_returns
     }
     
     return insights
