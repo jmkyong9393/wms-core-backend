@@ -53,6 +53,12 @@ class ReturnJobStatus(str, Enum):
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
     HITL_REQUIRED = "HITL_REQUIRED"
+    FAILED = "FAILED"
+
+
+class InspectionMode(str, Enum):
+    RETURN = "RETURN"
+    USED_PURCHASE = "USED_PURCHASE"
 
 
 class InventoryTransactionType(str, Enum):
@@ -202,10 +208,11 @@ class ReturnJob(SQLModel, table=True):
 
     task_id: Optional[str] = Field(default=None)
 
-    status: str = Field(default="PENDING")
+    status: ReturnJobStatus = Field(default=ReturnJobStatus.PENDING, nullable=False)
+    mode: Optional[InspectionMode] = Field(default=None)
 
-    image_url: Optional[str] = Field(default=None)
-    image_urls: Optional[list] = Field(default=None, sa_column=Column(JSONB))
+    image_path: Optional[str] = Field(default=None)
+    image_paths: Optional[list] = Field(default=None, sa_column=Column(JSONB))
 
     ubci_score: Optional[int] = Field(default=None)
 

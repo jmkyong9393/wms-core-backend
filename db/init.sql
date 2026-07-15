@@ -4,7 +4,8 @@ CREATE TYPE inbound_status AS ENUM ('RECEIVED', 'CHECKING', 'COMPLETED');
 CREATE TYPE condition_grade AS ENUM ('MINT', 'EXCELLENT', 'GOOD', 'NORMAL', 'REJECT');
 CREATE TYPE order_type AS ENUM ('B2B_ORDER', 'AUTO_PO');
 CREATE TYPE order_status AS ENUM ('PENDING', 'PICKING', 'SHIPPED', 'RETURN_REQUESTED');
-CREATE TYPE return_job_status AS ENUM ('PENDING', 'PROCESSING', 'APPROVED', 'REJECTED', 'HITL_REQUIRED');
+CREATE TYPE return_job_status AS ENUM ('PENDING', 'PROCESSING', 'APPROVED', 'REJECTED', 'HITL_REQUIRED', 'FAILED');
+CREATE TYPE inspection_mode AS ENUM ('RETURN', 'USED_PURCHASE');
 CREATE TYPE inventory_transaction_type AS ENUM ('INBOUND', 'OUTBOUND', 'RETURN_RESTOCK', 'DISCARD');
 CREATE TYPE user_role AS ENUM ('MASTER', 'WORKER', 'GUEST', 'PENDING');
 CREATE TYPE user_status AS ENUM ('ACTIVE', 'INACTIVE');
@@ -101,7 +102,8 @@ CREATE TABLE return_jobs (
     order_id UUID REFERENCES orders(id),
     book_id UUID NOT NULL REFERENCES books(id),
     status return_job_status NOT NULL,
-    image_urls JSONB,
+    mode inspection_mode,
+    image_paths JSONB,
     ubci_score INTEGER,
     agent_logs JSONB,
     final_report TEXT,
