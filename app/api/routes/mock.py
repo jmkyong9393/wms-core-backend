@@ -12,6 +12,7 @@ from app.models.wms import (
     InboundJob,
     InboundStatus,
     InboundType,
+    InspectionMode,
     Inventory,
     InventoryLog,
     InventoryTransactionType,
@@ -101,6 +102,7 @@ def seed_mock_data(session: Session = Depends(get_session)):
     return_job = ReturnJob(
         order_id=order.id,
         book_id=book.id,
+        mode = InspectionMode.RETURN,
         status=ReturnJobStatus.PROCESSING,
         image_urls=["/returns/mock/img1.jpg"],
         ubci_score=95,

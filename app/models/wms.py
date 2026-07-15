@@ -50,6 +50,7 @@ class ReturnJobStatus(str, Enum):
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
     HITL_REQUIRED = "HITL_REQUIRED"
+    FAILED = "FAILED"
 
 
 class InventoryTransactionType(str, Enum):
@@ -80,6 +81,9 @@ class PostCategory(str, Enum):
     MANUAL = "MANUAL"
     GENERAL = "GENERAL"
 
+class InspectionMode(str, Enum):
+    RETURN = "RETURN"
+    USED_PURCHASE = "USED_PURCHASE"
 
 class Book(SQLModel, table=True):
     __tablename__ = "books"
@@ -179,7 +183,9 @@ class ReturnJob(SQLModel, table=True):
 
     task_id: Optional[str] = Field(default=None)
 
-    status: str = Field(default="PENDING")
+    mode: InspectionMode = Field(nullable=False)
+
+    status: ReturnJobStatus = Field(default=ReturnJobStatus.PENDING)
 
     image_url: Optional[str] = Field(default=None)
     image_urls: Optional[list] = Field(default=None, sa_column=Column(JSONB))

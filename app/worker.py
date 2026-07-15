@@ -4,8 +4,8 @@ from typing import Any, Dict, Tuple
 
 import httpx
 
-from app.models.wms import ReturnJob
 from app.core.celery_app import celery_app
+from app.models.wms import ReturnJob
 from app.services.langgraph_wrapper import LangGraphInspectionWrapper
 from app.services.redis_pubsub import publish_return_job_event
 from app.services.return_job_service import (
@@ -18,33 +18,36 @@ from app.services.wms_client import (
     call_wms_reject_api,
 )
 
+
 logger = logging.getLogger(__name__)
 
 
-# PROCESSING 상태 변경 후 프론트에 진행 상태를 전달하는 Pub/Sub 이벤트 발행 함수
+# PROCESSING 상태를 프론트에 전달
 def publish_processing_event(
-        return_job_id: uuid.UUID,
-        celery_task_id: str,
+    return_job_id: uuid.UUID,
+    celery_task_id: str,
 ) -> None:
     publish_return_job_event(
         return_job_id=str(return_job_id),
         event={
-            "return_job_id": str(return_job_id),
+            # 외부 응답 필드명은 job_id로 통일
+            "job_id": str(return_job_id),
             "task_id": celery_task_id,
             "status": "PROCESSING",
             "progress": 50,
         },
     )
 
-# 최종 검수 결과(APPROVED/REJECTED)를 프론트에 전달하는 Pub/Sub 이벤트 발행 함수
+
+# 최종 검수 결과를 프론트에 전달
 def publish_final_event(
-        job: ReturnJob,
-        celery_task_id: str,
+    job: ReturnJob,
+    celery_task_id: str,
 ) -> None:
     publish_return_job_event(
         return_job_id=str(job.id),
         event={
-            "return_job_id": str(job.id),
+            "job_id": str(job.id),
             "task_id": celery_task_id,
             "status": job.status,
             "progress": 100,
@@ -52,16 +55,17 @@ def publish_final_event(
         },
     )
 
-# Worker 처리 실패 시 FAILED 상태를 프론트에 전달하는 Pub/Sub 이벤트 발행 함수
+
+# Worker 처리 실패 상태를 프론트에 전달
 def publish_failed_event(
-        return_job_id: uuid.UUID,
-        celery_task_id: str,
-        error: Exception,
+    return_job_id: uuid.UUID,
+    celery_task_id: str,
+    error: Exception,
 ) -> None:
     publish_return_job_event(
         return_job_id=str(return_job_id),
         event={
-            "return_job_id": str(return_job_id),
+            "job_id": str(return_job_id),
             "task_id": celery_task_id,
             "status": "FAILED",
             "progress": 100,
@@ -69,132 +73,137 @@ def publish_failed_event(
         },
     )
 
-# AI decision 결과에 따라 WMS API를 호출하고 최종 ReturnJob status를 결정하는 함수
-def execute_wms_action(
-        decision: str,
-        book_id: uuid.UUID,
-) -> Tuple[str, Dict[str, Any]]:
-    
-    # APPROVE인 경우
-    if decision == "APPROVE":
 
+# AI 판정에 따라 WMS 승인 또는 반려 API 호출
+def execute_wms_action(
+    decision: str,
+    book_id: uuid.UUID,
+) -> Tuple[str, Dict[str, Any]]:
+    if decision == "APPROVE":
         wms_result = call_wms_approve_api(
-            book_id = str(book_id),
+            book_id=str(book_id),
         )
+
         return "APPROVED", {
-            "wms_result" : wms_result,
+            "wms_result": wms_result,
         }
-    
-    # REJECT인 경우
+
     if decision == "REJECT":
         reject_reason = "AI_INSPECTION_REJECTED"
-            
+
         wms_result = call_wms_reject_api(
-            book_id = str(book_id),
-            reason = reject_reason,
+            book_id=str(book_id),
+            reason=reject_reason,
         )
-        
+
         return "REJECTED", {
             "wms_result": wms_result,
             "reject_reason": reject_reason,
         }
 
-    raise ValueError(f"Unknown decision: {decision}")
+    raise ValueError(
+        f"Unknown decision: {decision}"
+    )
 
-
-
-# celery task
 @celery_app.task(
-        bind=True,
-        name="app.worker.process_inspection",
-        max_retries=3, #최대 3번 재시도
-        default_retry_delay=5, #5초후 retry
-        )
-def process_inspection(self, return_job_id: str) -> Dict[str, Any]:
+    bind=True,
+    name="app.worker.process_inspection",
+    max_retries=3,          # 최대 3번 재시도
+    default_retry_delay=5,  # 기본 5초 후 재시도
+)
+def process_inspection(
+    self,
+    return_job_id: str,
+) -> Dict[str, Any]:
     """
-    LangGraph 기반 AI 비전 검수 Celery Worker 작업.
+    LangGraph 기반 AI 검수 Celery 작업.
 
-    흐름:
-    1. Celery task_id 확인
-    2. ReturnJob 조회 및 PROCESSING 상태 변경
-    3. LangGraph Supervisor 실행
-    4. AI decision에 따라 WMS API 호출
-    5. AI 결과와 WMS 결과를 ReturnJob에 저장
-
+    처리 흐름:
+    1. ReturnJob 조회 및 PROCESSING 변경
+    2. Redis Pub/Sub PROCESSING 이벤트 발행
+    3. LangGraph 검수 실행
+    4. 판정 결과에 따라 WMS API 호출
+    5. AI 및 WMS 결과를 DB에 저장
+    6. 최종 상태를 Redis Pub/Sub로 전달
     """
 
-    # 1. Celery task_id 확인
+    # Flower와 Celery에서 사용하는 비동기 작업 ID
     celery_task_id = self.request.id
+
+    # 문자열 ID를 UUID로 변환
     parsed_return_job_id = uuid.UUID(return_job_id)
-    try: 
+
+    try:
         logger.info(
-            "process_inspection started. task_id=%s return_job_id=%s",
+            "process_inspection started. task_id=%s job_id=%s",
             celery_task_id,
             return_job_id,
         )
 
-        # 2. ReturnJob 조회 및 PROCESSING 상태 변경
+        # 1. ReturnJob 조회 및 PROCESSING 상태 변경
+        #
+        # 변경된 prepare_processing_job은 다음 값을 반환해야 함:
+        # return_job_id, book_id, mode, image_paths
         (
             parsed_return_job_id,
             book_id,
-            order_id,
-            image_url,
+            mode,
+            image_paths,
         ) = prepare_processing_job(
             return_job_id=return_job_id,
             celery_task_id=celery_task_id,
         )
 
-        # Redis Pub/Sub에 PROCESSING 이벤트 발행
+        # 2. PROCESSING 상태 실시간 전달
         publish_processing_event(
             return_job_id=parsed_return_job_id,
             celery_task_id=celery_task_id,
         )
 
         logger.info(
-            "published return job event. return_job_id=%s status=%s",
+            "published inspection event. job_id=%s status=PROCESSING",
             parsed_return_job_id,
-            "PROCESSING"
         )
 
-        # 3. LangGraph Supervisor 실행
+        # 3. LangGraph 실행
         langgraph_wrapper = LangGraphInspectionWrapper()
 
         ai_result = langgraph_wrapper.run_inspection(
-            order_id = order_id,
-            image_url = image_url
+            book_id=book_id,
+            mode=mode,
+            image_paths=image_paths,
         )
 
-        # 4. AI decision에 따라 WMS API 호출
+        # AI 최종 판정 확인
         decision = ai_result.get("decision")
 
-        if decision not in ["APPROVE","REJECT"]:
+        if decision not in ["APPROVE", "REJECT"]:
             raise ValueError(
                 f"Unknown decision: {decision}"
             )
 
-
+        # 4. AI 판정에 따라 WMS 승인 또는 반려 처리
         final_status, extra_logs = execute_wms_action(
             decision=decision,
             book_id=book_id,
         )
 
-        # 5. AI 결과와 WMS 결과를 ReturnJob에 저장
+        # 5. AI 결과와 WMS 결과를 DB에 저장
         job = save_inspection_result(
             return_job_id=parsed_return_job_id,
             ai_result=ai_result,
             final_status=final_status,
             extra_logs=extra_logs,
-
         )
 
-        # Redis Pub/Sub에 최종 상태 이벤트 발행
+        # 6. 최종 상태 실시간 전달
         publish_final_event(
             job=job,
             celery_task_id=celery_task_id,
         )
 
         logger.info(
-            "process_inspection completed. task_id=%s return_job_id=%s status=%s",
+            "process_inspection completed. task_id=%s job_id=%s status=%s",
             celery_task_id,
             job.id,
             job.status,
@@ -202,16 +211,19 @@ def process_inspection(self, return_job_id: str) -> Dict[str, Any]:
 
         return {
             "task_id": celery_task_id,
-            "return_job_id": str(job.id),
-            "order_id": str(job.order_id),
+            "job_id": str(job.id),
             "book_id": str(job.book_id),
             "status": job.status,
             "ubci_score": job.ubci_score,
         }
-    # HTTP 오류
+
+    # WMS API 등 HTTP 통신 오류
     except httpx.HTTPError as error:
         logger.warning(
-            "HTTP error occurred. task_id=%s return_job_id=%s retry=%s/%s error=%s",
+            (
+                "HTTP error occurred. "
+                "task_id=%s job_id=%s retry=%s/%s error=%s"
+            ),
             celery_task_id,
             return_job_id,
             self.request.retries,
@@ -219,11 +231,19 @@ def process_inspection(self, return_job_id: str) -> Dict[str, Any]:
             str(error),
         )
 
+        # 남은 재시도 횟수가 있으면 다시 실행
         if self.request.retries < self.max_retries:
-            raise self.retry(exc=error, countdown=5)
+            raise self.retry(
+                exc=error,
+                countdown=5,
+            )
 
         logger.exception(
-            "HTTP retry exhausted. Marking ReturnJob as FAILED. task_id=%s return_job_id=%s",
+            (
+                "HTTP retry exhausted. "
+                "Marking ReturnJob as FAILED. "
+                "task_id=%s job_id=%s"
+            ),
             celery_task_id,
             return_job_id,
         )
@@ -242,11 +262,11 @@ def process_inspection(self, return_job_id: str) -> Dict[str, Any]:
             )
 
         raise
-    
-    # 일반 오류
+
+    # LangGraph, DB 처리 등의 일반 오류
     except Exception as error:
         logger.exception(
-            "process_inspection failed. task_id=%s return_job_id=%s",
+            "process_inspection failed. task_id=%s job_id=%s",
             celery_task_id,
             return_job_id,
         )
@@ -265,12 +285,3 @@ def process_inspection(self, return_job_id: str) -> Dict[str, Any]:
             )
 
         raise
-
-
-
-
-    
-
-    
-
-
