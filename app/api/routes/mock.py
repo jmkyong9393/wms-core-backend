@@ -18,6 +18,7 @@ from app.models.wms import (
     InventoryUsedItem,
     Location,
     Order,
+    OrderItem,
     OrderStatus,
     OrderType,
     PostCategory,
@@ -43,6 +44,7 @@ def seed_mock_data(session: Session = Depends(get_session)):
         isbn="9780000000000",
         standard_size=StandardSize.A5,
         thickness_mm=22,
+        base_price=15000,
         virtual_stock=1,
     )
     session.add(book)
@@ -97,6 +99,15 @@ def seed_mock_data(session: Session = Depends(get_session)):
     )
     session.add(order)
     session.flush()
+
+    order_item = OrderItem(
+        order_id=order.id,
+        book_id=book.id,
+        quantity=1,
+        unit_price=book.base_price,
+        final_price=book.base_price,
+    )
+    session.add(order_item)
 
     return_job = ReturnJob(
         order_id=order.id,
@@ -156,6 +167,55 @@ def seed_mock_data(session: Session = Depends(get_session)):
     }
 
 
+@router.post("/seed/order-outbound")
+def seed_order_outbound_data(session: Session = Depends(get_session)):
+    book = Book(
+        title="Order Outbound Seed Book",
+        isbn="9781111111111",
+        standard_size=StandardSize.A5,
+        thickness_mm=20,
+        base_price=18000,
+        virtual_stock=5,
+    )
+    session.add(book)
+    session.flush()
+
+    location = Location(
+        zone="A",
+        rack="2",
+        shelf="1",
+        barcode=f"A-2-1-{str(book.id)[:8]}",
+    )
+    session.add(location)
+    session.flush()
+
+    inventory = Inventory(
+        book_id=book.id,
+        location_id=location.id,
+        quantity=5,
+    )
+    session.add(inventory)
+    session.commit()
+    session.refresh(inventory)
+
+    return {
+        "message": "Order outbound seed data created",
+        "book": {
+            "id": str(book.id),
+            "title": book.title,
+            "base_price": book.base_price,
+        },
+        "location": {
+            "id": str(location.id),
+            "barcode": location.barcode,
+        },
+        "inventory": {
+            "id": str(inventory.id),
+            "quantity": inventory.quantity,
+        },
+    }
+
+
 @router.get("/summary")
 def get_mock_summary(session: Session = Depends(get_session)):
     return {
@@ -166,6 +226,7 @@ def get_mock_summary(session: Session = Depends(get_session)):
         "inventory": _count(session, Inventory),
         "inventory_used_items": _count(session, InventoryUsedItem),
         "orders": _count(session, Order),
+        "order_items": _count(session, OrderItem),
         "return_jobs": _count(session, ReturnJob),
         "inventory_logs": _count(session, InventoryLog),
         "users": _count(session, User),
