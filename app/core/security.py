@@ -7,7 +7,40 @@ from pwdlib import PasswordHash
 
 from app.core.config import settings
 
+import secrets
+import string
+
 password_hash = PasswordHash.recommended()
+
+# 안전한 임시 비밀번호 생성
+def generate_temporary_password(length: int = 14) -> str:
+    if length < 12:
+        raise ValueError("임시 비밀번호 길이는 12자 이상이어야 합니다.")
+    
+    lowercase = string.ascii_lowercase
+    uppercase = string.ascii_uppercase
+    digits = string.digits
+    special_chars = "!@#$%"
+
+    required_chars = [
+        secrets.choice(lowercase),
+        secrets.choice(uppercase),
+        secrets.choice(digits),
+        secrets.choice(special_chars),
+    ]
+
+    all_chars = lowercase + uppercase + digits + special_chars
+
+    remaining_chars = [
+        secrets.choice(all_chars)
+        for _ in range(length - len(required_chars))
+    ]
+
+    password_chars = required_chars + remaining_chars
+
+    secrets.SystemRandom().shuffle(password_chars)
+
+    return "".join(password_chars)
 
 # 사용자가 입력한 비밀번호를 안전한 해시 문자열로 변환하는 함수
 def hash_password(password: str) -> str :

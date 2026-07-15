@@ -235,6 +235,10 @@ class User(SQLModel, table=True):
     password_hash: str = Field(nullable=False)
     role: UserRole = Field(nullable=False)
     status: UserStatus = Field(default=UserStatus.ACTIVE)
+
+    # 관리자가 직원 계정 만들면 True -> 직원이 임시 비밀번호를 새 비밀번호로 변경하면 False
+    must_change_password: bool = Field(default=True)
+
     last_login: Optional[datetime] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

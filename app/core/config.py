@@ -15,9 +15,11 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30 #현재는 30분 설정
 
-    # 가입 제한 코드
-    WORKER_SIGNUP_CODE: str = "worker-local-code"
-    MASTER_SIGNUP_CODE: str = "master-local-code"
+    # 최초 MASTER 계정 설정
+    INITIAL_MASTER_EMPLOYEE_ID: str
+    INITIAL_MASTER_NAME: str
+    INITIAL_MASTER_EMAIL: str | None = None
+    INITIAL_MASTER_PASSWORD: str
 
     class Config:
         env_file = ".env"
