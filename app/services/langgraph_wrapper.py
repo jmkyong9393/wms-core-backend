@@ -29,6 +29,7 @@ class LangGraphInspectionWrapper:
                         f"mode: {mode}\n"
                         "image_paths:\n"
                         f"{image_path_text}"
+
                     )
                 )
             ],
@@ -52,7 +53,6 @@ class LangGraphInspectionWrapper:
 
             # Human-In-The-Loop에서 사용할 값
             "human_feedback": None,
-
             # Report Agent가 채울 값
             "final_report": None,
         }
@@ -62,6 +62,7 @@ class LangGraphInspectionWrapper:
         self,
         final_state: Dict[str, Any],
     ) -> str:
+
         is_mint = final_state.get("is_mint")
         reason_code = final_state.get("reason_code")
         ubci_score = final_state.get("ubci_score")

@@ -48,6 +48,6 @@ celery_app.conf.update(
     broker_connection_retry_on_startup=True,
 
     # 작업 실행 제한 시간
-    task_soft_time_limit=300,  # 5분 후 중단 신호
-    task_time_limit=360,       # 6분 후 강제 종료
+    task_soft_time_limit=300,
+    task_time_limit=360,
 )

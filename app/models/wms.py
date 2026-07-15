@@ -27,6 +27,7 @@ class InboundStatus(str, Enum):
 
 class ConditionGrade(str, Enum):
     MINT = "MINT"
+    EXCELLENT = "EXCELLENT"
     GOOD = "GOOD"
     NORMAL = "NORMAL"
     REJECT = "REJECT"
@@ -85,6 +86,7 @@ class InspectionMode(str, Enum):
     RETURN = "RETURN"
     USED_PURCHASE = "USED_PURCHASE"
 
+
 class Book(SQLModel, table=True):
     __tablename__ = "books"
 
@@ -93,6 +95,7 @@ class Book(SQLModel, table=True):
     isbn: Optional[str] = Field(default=None)
     standard_size: Optional[StandardSize] = Field(default=None)
     thickness_mm: Optional[int] = Field(default=None)
+    base_price: int = Field(default=0, nullable=False)
     virtual_stock: int = Field(default=0)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -173,6 +176,19 @@ class Order(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class OrderItem(SQLModel, table=True):
+    __tablename__ = "order_items"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    order_id: uuid.UUID = Field(foreign_key="orders.id")
+    book_id: uuid.UUID = Field(foreign_key="books.id")
+    quantity: int = Field(nullable=False)
+    unit_price: int = Field(nullable=False)
+    final_price: int = Field(nullable=False)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class ReturnJob(SQLModel, table=True):
     __tablename__ = "return_jobs"
 
@@ -186,6 +202,7 @@ class ReturnJob(SQLModel, table=True):
     mode: InspectionMode = Field(nullable=False)
 
     status: ReturnJobStatus = Field(default=ReturnJobStatus.PENDING)
+
 
     image_url: Optional[str] = Field(default=None)
     image_urls: Optional[list] = Field(default=None, sa_column=Column(JSONB))

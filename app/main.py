@@ -56,6 +56,7 @@ app.include_router(inventory.router, prefix="/api/inventory", tags=["Inventory"]
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(admin_users.router, prefix="/api/v1/admin/users", tags=["Admin Users"])
 
+
 app.include_router(db.router, prefix="/api/db", tags=["Database"])
 app.include_router(mock.router, prefix="/api/mock", tags=["Mock"])
 app.include_router(inspections.router, prefix="/api/v1/inspections", tags=["Inspections"])
