@@ -104,6 +104,7 @@ CREATE TABLE return_jobs (
     id UUID PRIMARY KEY,
     order_id UUID REFERENCES orders(id),
     book_id UUID NOT NULL REFERENCES books(id),
+    task_id VARCHAR,
     status return_job_status NOT NULL,
     mode inspection_mode,
     image_paths JSONB,

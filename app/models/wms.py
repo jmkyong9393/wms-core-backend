@@ -214,7 +214,6 @@ class ReturnJob(SQLModel, table=True):
     status: ReturnJobStatus = Field(default=ReturnJobStatus.PENDING, nullable=False)
     mode: Optional[InspectionMode] = Field(default=None)
 
-    image_path: Optional[str] = Field(default=None)
     image_paths: Optional[list] = Field(default=None, sa_column=Column(JSONB))
 
     ubci_score: Optional[int] = Field(default=None)
