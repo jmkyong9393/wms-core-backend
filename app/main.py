@@ -54,7 +54,7 @@ def on_startup():
 
 # 인증 및 관리자 API
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])
-app.include_router(admin_users.router, prefix="/api/v1/admin/users", tags=["Admin Users"])
+app.include_router(admin_users.router, prefix="/api/v1/users/admin", tags=["Admin Users"])
 
 # AI 검수 API
 app.include_router(inspections.router, prefix="/api/v1/inspections", tags=["Inspections"])

@@ -37,7 +37,7 @@ def build_user_response(
 
 # MASTER 전용 직원 계정 생성
 @router.post(
-    "",
+    "/create-accounts",
     response_model=EmployeeCreateResponse,
     status_code=status.HTTP_201_CREATED,
 )
