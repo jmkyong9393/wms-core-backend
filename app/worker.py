@@ -132,7 +132,7 @@ def handle_inspection_failure(
             error=error,
         )
 
-
+# celery task
 @celery_app.task(
     bind=True,
     name=TASK_NAME,

@@ -28,7 +28,7 @@ class CreateInspectionResponse(BaseModel):
     message: str
     stream_url: str
 
-
+# 검수 작업 요청
 @router.post(
     "",
     response_model=CreateInspectionResponse,

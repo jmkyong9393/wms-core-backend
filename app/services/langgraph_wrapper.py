@@ -3,6 +3,7 @@ from uuid import UUID
 
 from langchain_core.messages import HumanMessage
 
+# 임시 승인 기준이며 AI 정책 확정 후 조정 필요
 APPROVAL_SCORE_THRESHOLD = 70
 
 
@@ -69,7 +70,6 @@ class LangGraphInspectionWrapper:
         if is_mint is True:
             return "APPROVE"
 
-        # 임시 승인 기준이며 AI 정책 확정 후 조정 필요
         if (
             reason_code == "OK"
             and ubci_score is not None

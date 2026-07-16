@@ -74,10 +74,10 @@ def create_access_token(
     )
 
     payload: dict[str, Any] = {
-        "sub": subject,  # 사용자 UUID
-        "role" : role,   # WORKER
-        "type": "access", # access
-        "exp": expires_at,    # 만료 시각
+        "sub": subject,  
+        "role" : role,   
+        "type": "access", 
+        "exp": expires_at,    
     }
 
     return jwt.encode(
