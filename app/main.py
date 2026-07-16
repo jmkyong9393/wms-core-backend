@@ -67,7 +67,7 @@ app.include_router(outbound.router, prefix="/api/outbound", tags=["Outbound"])
 app.include_router(certificates.router, prefix="/api/certificate", tags=["Certificate"])
 
 # 관리자 및 개발 지원 API
-app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
+app.include_router(admin.router, prefix="/api/v1/admin", tags=["Admin"])
 app.include_router(db.router, prefix="/api/db", tags=["Database"])
 app.include_router(mock.router, prefix="/api/mock", tags=["Mock"])
 
