@@ -64,7 +64,8 @@ def pick_order(
             detail="Order has no order items",
         )
 
-    allocations: list[tuple[Inventory, int, str]] = []
+    allocations: list[tuple[OrderItem, Inventory, int, str]] = []
+    picked_location_by_order_item: dict[UUID, UUID] = {}
 
     for order_item in order_items:
         remaining_quantity = order_item.quantity
@@ -84,7 +85,8 @@ def pick_order(
             picked_quantity = min(inventory.quantity, remaining_quantity)
             location = session.get(Location, inventory.location_id)
             picked_location = location.barcode if location else str(inventory.location_id)
-            allocations.append((inventory, picked_quantity, picked_location))
+            allocations.append((order_item, inventory, picked_quantity, picked_location))
+            picked_location_by_order_item.setdefault(order_item.id, inventory.location_id)
             remaining_quantity -= picked_quantity
 
         if remaining_quantity > 0:
@@ -100,8 +102,10 @@ def pick_order(
 
     picking_list: list[PickingListItem] = []
 
-    for inventory, picked_quantity, picked_location in allocations:
+    for order_item, inventory, picked_quantity, picked_location in allocations:
         inventory.quantity -= picked_quantity
+        order_item.location_id = picked_location_by_order_item[order_item.id]
+        session.add(order_item)
 
         session.add(
             InventoryLog(

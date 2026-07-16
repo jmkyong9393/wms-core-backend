@@ -177,10 +177,12 @@ class Order(SQLModel, table=True):
     __tablename__ = "orders"
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    customer_id: Optional[uuid.UUID] = Field(default=None)
     customer_name: Optional[str] = Field(default=None)
     type: OrderType = Field(nullable=False)
     total_price: Decimal = Field(sa_column=Column(Numeric(12, 2), nullable=False))
     status: OrderStatus = Field(nullable=False)
+    logistics_center: Optional[str] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -191,6 +193,7 @@ class OrderItem(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     order_id: uuid.UUID = Field(foreign_key="orders.id")
     book_id: uuid.UUID = Field(foreign_key="books.id")
+    location_id: Optional[uuid.UUID] = Field(default=None, foreign_key="locations.id")
     quantity: int = Field(nullable=False)
     unit_price: Decimal = Field(sa_column=Column(Numeric(12, 2), nullable=False))
     final_price: Decimal = Field(sa_column=Column(Numeric(12, 2), nullable=False))
@@ -237,6 +240,41 @@ class InventoryLog(SQLModel, table=True):
     quantity_change: int = Field(nullable=False)
     target_lpn: Optional[str] = Field(default=None)
     picked_location: Optional[str] = Field(default=None)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class FdsReport(SQLModel, table=True):
+    __tablename__ = "fds_reports"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    customer_id: uuid.UUID = Field(nullable=False)
+    fraud_score: int = Field(nullable=False)
+    fraud_reason: Optional[str] = Field(default=None)
+    detected_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class WeeklyInsight(SQLModel, table=True):
+    __tablename__ = "weekly_insights"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    report_week: str = Field(nullable=False, unique=True)
+    saved_labor_cost_krw: int = Field(default=0)
+    top_defective_publishers: Optional[dict] = Field(
+        default=None,
+        sa_column=Column(JSONB),
+    )
+    location_hotspots: Optional[dict] = Field(
+        default=None,
+        sa_column=Column(JSONB),
+    )
+    logistics_hotspots: Optional[dict] = Field(
+        default=None,
+        sa_column=Column(JSONB),
+    )
+    predicted_returns: int = Field(default=0)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 

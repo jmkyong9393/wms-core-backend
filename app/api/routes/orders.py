@@ -1,5 +1,5 @@
 from decimal import Decimal
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -19,6 +19,8 @@ class OrderItemRequest(BaseModel):
 
 class CreateOrderRequest(BaseModel):
     customer_name: str = Field(min_length=1)
+    customer_id: Optional[UUID] = None
+    logistics_center: Optional[str] = None
     items: List[OrderItemRequest] = Field(min_length=1)
 
 
@@ -70,10 +72,12 @@ def create_order(
     )
 
     order = Order(
+        customer_id=request.customer_id,
         customer_name=request.customer_name,
         type=OrderType.B2B_ORDER,
         total_price=total_price,
         status=OrderStatus.PENDING,
+        logistics_center=request.logistics_center,
     )
     session.add(order)
     session.flush()
