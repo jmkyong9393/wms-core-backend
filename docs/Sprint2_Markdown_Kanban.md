@@ -19,9 +19,6 @@
 
 ### 🏃 In Progress (현재 진행 중)
 - (Empty)
-- `[ ]` **[BE-2.3]** WMS API 자동 입/출고 연동 및 Redis & Celery 기반 오케스트레이션 사전 설계 (@서다은(Main))
-- `[ ]` **[BE-2.4]** JWT 기반 회원가입/로그인 API 및 토큰 발급 로직 구현 (@서다은(Main))
-- `[ ]` **[BE-2.5]** RBAC 권한 제어(MASTER/WORKER 등) 가드 및 관리자용 회원 승인 API 개발 (@서다은(Main))
 
 ### 🚨 Blocked (이슈 발생 / 대기 중)
 - (Empty)
@@ -29,6 +26,9 @@
 ### ✅ Done (완료 및 PR 병합 완료)
 - `[X]` **[BE-3.1]** 고객 주문 출고 API 및 재고 차감 비즈니스 로직 개발 (@박민우(Main))
 - `[X]` **[DATA-2.1]** FDS(블랙컨슈머 이상거래탐지) 파이프라인 뼈대 구축 및 K8s CronJob용 `report_batch.py` 인프라 셋업 (@소한민(Main))
+- `[ ]` **[BE-2.3]** WMS API 자동 입/출고 연동 및 Redis & Celery 기반 오케스트레이션 사전 설계 (@서다은(Main))
+- `[ ]` **[BE-2.4]** JWT 기반 회원가입/로그인 API 및 토큰 발급 로직 구현 (@서다은(Main))
+- `[ ]` **[BE-2.5]** RBAC 권한 제어(MASTER/WORKER 등) 가드 및 관리자용 회원 승인 API 개발 (@서다은(Main))
 
 ---
 
