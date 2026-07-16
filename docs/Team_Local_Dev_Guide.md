@@ -76,6 +76,13 @@ Docker를 통해 전체 시스템(`docker-compose up -d`)이 구동된 상태에
    uv run python app/ai/rag/test_search.py
    ```
 
+### 📊 대시보드용 주간 분석 배치 (Reporting) 테스트
+AI 모듈에서 산출된 데이터를 바탕으로 재무/품질/포캐스팅 지표를 연산하는 주간 리포트 배치 스크립트를 수동으로 실행해 볼 수 있습니다. 실제 배포 환경에서는 K8s CronJob에 의해 스케줄링되지만, 로컬 개발 단계에서는 아래 명령어를 통해 직접 실행하고 터미널에서 산출된 JSON 결과를 확인합니다.
+
+```bash
+uv run python -m app.ai.reporting.report_batch
+```
+
 ---
 
 ## 3. 🚨 Git 협업 및 배포 (CI/CD) 규칙

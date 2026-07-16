@@ -25,6 +25,7 @@ dependencies = [
     "gevent>=26.5.0",
     "langchain-text-splitters>=1.1.2",
     "langchain-community>=0.4.2",
+    "pandas>=3.0.3",
 ]
 
 [build-system]
