@@ -1,5 +1,11 @@
+import json
 from langchain_core.messages import AIMessage
 from .state import WMSInspectionState
+
+
+MIN_VISION_CONFIDENCE = 0.80
+MIN_POLICY_CONFIDENCE = 0.75
+
 
 def vision_agent(state: WMSInspectionState) -> WMSInspectionState:
     """
@@ -10,16 +16,49 @@ def vision_agent(state: WMSInspectionState) -> WMSInspectionState:
     - 출력: is_mint (bool), defects (list of relative ratios)
     """
     print("[Agent] Vision Agent 스켈레톤 로직 실행...")
-    #raise NotImplementedError("Vision Agent 로직을 구현해주세요.")
-    dummy_is_mint = False
-    dummy_defects = [{"type": "표지 찢김", "ratio": 15}]
 
-    return{
-        "is_mint": dummy_is_mint,
-        "defects": dummy_defects,
+    vision_result = {
+        "is_mint": False,
+        "defects": [{"type": "표지 찢김", "ratio": 15}],
+        "vision_confidence": 0.92,
+    }
+
+    is_mint = vision_result.get("is_mint")
+    defects = vision_result.get("defects")
+    vision_confidence = vision_result.get("vision_confidence")
+    revision_count = state.get("revision_count", 0)
+    reason_code = None
+    repair_directive = None
+
+    if type(is_mint) is not bool or type(defects) is not list:
+        reason_code = "QUALITY_ERROR"
+        repair_directive = "Vision Agent 출력 형식이 올바르지 않습니다."
+    elif type(vision_confidence) not in (int, float) or not 0 <= vision_confidence <= 1:
+        reason_code = "QUALITY_ERROR"
+        repair_directive = "vision_confidence는 0~1 범위의 숫자여야 합니다."
+    elif is_mint and not defects and vision_confidence < MIN_VISION_CONFIDENCE:
+        reason_code = "VISION_LOW_CONFIDENCE"
+        repair_directive = "MINT 판정 신뢰도가 기준보다 낮습니다."
+
+    if reason_code is not None:
+        revision_count += 1
+
+    return {
+        "is_mint": is_mint,
+        "defects": defects,
+        "vision_confidence": vision_confidence,
+        "ubci_score": None,
+        "rule_reference": None,
+        "policy_confidence": None,
+        "reason_code": reason_code,
+        "repair_directive": repair_directive,
+        "revision_count": revision_count,
+        "overall_confidence": None,
+        "human_feedback": None,
+        "final_report": None,
         "messages": [
             AIMessage(content="[Vision Agent] 이미지 판독 완료")
-        ],    
+        ],
     }
 
 def policy_agent(state: WMSInspectionState) -> WMSInspectionState:
@@ -31,14 +70,40 @@ def policy_agent(state: WMSInspectionState) -> WMSInspectionState:
     - 출력: ubci_score (int), rule_reference (str)
     """
     print("[Agent] Policy Agent 스켈레톤 로직 실행...")
-    #raise NotImplementedError("Policy Agent 로직을 구현해주세요.")
-    dummy_ubci_score = 150
 
-    return{
-        "ubci_score" : dummy_ubci_score,
-        "reason_code": None,
+    # 실제 연동 시 이 결과만 Vector DB 검색 및 UBCI 계산 결과로 교체합니다.
+    policy_result = {
+        "ubci_score": 85,
+        "rule_reference": "WMS_POLICY_ARTICLE_5",
+        "policy_confidence": 0.88,
+    }
+
+    ubci_score = policy_result.get("ubci_score")
+    rule_reference = policy_result.get("rule_reference")
+    policy_confidence = policy_result.get("policy_confidence")
+    output_missing = (
+        ubci_score is None
+        or not isinstance(rule_reference, str)
+        or not rule_reference.strip()
+        or policy_confidence is None
+    )
+    revision_count = state.get("revision_count", 0)
+
+    if output_missing:
+        revision_count += 1
+
+    return {
+        "ubci_score": ubci_score,
+        "rule_reference": rule_reference,
+        "policy_confidence": policy_confidence,
+        "reason_code": "UBCI_POLICY_VIOLATION" if output_missing else None,
+        "repair_directive": "Policy Agent 출력값이 누락되었습니다." if output_missing else None,
+        "revision_count": revision_count,
+        "overall_confidence": None,
+        "human_feedback": None,
+        "final_report": None,
         "messages": [
-            AIMessage(content="[Policy Agent] UBCI 점수 산정 완료")
+            AIMessage(content="[Policy Agent] 정책 적용 및 UBCI 점수 산정 완료")
         ],
     }
 
@@ -51,38 +116,104 @@ def critic_agent(state: WMSInspectionState) -> WMSInspectionState:
     - 출력: reason_code ("OK", "REJECT"), revision_count 증가
     """
     print("[Agent] Critic Agent 스켈레톤 로직 실행...")
-    #raise NotImplementedError("Critic Agent 로직을 구현해주세요.")
-    
-    revision_count = state.get("revision_count",0)
-    ubci_score = state.get("ubci_score")
-    
-    if ubci_score is None:
-        return{
-            "reason_code" : "UBCI_POLICY_VIOLATION",
-            "repair_directive" : "UBCI 점수가 없어 Policy Agent 재실행이 필요합니다.",
-            "revision_count": revision_count + 1,
-            "messages":[
-                AIMessage(content="[Critic Agent] 검증 실패 - revision_count 증가")
-            ],
-        }
-    
-    if ubci_score < 0 or ubci_score > 100:
-        return {
-            "reason_code": "UBCI_POLICY_VIOLATION",
-            "repair_directive": "UBCI 점수는 0~100 사이여야 합니다.",
-            "revision_count": revision_count + 1,
-            "messages": [
-                AIMessage(content="[Critic Agent] 검증 실패 - UBCI 점수 범위 오류")
-            ],
-        }
 
-    
-    return{
-        "reason_code" : "OK",
-        "repair_directive" : None,
-        "revision_count" : revision_count,
+    revision_count = state.get("revision_count", 0)
+    is_mint = state.get("is_mint")
+    defects = state.get("defects")
+    vision_confidence = state.get("vision_confidence")
+    ubci_score = state.get("ubci_score")
+    rule_reference = state.get("rule_reference")
+    policy_confidence = state.get("policy_confidence")
+    reason_code = "OK"
+    repair_directive = None
+    overall_confidence = None
+
+    # revision_count 타입 검증
+    raw_revision_count = state.get("revision_count", 0)
+    if type(raw_revision_count) is not int or raw_revision_count < 0:
+        reason_code = "QUALITY_ERROR"
+        repair_directive = "revision_count는 0 이상의 정수여야 합니다."
+
+    # Vision 출력 타입 검증
+    elif type(is_mint) is not bool:
+        reason_code = "QUALITY_ERROR"
+        repair_directive = "is_mint는 bool이어야 합니다."
+
+    elif type(defects) is not list:
+        reason_code = "QUALITY_ERROR"
+        repair_directive = "defects는 list여야 합니다."
+
+    # 각 결함의 필수 값 검증
+    else:
+        for defect in defects:
+            if type(defect) is not dict:
+                reason_code = "QUALITY_ERROR"
+                repair_directive = "defects의 각 항목은 dict여야 합니다."
+                break
+
+            defect_type = defect.get("type")
+            ratio = defect.get("ratio")
+
+            if type(defect_type) is not str or not defect_type.strip():
+                reason_code = "QUALITY_ERROR"
+                repair_directive = "결함 type은 비어 있지 않은 문자열이어야 합니다."
+                break
+
+            if type(ratio) not in (int, float) or not 0 <= ratio <= 100:
+                reason_code = "QUALITY_ERROR"
+                repair_directive = "결함 ratio는 0~100 범위의 숫자여야 합니다."
+                break
+
+    # Vision 판정과 결함 데이터의 모순 검증
+    if reason_code == "OK" and is_mint is True and defects:
+        reason_code = "BBOX_MISMATCH"
+        repair_directive = "MINT 판정과 결함 데이터가 서로 모순됩니다."
+
+    elif reason_code == "OK" and is_mint is False and not defects:
+        reason_code = "BBOX_MISMATCH"
+        repair_directive = "비정상품 판정에는 한 개 이상의 결함이 필요합니다."
+
+    # Vision 신뢰도 검증
+    elif reason_code == "OK" and (type(vision_confidence) not in (int, float) or not 0 <= vision_confidence <= 1):
+        reason_code = "QUALITY_ERROR"
+        repair_directive = "vision_confidence는 0~1 범위의 숫자여야 합니다."
+
+    elif reason_code == "OK" and vision_confidence < MIN_VISION_CONFIDENCE:
+        reason_code = "VISION_LOW_CONFIDENCE"
+        repair_directive = "Vision 판정 신뢰도가 기준보다 낮습니다."
+
+    # UBCI 점수 검증
+    elif reason_code == "OK" and (type(ubci_score) is not int or not 0 <= ubci_score <= 100):
+        reason_code = "UBCI_POLICY_VIOLATION"
+        repair_directive = "ubci_score는 0~100 범위의 정수여야 합니다."
+
+    # 정책 근거 검증
+    elif reason_code == "OK" and (type(rule_reference) is not str or not rule_reference.strip()):
+        reason_code = "UBCI_POLICY_VIOLATION"
+        repair_directive = "rule_reference는 비어 있지 않은 문자열이어야 합니다."
+
+    # Policy 신뢰도 검증
+    elif reason_code == "OK" and (type(policy_confidence) not in (int, float) or not 0 <= policy_confidence <= 1):
+        reason_code = "UBCI_POLICY_VIOLATION"
+        repair_directive = "policy_confidence는 0~1 범위의 숫자여야 합니다."
+
+    elif reason_code == "OK" and policy_confidence < MIN_POLICY_CONFIDENCE:
+        reason_code = "POLICY_LOW_CONFIDENCE"
+        repair_directive = "Policy 검색 및 계산 신뢰도가 기준보다 낮습니다."
+
+    if reason_code == "OK":
+        overall_confidence = min(vision_confidence, policy_confidence)
+    else:
+        revision_count += 1
+
+    return {
+        "reason_code": reason_code,
+        "repair_directive": repair_directive,
+        "revision_count": revision_count,
+        "overall_confidence": overall_confidence,
+        "final_report": None,
         "messages": [
-            AIMessage(content="[Critic Agent] 검증 통과")
+            AIMessage(content=f"[Critic Agent] 검증 결과 - {reason_code}")
         ],
     }
 
@@ -93,11 +224,16 @@ def auto_refund_agent(state: WMSInspectionState) -> WMSInspectionState:
     - 출력: final_report (str, JSON format)
     """
     print("[Agent] Auto Refund Agent 스켈레톤 로직 실행...")
-    #raise NotImplementedError("Auto Refund Agent 로직을 구현해주세요.")
-    dummy_report = '{"result" : "AUTO_REFUND_APPROVED", "reason": "MINT 자동 승인"}'
+    dummy_report = {
+        "result": "AUTO_REFUND_APPROVED",
+        "reason": "MINT 자동 승인",
+        "vision_confidence": state.get("vision_confidence"),
+    }
 
-    return{
-        "final_report": dummy_report,
+    return {
+        "final_report": json.dumps(dummy_report, ensure_ascii=False),
+        "overall_confidence": state.get("vision_confidence"),
+        "human_feedback": None,
         "messages": [
             AIMessage(content="[Auto Refund Agent] 자동 환불 승인 리포트 생성 완료")
         ],
@@ -111,13 +247,32 @@ def report_agent(state: WMSInspectionState) -> WMSInspectionState:
     - 출력: final_report (str, JSON format)
     """
     print("[Agent] Report Agent 스켈레톤 로직 실행...")
-    #raise NotImplementedError("Report Agent 로직을 구현해주세요.")
-    dummy_report = '{"result": "INSPECTION_COMPLETED", "message": "검수 완료"}'
+    human_feedback = state.get("human_feedback")
+    result = {
+        "APPROVE": "HUMAN_APPROVED",
+        "REJECT": "HUMAN_REJECTED",
+    }.get(human_feedback, "INSPECTION_COMPLETED")
+    message = {
+        "APPROVE": "관리자 승인 완료",
+        "REJECT": "관리자 반려 완료",
+    }.get(human_feedback, "검수 완료")
+    dummy_report = {
+        "result": result,
+        "defects": state.get("defects") or [],
+        "ubci_score": state.get("ubci_score"),
+        "rule_reference": state.get("rule_reference"),
+        "reason_code": state.get("reason_code"),
+        "vision_confidence": state.get("vision_confidence"),
+        "policy_confidence": state.get("policy_confidence"),
+        "overall_confidence": state.get("overall_confidence"),
+        "message": message,
+    }
 
-    return{
-        "final_report" : dummy_report,
+    return {
+        "final_report": json.dumps(dummy_report, ensure_ascii=False),
+        "human_feedback": None,
         "messages": [
-            AIMessage(content="[Report Agent] 최종 리포트 생성 완료")
+            AIMessage(content=f"[Report Agent] {message}")
         ],
     }
 
@@ -130,26 +285,55 @@ def human_node(state: WMSInspectionState) -> WMSInspectionState:
     print("[Agent] HITL 노드 진입 - 관리자의 수동 개입(승인/수정) 대기 중")
     human_feedback = state.get("human_feedback")
 
-    if human_feedback == "approve":
+    if human_feedback == "APPROVE":
         return {
             "reason_code": "OK",
             "repair_directive": None,
             "revision_count": 0,
-            "human_feedback": None,
+            "final_report": None,
             "messages": [
                 AIMessage(content="[Human Node] 관리자 승인 완료 - revision_count 초기화")
             ],
         }
 
-    if human_feedback == "recalculate":
+    if human_feedback == "REJECT":
         return {
-            "ubci_score": None,
-            "reason_code": None,
-            "repair_directive": "관리자 수정 요청으로 Policy Agent 재실행 필요",
+            "reason_code": state.get("reason_code") or "QUALITY_ERROR",
             "revision_count": 0,
+            "human_feedback": "REJECT",
+            "final_report": None,
+            "messages": [AIMessage(content="[Human Node] 관리자 반려 완료")],
+        }
+
+    if human_feedback == "RECALCULATE":
+        result = {
+            "reason_code": None,
+            "repair_directive": "관리자 재검수 요청",
+            "revision_count": 0,
+            "overall_confidence": None,
             "human_feedback": None,
+            "final_report": None,
+        }
+
+        if state.get("reason_code") in {
+            "QUALITY_ERROR",
+            "BBOX_MISMATCH",
+            "VISION_LOW_CONFIDENCE",
+        }:
+            result.update({
+                "is_mint": None,
+                "defects": None,
+                "vision_confidence": None,
+            })
+
+        result.update({
+            "ubci_score": None,
+            "rule_reference": None,
+            "policy_confidence": None,
             "messages": [
                 AIMessage(content="[Human Node] 관리자 수정 요청 완료 - revision_count 초기화")
             ],
-        }
-    return state
+        })
+        return result
+
+    return {}
