@@ -7,6 +7,7 @@ from app.api.routes import (
     books,
     certificates,
     db,
+    inbound,
     inspections,
     inventory,
     mock,
@@ -44,6 +45,7 @@ app.include_router(stream.router, prefix="/api/stream", tags=["Stream"])
 app.include_router(db.router, prefix="/api/db", tags=["Database"])
 app.include_router(mock.router, prefix="/api/mock", tags=["Mock"])
 app.include_router(books.router, prefix="/api/v1/books", tags=["Books"])
+app.include_router(inbound.router, prefix="/api/v1/inbound", tags=["Inbound"])
 app.include_router(inspections.router, prefix="/api/v1/inspections", tags=["Inspections"])
 app.include_router(outbound.router, prefix="/api/v1/outbound", tags=["Outbound"])
 app.include_router(certificates.router, prefix="/api/v1/certificate", tags=["Certificate"])
