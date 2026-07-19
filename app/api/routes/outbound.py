@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import List
 from uuid import UUID
 
@@ -7,6 +8,7 @@ from sqlmodel import Session, select
 
 from app.core.database import get_session
 from app.models.wms import (
+    Book,
     ConditionGrade,
     Inventory,
     InventoryLog,
@@ -104,6 +106,14 @@ def pick_order(
 
     for order_item, inventory, picked_quantity, picked_location in allocations:
         inventory.quantity -= picked_quantity
+        inventory.updated_at = datetime.utcnow()
+
+        book = session.get(Book, inventory.book_id)
+        if book is not None:
+            book.virtual_stock = max(book.virtual_stock - picked_quantity, 0)
+            book.updated_at = datetime.utcnow()
+            session.add(book)
+
         order_item.location_id = picked_location_by_order_item[order_item.id]
         session.add(order_item)
 
