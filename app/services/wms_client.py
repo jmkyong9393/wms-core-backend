@@ -17,12 +17,16 @@ WMS_APPROVE_PATH = "/api/inventory/approve"
 WMS_REJECT_PATH = "/api/inventory/reject"
 
 def post_wms_request(
-        path: str,
-        payload: dict[str,Any],
+    path: str,
+    payload: dict[str, Any],
+    idempotency_key: str,
 ) -> dict[str, Any]:
     response = httpx.post(
         f"{WMS_BASE_URL}{path}",
         json=payload,
+        headers={
+            "Idempotency-Key": idempotency_key,
+        },
         timeout=WMS_REQUEST_TIMEOUT_SECONDS,
     )
     response.raise_for_status()
@@ -33,6 +37,7 @@ def post_wms_request(
 # 정상 판정된 도서를 WMS 입고 처리
 def call_wms_approve_api(
     book_id: str,
+    idempotency_key: str,
 ) -> dict[str, Any]:
     return post_wms_request(
         path=WMS_APPROVE_PATH,
@@ -40,13 +45,14 @@ def call_wms_approve_api(
             "book_id": book_id,
             "reason": "AI_INSPECTION_PASSED",
         },
+        idempotency_key=idempotency_key,
     )
-
 
 # 불량 판정된 도서를 WMS 반려 처리
 def call_wms_reject_api(
     book_id: str,
     reason: str,
+    idempotency_key: str,
 ) -> dict[str, Any]:
     return post_wms_request(
         path=WMS_REJECT_PATH,
@@ -54,4 +60,5 @@ def call_wms_reject_api(
             "book_id": book_id,
             "reason": reason,
         },
+        idempotency_key=idempotency_key,
     )

@@ -59,9 +59,10 @@ def verify_password(plain_password:str, hashed_password: str) -> bool:
 
 # 사용자가 ID와 권한을 포함한 JWT Access Token을 생성한다. 
 def create_access_token(
-        subject: str,
-        role: str,
-        expiration_minutes: int | None = None,
+    subject: str,
+    role: str,
+    tenant_id: str,
+    expiration_minutes: int | None = None,
 ) -> str:
     expiration_minutes = (
         expiration_minutes
@@ -74,10 +75,11 @@ def create_access_token(
     )
 
     payload: dict[str, Any] = {
-        "sub": subject,  
-        "role" : role,   
-        "type": "access", 
-        "exp": expires_at,    
+        "sub": subject,
+        "role": role,
+        "tenant_id": tenant_id,
+        "type": "access",
+        "exp": expires_at,
     }
 
     return jwt.encode(

@@ -10,8 +10,8 @@ from app.services.langgraph_wrapper import LangGraphInspectionWrapper
 from app.services.redis_pubsub import publish_return_job_event
 from app.services.return_job_service import (
     prepare_processing_job,
+    process_wms_result_with_lock,
     save_inspection_failed,
-    save_inspection_result,
 )
 from app.services.wms_client import (
     call_wms_approve_api,
@@ -87,14 +87,19 @@ def publish_failed_event(
 def execute_wms_action(
     decision: str,
     book_id: UUID,
+    return_job_id: UUID,
 ) -> tuple[str, dict[str, Any]]:
+    idempotency_key = f"return-job:{return_job_id}"
+
     if decision == "APPROVE":
         wms_result = call_wms_approve_api(
             book_id=str(book_id),
+            idempotency_key=idempotency_key,
         )
 
         return ReturnJobStatus.APPROVED.value, {
             "wms_result": wms_result,
+            "idempotency_key": idempotency_key,
         }
 
     if decision == "REJECT":
@@ -103,11 +108,13 @@ def execute_wms_action(
         wms_result = call_wms_reject_api(
             book_id=str(book_id),
             reason=reject_reason,
+            idempotency_key=idempotency_key,
         )
 
         return ReturnJobStatus.REJECTED.value, {
             "wms_result": wms_result,
             "reject_reason": reject_reason,
+            "idempotency_key": idempotency_key,
         }
 
     raise ValueError(
@@ -115,9 +122,9 @@ def execute_wms_action(
     )
 
 def handle_inspection_failure(
-        job_id: UUID,
-        task_id: str,
-        error: Exception,
+    job_id: UUID,
+    task_id: str,
+    error: Exception,
 ) -> None:
     failed_job = save_inspection_failed(
         return_job_id=job_id,
@@ -125,12 +132,43 @@ def handle_inspection_failure(
         error=error,
     )
 
-    if failed_job is not None:
-        publish_failed_event(
-            job_id=failed_job.id,
-            task_id=task_id,
-            error=error,
+    if failed_job is None:
+        return
+
+    if failed_job.status != ReturnJobStatus.FAILED:
+        logger.warning(
+            "작업이 이미 최종 처리되어 FAILED 이벤트 발행을 생략합니다. "
+            "job_id=%s status=%s",
+            failed_job.id,
+            failed_job.status,
         )
+        return
+
+    publish_event_safely(
+        event_name="FAILED",
+        publish_function=publish_failed_event,
+        job_id=failed_job.id,
+        task_id=task_id,
+        error=error,
+    )
+
+# Redis 알림은 상태 전달용, 실패해도 핵심 검수 트랜잭션까지 실패 시키지 않음.
+def publish_event_safely(
+    event_name: str,
+    publish_function,
+    **kwargs: Any,
+) -> bool:
+    try:
+        publish_function(**kwargs)
+        return True
+    except Exception:
+        logger.exception(
+            "Redis 이벤트 발행에 실패했습니다. "
+            "event=%s kwargs=%s",
+            event_name,
+            kwargs,
+        )
+        return False    
 
 # celery task
 @celery_app.task(
@@ -168,6 +206,7 @@ def process_inspection(
         # 1. ReturnJob 조회 및 PROCESSING 상태 변경
         (
             job_id,
+            tenant_id,
             book_id,
             mode,
             image_paths,
@@ -177,7 +216,9 @@ def process_inspection(
         )
 
         # 2. PROCESSING 상태 실시간 전달
-        publish_processing_event(
+        publish_event_safely(
+            event_name="PROCESSING",
+            publish_function=publish_processing_event,
             job_id=job_id,
             task_id=task_id,
         )
@@ -185,6 +226,7 @@ def process_inspection(
         # 3. LangGraph 실행
         ai_result = LangGraphInspectionWrapper().run_inspection(
             job_id=job_id,
+            tenant_id=tenant_id,
             book_id=book_id,
             mode=mode,
             image_paths=image_paths,
@@ -198,22 +240,26 @@ def process_inspection(
                 f"지원하지 않는 AI 판정입니다: {decision}"
             )
 
-        # 4. AI 판정에 따라 WMS 승인 또는 반려 처리
-        final_status, wms_logs = execute_wms_action(
-            decision=decision,
-            book_id=book_id,
-        )
-
-        # 5. AI 결과와 WMS 결과를 DB에 저장
-        job = save_inspection_result(
+        # 4~5. DB Lock을 획득한 뒤 WMS 호출 및 최종 결과 저장
+        job, wms_called = process_wms_result_with_lock(
             return_job_id=job_id,
             ai_result=ai_result,
-            final_status=final_status,
-            extra_logs=wms_logs,
+            execute_wms_action=execute_wms_action,
         )
 
+        if not wms_called:
+            logger.warning(
+                "WMS 중복 호출이 차단되었습니다. "
+                "task_id=%s job_id=%s status=%s",
+                task_id,
+                job.id,
+                job.status,
+            )
+
         # 6. 최종 상태 실시간 전달
-        publish_final_event(
+        publish_event_safely(
+            event_name="FINAL",
+            publish_function=publish_final_event,
             job=job,
             task_id=task_id,
         )
@@ -228,6 +274,7 @@ def process_inspection(
         return {
             "task_id": task_id,
             "job_id": str(job.id),
+            "tenant_id": str(job.tenant_id),
             "book_id": str(job.book_id),
             "status": (
                 job.status.value

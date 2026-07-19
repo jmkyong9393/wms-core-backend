@@ -1,4 +1,5 @@
 import uuid
+from uuid import UUID, uuid4
 from datetime import datetime
 from enum import Enum
 from typing import Optional
@@ -11,7 +12,6 @@ from sqlmodel import Field, SQLModel
 class StandardSize(str, Enum):
     A5 = "A5"
     B5 = "B5"
-
 
 class InboundType(str, Enum):
     NEW_STOCK = "NEW_STOCK"
@@ -195,6 +195,7 @@ class ReturnJob(SQLModel, table=True):
     __tablename__ = "return_jobs"
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: UUID = Field(foreign_key="tenants.id", nullable=False, index=True,)
 
     order_id: Optional[uuid.UUID] = Field(default=None, foreign_key="orders.id")
     book_id: uuid.UUID = Field(foreign_key="books.id")
@@ -233,11 +234,21 @@ class InventoryLog(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
+class Tenant(SQLModel, table=True):
+    __tablename__ = "tenants"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True,)
+    code: str = Field(max_length=50, unique=True, index=True, nullable=False,)
+    name: str = Field( max_length=100, nullable=False, )
+    is_active: bool = Field( default=True, nullable=False, )
+    created_at: datetime = Field( default_factory=datetime.utcnow, nullable=False,)
+    updated_at: datetime = Field( default_factory=datetime.utcnow, nullable=False,)
 
 class User(SQLModel, table=True):
     __tablename__ = "users"
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: UUID = Field(foreign_key="tenants.id", nullable=False, index=True, )
     employee_id: str = Field(    # 사번은 필수값, 중복 불가로 변경
         nullable=False,
         unique=True,

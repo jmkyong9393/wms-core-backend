@@ -13,6 +13,7 @@ class LangGraphInspectionWrapper:
     # Supervisor에 전달할 초기 검수 State 생성
     def build_initial_inspection_state(
         self,
+        tenant_id: UUID,
         book_id: UUID,
         mode: str,
         image_paths: list[str],
@@ -27,33 +28,26 @@ class LangGraphInspectionWrapper:
                 HumanMessage(
                     content=(
                         "다음 도서 이미지를 AI 검수해주세요.\n"
+                        f"tenant_id: {tenant_id}\n"
                         f"book_id: {book_id}\n"
                         f"mode: {mode}\n"
                         "image_paths:\n"
                         f"{image_path_text}"
-
                     )
                 )
             ],
+            "tenant_id": str(tenant_id),
             "book_id": str(book_id),
             "mode": mode,
             "image_paths": image_paths,
 
-            # Vision Agent가 채울 값
             "is_mint": None,
             "defects": None,
-
-            # Policy Agent가 채울 값
             "ubci_score": None,
-
-            # Critic Agent가 채울 값
             "reason_code": None,
             "repair_directive": None,
             "revision_count": 0,
-
-            # Human-In-The-Loop에서 사용할 값
             "human_feedback": None,
-            # Report Agent가 채울 값
             "final_report": None,
         }
 
@@ -114,6 +108,7 @@ class LangGraphInspectionWrapper:
     def run_inspection(
         self,
         job_id: UUID,
+        tenant_id: UUID,
         book_id: UUID,
         mode: str,
         image_paths: list[str],
@@ -127,6 +122,7 @@ class LangGraphInspectionWrapper:
         graph = app_graph or build_supervisor_graph()
 
         initial_state = self.build_initial_inspection_state(
+            tenant_id=tenant_id,
             book_id=book_id,
             mode=mode,
             image_paths=image_paths,
@@ -135,7 +131,7 @@ class LangGraphInspectionWrapper:
         # 하나의 검수 작업을 구분하기 위한 thread_id
         config = {
             "configurable": {
-                "thread_id": f"inspection-{job_id}",
+                "thread_id": f"tenant-{tenant_id}-inspection-{job_id}",
             }
         }
 

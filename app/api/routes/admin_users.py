@@ -43,12 +43,13 @@ def build_user_response(
 )
 def create_employee_account(
     request: EmployeeCreateRequest,
-    _current_master: User = Depends(require_master),
+    current_master: User = Depends(require_master),
     session: Session = Depends(get_session),
 ) -> EmployeeCreateResponse:
     user, temporary_password = create_employee(
         session=session,
         request=request,
+        current_master=current_master,
     )
 
     return EmployeeCreateResponse(
@@ -76,7 +77,7 @@ def change_user_role(
     user = update_user_role(
         session=session,
         target_user_id=user_id,
-        current_master_id=current_master.id,
+        current_master=current_master,
         new_role=request.role,
     )
 
@@ -97,7 +98,7 @@ def change_user_status(
     user = update_user_status(
         session=session,
         target_user_id=user_id,
-        current_master_id=current_master.id,
+        current_master=current_master,
         new_status=request.status,
     )
 

@@ -1,27 +1,21 @@
-import asyncio
 import json
-import os
 from collections.abc import AsyncGenerator
 from uuid import UUID
 
 import redis.asyncio as redis
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
 
+from app.core.config import settings
 from app.core.database import engine
 from app.models.wms import ReturnJob, ReturnJobStatus
 from app.services.redis_pubsub import get_return_job_channel
+from app.services.sse_ticket_service import consume_sse_ticket
 
 
 router = APIRouter()
 
-REDIS_URL = os.getenv(
-    "REDIS_URL",
-    "redis://localhost:6379/0",
-)
-
-POLLING_INTERVAL_SECONDS = 1
 
 # 상태별 진행률
 STATUS_PROGRESS = {
@@ -80,10 +74,12 @@ def format_sse_message(
 # ReturnJob 조회 중복 분리
 def find_return_job(
     job_id: UUID,
+    tenant_id: UUID,
 ) -> ReturnJob | None:
     with Session(engine) as session:
         statement = select(ReturnJob).where(
-            ReturnJob.id == job_id
+            ReturnJob.id == job_id,
+            ReturnJob.tenant_id == tenant_id,
         )
         return session.exec(statement).first()
 
@@ -112,53 +108,28 @@ def build_job_not_found_message() -> str:
         ),
     )
 
-# DB 상태를 주기적으로 조회하는 fallback generator
-async def generate_inspection_fallback_stream(
-    job_id: UUID,
-) -> AsyncGenerator[str, None]:
-
-    while True:
-        job = find_return_job(job_id)
-        
-        if job is None:
-            yield build_job_not_found_message()
-            return
-        
-        event_data = build_job_event_data(job)
-
-        yield format_sse_message(
-            event="progress",
-            data=json.dumps(
-                event_data,
-                ensure_ascii=False,
-            ),
-        )
-
-        if is_terminal_status(job.status):
-            return
-
-        await asyncio.sleep(POLLING_INTERVAL_SECONDS)
 
 
 # Redis Pub/Sub 이벤트를 실시간 전달하는 기본 generator
 async def generate_inspection_pubsub_stream(
     job_id: UUID,
+    tenant_id: UUID,
 ) -> AsyncGenerator[str, None]:
     redis_client = redis.Redis.from_url(
-        REDIS_URL,
+        settings.REDIS_URL,
         decode_responses=True,
     )
     pubsub = redis_client.pubsub()
-    channel = get_return_job_channel(
-        str(job_id)
-    )
-
-    await pubsub.subscribe(channel)
+    channel = get_return_job_channel(str(job_id))
 
     try:
+        await pubsub.subscribe(channel)
+
         # 1. SSE 연결 직후 DB 현재 상태를 1회 전달
-        # Pub/Sub 연결 전에 발생한 이벤트 유실을 보완한다.
-        job = find_return_job(job_id)
+        job = find_return_job(
+            job_id=job_id,
+            tenant_id=tenant_id,
+        )
 
         if job is None:
             yield build_job_not_found_message()
@@ -172,7 +143,6 @@ async def generate_inspection_pubsub_stream(
             ),
         )
 
-        # 이미 완료된 작업이면 바로 연결 종료
         if is_terminal_status(job.status):
             return
 
@@ -188,7 +158,6 @@ async def generate_inspection_pubsub_stream(
                 data=data,
             )
 
-            # 최종 상태인지 확인하기 위해 JSON 파싱
             try:
                 parsed_data = json.loads(data)
             except json.JSONDecodeError:
@@ -200,31 +169,50 @@ async def generate_inspection_pubsub_stream(
                 return
 
     finally:
-        # SSE 연결 종료 시 Redis 자원 정리
-        await pubsub.unsubscribe(channel)
-        await pubsub.close()
-        await redis_client.close()
+        try:
+            await pubsub.unsubscribe(channel)
+        except Exception:
+            pass
+
+        await pubsub.aclose()
+        await redis_client.aclose()
 
 
 # 기본 SSE API: Redis Pub/Sub 방식
 @router.get("/{job_id}/stream")
 async def stream_inspection_status(
     job_id: UUID,
+    ticket: str = Query(
+        ...,
+        min_length=20,
+    ),
 ) -> StreamingResponse:
-    return StreamingResponse(
-        generate_inspection_pubsub_stream(job_id),
-        media_type="text/event-stream",
-        headers=SSE_HEADERS,
+    ticket_payload = await consume_sse_ticket(
+        ticket=ticket,
+        job_id=job_id,
     )
 
+    if ticket_payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="유효하지 않거나 만료된 SSE 티켓입니다.",
+        )
 
-# fallback SSE API: DB polling 방식
-@router.get("/{job_id}/stream/fallback")
-async def stream_inspection_status_fallback(
-    job_id: UUID,
-) -> StreamingResponse:
+    try:
+        ticket_tenant_id = UUID(
+            str(ticket_payload["tenant_id"])
+        )
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="SSE 티켓의 테넌트 정보가 올바르지 않습니다.",
+        )
+
     return StreamingResponse(
-        generate_inspection_fallback_stream(job_id),
+        generate_inspection_pubsub_stream(
+            job_id=job_id,
+            tenant_id=ticket_tenant_id,
+        ),
         media_type="text/event-stream",
         headers=SSE_HEADERS,
     )

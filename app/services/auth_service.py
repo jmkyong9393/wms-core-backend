@@ -60,6 +60,24 @@ def get_user_or_raise(
     
     return user
 
+# Tenant 기준 사용자 조회 함수
+def get_tenant_user_or_raise(
+    session: Session,
+    user_id: UUID,
+    tenant_id: UUID,
+) -> User:
+    statement = select(User).where(
+        User.id == user_id,
+        User.tenant_id == tenant_id,
+    )
+
+    user = session.exec(statement).first()
+
+    if user is None:
+        raise UserNotFoundException()
+
+    return user
+
 # 저장 코드 통일
 def save_user(
     session: Session,
@@ -111,8 +129,9 @@ def generate_employee_id(
 
 # 관리자가 직원 계정 생성
 def create_employee(
-        session: Session,
-        request: EmployeeCreateRequest,
+    session: Session,
+    request: EmployeeCreateRequest,
+    current_master: User,
 ) -> tuple[User, str]:
     email = (
         str(request.email)
@@ -132,6 +151,7 @@ def create_employee(
     temporary_password = generate_temporary_password()
 
     user = User(
+        tenant_id=current_master.tenant_id,
         employee_id=employee_id,
         email=email,
         name=request.name,
@@ -205,9 +225,13 @@ def change_password(
 
 
 # 활성 MASTER 계정 수 조회
-def count_active_masters(session: Session) -> int:
+def count_active_masters(
+    session: Session,
+    tenant_id: UUID,
+) -> int:
     count = session.exec(
         select(func.count(User.id)).where(
+            User.tenant_id == tenant_id,
             User.role == UserRole.MASTER,
             User.status == UserStatus.ACTIVE,
         )
@@ -220,15 +244,16 @@ def count_active_masters(session: Session) -> int:
 def update_user_role(
     session: Session,
     target_user_id: UUID,
-    current_master_id: UUID,
+    current_master: User,
     new_role: UserRole,
 ) -> User:
-    target_user = get_user_or_raise(
+    target_user = get_tenant_user_or_raise(
         session=session,
         user_id=target_user_id,
+        tenant_id=current_master.tenant_id,
     )
 
-    if target_user.id == current_master_id:
+    if target_user.id == current_master.id:
         raise SelfRoleChangeNotAllowedException()
 
     is_active_master = (
@@ -239,7 +264,10 @@ def update_user_role(
     is_last_active_master = (
         is_active_master
         and new_role != UserRole.MASTER
-        and count_active_masters(session) <= 1
+        and count_active_masters(
+            session=session,
+            tenant_id=current_master.tenant_id,
+        ) <= 1
     )
 
     if is_last_active_master:
@@ -259,32 +287,33 @@ def update_user_role(
 def update_user_status(
     session: Session,
     target_user_id: UUID,
-    current_master_id: UUID,
+    current_master: User,
     new_status: UserStatus,
 ) -> User:
-    target_user = get_user_or_raise(
+    target_user = get_tenant_user_or_raise(
         session=session,
         user_id=target_user_id,
+        tenant_id=current_master.tenant_id,
     )
 
-    if target_user is None:
-        raise UserNotFoundException()
-
-    if target_user.id == current_master_id:
+    if target_user.id == current_master.id:
         raise SelfStatusChangeNotAllowedException()
 
     is_last_active_master = (
         target_user.role == UserRole.MASTER
         and target_user.status == UserStatus.ACTIVE
         and new_status == UserStatus.INACTIVE
-        and count_active_masters(session) <= 1
+        and count_active_masters(
+            session=session,
+            tenant_id=current_master.tenant_id,
+        ) <= 1
     )
 
     if is_last_active_master:
         raise LastActiveMasterException()
 
     target_user.status = new_status
-    
+
     save_user(
         session=session,
         user=target_user,
