@@ -3,8 +3,9 @@ from decimal import Decimal
 from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from app.core.database import get_session
@@ -58,6 +59,15 @@ class NewStockInboundResponse(BaseModel):
     location_barcode: str
     total_quantity: int
     items: List[NewStockInboundItemResponse]
+
+
+class InboundHistoryItemResponse(BaseModel):
+    inbound_id: UUID
+    inbound_type: InboundType
+    supplier_name: str | None = None
+    status: InboundStatus
+    total_quantity: int
+    date: datetime
 
 
 @router.post("/new-stock", response_model=NewStockInboundResponse)
@@ -165,3 +175,41 @@ def create_new_stock_inbound(
         total_quantity=total_quantity,
         items=response_items,
     )
+
+
+@router.get("/history", response_model=List[InboundHistoryItemResponse])
+def get_inbound_history(
+    limit: int = Query(default=10, ge=1, le=100),
+    session: Session = Depends(get_session),
+):
+    inbound_jobs = session.exec(
+        select(InboundJob).order_by(InboundJob.created_at.desc()).limit(limit)
+    ).all()
+    if not inbound_jobs:
+        return []
+
+    inbound_job_ids = [job.id for job in inbound_jobs]
+    quantity_rows = session.exec(
+        select(
+            InboundItem.inbound_job_id,
+            func.coalesce(func.sum(InboundItem.quantity), 0),
+        )
+        .where(InboundItem.inbound_job_id.in_(inbound_job_ids))
+        .group_by(InboundItem.inbound_job_id)
+    ).all()
+    quantity_by_job_id = {
+        inbound_job_id: int(total_quantity)
+        for inbound_job_id, total_quantity in quantity_rows
+    }
+
+    return [
+        InboundHistoryItemResponse(
+            inbound_id=job.id,
+            inbound_type=job.inbound_type,
+            supplier_name=job.supplier_name,
+            status=job.status,
+            total_quantity=quantity_by_job_id.get(job.id, 0),
+            date=job.created_at,
+        )
+        for job in inbound_jobs
+    ]
