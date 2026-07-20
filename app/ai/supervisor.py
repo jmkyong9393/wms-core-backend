@@ -4,6 +4,7 @@ from langgraph.checkpoint.memory import MemorySaver
 
 from .state import WMSInspectionState
 from .agents import (
+    MIN_VISION_CONFIDENCE,
     vision_agent,
     policy_agent,
     critic_agent,
@@ -12,10 +13,15 @@ from .agents import (
     report_agent
 )
 
+
+MAX_REVISIONS = 2
+VISION_RETRY_CODES = {"QUALITY_ERROR","BBOX_MISMATCH","VISION_LOW_CONFIDENCE"}
+POLICY_RETRY_CODES = {"UBCI_POLICY_VIOLATION","POLICY_LOW_CONFIDENCE"}
+
 # LangSmith Tracing 활성화 (LLMOps)
-os.environ["LANGSMITH_TRACING"] = "true"
-os.environ["LANGSMITH_PROJECT"] = "WMS_AI_Project"
-os.environ["LANGSMITH_ENDPOINT"] = "https://api.smith.langchain.com"
+#os.environ["LANGSMITH_TRACING"] = "true"
+#os.environ["LANGSMITH_PROJECT"] = "WMS_AI_Project"
+#os.environ["LANGSMITH_ENDPOINT"] = "https://api.smith.langchain.com"
 
 def route_from_supervisor(state: WMSInspectionState) -> str:
     """
@@ -30,32 +36,73 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
     #    - 검증 실패 시 policy_agent 재처리 또는 human_node 에스컬레이션 구현
     # 6. Critic 검증 완벽히 통과 시 report_agent 반환
     
-    #raise NotImplementedError("Supervisor 라우팅 로직을 구현해주세요.")
+    revision_count = state.get("revision_count", 0)
 
-    if state.get("revision_count",0) >=2:
-        return "human_node"
-    
-    if state.get("is_mint") is None and state.get("defects") is None:
-        return "vision_agent"
-    
-    if state.get("is_mint") is True:
-        return "auto_refund_agent"
-    
-    if state.get("ubci_score") is None:
-        return "policy_agent"
-    
-    if state.get("reason_code") is None:
-        return "critic_agent"
-    elif state.get("reason_code") == "OK":
-        return "report_agent"
-    else:
-        return "policy_agent"
+    if type(revision_count) is not int or revision_count < 0:
+        return _route("human_node", "잘못된 revision_count")
+
+    if revision_count >= MAX_REVISIONS:
+        return _route("human_node", "최대 재시도 횟수 도달")
+
+    reason_code = state.get("reason_code")
+    human_feedback = state.get("human_feedback")
+
+    # 관리자 입력은 반드시 human_node에서 한 번 처리된 뒤 결과에 반영합니다.
+    if human_feedback is not None:
+        if human_feedback == "APPROVE" and reason_code == "OK":
+            return _route("report_agent", "관리자 승인")
+        if human_feedback == "REJECT" and reason_code is not None:
+            return _route("report_agent", "관리자 반려")
+        return _route("human_node", "관리자 입력 처리 필요")
+
+    if (
+        state.get("is_mint") is None
+        or state.get("defects") is None
+        or state.get("vision_confidence") is None
+    ):
+        return _route("vision_agent", "Vision 출력 없음")
+
+    if reason_code in VISION_RETRY_CODES:
+        return _route("vision_agent", reason_code)
+
+    if reason_code in POLICY_RETRY_CODES:
+        return _route("policy_agent", reason_code)
+
+    if reason_code == "OK":
+        return _route("report_agent", "Critic 검증 통과")
+
+    if reason_code is not None:
+        return _route("human_node", f"처리할 수 없는 Reason Code: {reason_code}")
+
+    if state.get("is_mint") is True and not state.get("defects"):
+        vision_confidence = state.get("vision_confidence")
+        if (
+            type(vision_confidence) not in (int, float)
+            or not 0 <= vision_confidence <= 1
+            or vision_confidence < MIN_VISION_CONFIDENCE
+        ):
+            return _route("vision_agent", "Fast-track 신뢰도 미달")
+        return _route("auto_refund_agent", "MINT Fast-track")
+
+    if (
+        state.get("ubci_score") is None
+        or not state.get("rule_reference")
+        or state.get("policy_confidence") is None
+    ):
+        return _route("policy_agent", "Policy 출력 없음")
+
+    return _route("critic_agent", "교차 검증 필요")
+
+
+def _route(node: str, reason: str) -> str:
+    print(f"[Supervisor] {node} 선택 - {reason}")
+    return node
 
 def supervisor_node(state: WMSInspectionState) -> WMSInspectionState:
     """
     Supervisor 노드 자체는 상태를 변경하지 않고 패스스루 역할을 합니다.
     """
-    return state
+    return {}
 
 def build_supervisor_graph():
     """
