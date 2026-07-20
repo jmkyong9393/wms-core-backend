@@ -64,6 +64,7 @@ class InventoryTransactionType(str, Enum):
 
 class UserRole(str, Enum):
     MASTER = "MASTER"
+    ADMIN = "ADMIN"
     WORKER = "WORKER"
     GUEST = "GUEST"
     PENDING = "PENDING"
