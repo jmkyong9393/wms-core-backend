@@ -1,5 +1,7 @@
 import uuid
+from uuid import UUID, uuid4
 from datetime import datetime
+from decimal import Decimal
 from enum import Enum
 from typing import Optional
 
@@ -11,7 +13,6 @@ from sqlmodel import Field, SQLModel
 class StandardSize(str, Enum):
     A5 = "A5"
     B5 = "B5"
-
 
 class InboundType(str, Enum):
     NEW_STOCK = "NEW_STOCK"
@@ -51,6 +52,7 @@ class ReturnJobStatus(str, Enum):
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
     HITL_REQUIRED = "HITL_REQUIRED"
+    FAILED = "FAILED"
 
 
 class InventoryTransactionType(str, Enum):
@@ -82,6 +84,30 @@ class PostCategory(str, Enum):
     NOTICE = "NOTICE"
     MANUAL = "MANUAL"
     GENERAL = "GENERAL"
+
+class InspectionMode(str, Enum):
+    RETURN = "RETURN"
+    USED_PURCHASE = "USED_PURCHASE"
+
+
+class Tenant(SQLModel, table=True):
+    __tablename__ = "tenants"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    code: str = Field(max_length=50, unique=True, index=True, nullable=False)
+    name: str = Field(max_length=100, nullable=False)
+    is_active: bool = Field(default=True, nullable=False)
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+    updated_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+
+class FdsPolicy(SQLModel, table=True):
+    __tablename__ = "fds_policies"
+
+    policy_key: str = Field(max_length=100, primary_key=True)
+    policy_value: Decimal = Field(nullable=False)
+    description: Optional[str] = Field(default=None, max_length=500)
+    updated_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
 
 
 class Book(SQLModel, table=True):
@@ -190,16 +216,18 @@ class ReturnJob(SQLModel, table=True):
     __tablename__ = "return_jobs"
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: UUID = Field(foreign_key="tenants.id", nullable=False, index=True,)
 
     order_id: Optional[uuid.UUID] = Field(default=None, foreign_key="orders.id")
     book_id: uuid.UUID = Field(foreign_key="books.id")
 
     task_id: Optional[str] = Field(default=None)
 
-    status: str = Field(default="PENDING")
+    mode: InspectionMode = Field(nullable=False)
 
-    image_url: Optional[str] = Field(default=None)
-    image_urls: Optional[list] = Field(default=None, sa_column=Column(JSONB))
+    status: ReturnJobStatus = Field(default=ReturnJobStatus.PENDING)
+
+    image_paths: Optional[list] = Field(default=None, sa_column=Column(JSONB))
 
     ubci_score: Optional[int] = Field(default=None)
 
@@ -227,17 +255,39 @@ class InventoryLog(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
+class Tenant(SQLModel, table=True):
+    __tablename__ = "tenants"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True,)
+    code: str = Field(max_length=50, unique=True, index=True, nullable=False,)
+    name: str = Field( max_length=100, nullable=False, )
+    is_active: bool = Field( default=True, nullable=False, )
+    created_at: datetime = Field( default_factory=datetime.utcnow, nullable=False,)
+    updated_at: datetime = Field( default_factory=datetime.utcnow, nullable=False,)
 
 class User(SQLModel, table=True):
     __tablename__ = "users"
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    employee_id: Optional[str] = Field(default=None)
-    email: Optional[str] = Field(default=None)
+    tenant_id: UUID = Field(foreign_key="tenants.id", nullable=False, index=True, )
+    employee_id: str = Field(    # 사번은 필수값, 중복 불가로 변경
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    email: Optional[str] = Field(    # 이메일 중복 불가로 변경
+        default=None,
+        unique=True,
+        index=True,
+    )
     name: str = Field(nullable=False)
     password_hash: str = Field(nullable=False)
     role: UserRole = Field(nullable=False)
     status: UserStatus = Field(default=UserStatus.ACTIVE)
+
+    # 관리자가 직원 계정 만들면 True -> 직원이 임시 비밀번호를 새 비밀번호로 변경하면 False
+    must_change_password: bool = Field(default=True)
+
     last_login: Optional[datetime] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

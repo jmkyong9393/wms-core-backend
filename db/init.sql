@@ -11,6 +11,24 @@ CREATE TYPE user_status AS ENUM ('ACTIVE', 'INACTIVE');
 CREATE TYPE ticket_status AS ENUM ('TODO', 'IN_PROGRESS', 'RESOLVED');
 CREATE TYPE post_category AS ENUM ('NOTICE', 'MANUAL', 'GENERAL');
 
+CREATE TABLE tenants (
+    id UUID PRIMARY KEY,
+    code VARCHAR(50) NOT NULL UNIQUE,
+    name VARCHAR(100) NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX ix_tenants_code ON tenants(code);
+
+CREATE TABLE fds_policies (
+    policy_key VARCHAR(100) PRIMARY KEY,
+    policy_value NUMERIC NOT NULL,
+    description VARCHAR(500),
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE books (
     id UUID PRIMARY KEY,
     title VARCHAR NOT NULL,
@@ -97,6 +115,7 @@ CREATE TABLE order_items (
 
 CREATE TABLE return_jobs (
     id UUID PRIMARY KEY,
+    tenant_id UUID NOT NULL REFERENCES tenants(id),
     order_id UUID REFERENCES orders(id),
     book_id UUID NOT NULL REFERENCES books(id),
     status return_job_status NOT NULL,
@@ -107,6 +126,8 @@ CREATE TABLE return_jobs (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE INDEX ix_return_jobs_tenant_id ON return_jobs(tenant_id);
 
 CREATE TABLE inventory_logs (
     id UUID PRIMARY KEY,
@@ -122,6 +143,7 @@ CREATE TABLE inventory_logs (
 
 CREATE TABLE users (
     id UUID PRIMARY KEY,
+    tenant_id UUID NOT NULL REFERENCES tenants(id),
     employee_id VARCHAR,
     email VARCHAR,
     name VARCHAR NOT NULL,
@@ -132,6 +154,8 @@ CREATE TABLE users (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE INDEX ix_users_tenant_id ON users(tenant_id);
 
 CREATE TABLE boards (
     id UUID PRIMARY KEY,
