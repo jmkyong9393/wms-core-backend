@@ -1,6 +1,7 @@
 import uuid
 from uuid import UUID, uuid4
 from datetime import datetime
+from decimal import Decimal
 from enum import Enum
 from typing import Optional
 
@@ -87,6 +88,26 @@ class PostCategory(str, Enum):
 class InspectionMode(str, Enum):
     RETURN = "RETURN"
     USED_PURCHASE = "USED_PURCHASE"
+
+
+class Tenant(SQLModel, table=True):
+    __tablename__ = "tenants"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    code: str = Field(max_length=50, unique=True, index=True, nullable=False)
+    name: str = Field(max_length=100, nullable=False)
+    is_active: bool = Field(default=True, nullable=False)
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+    updated_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+
+class FdsPolicy(SQLModel, table=True):
+    __tablename__ = "fds_policies"
+
+    policy_key: str = Field(max_length=100, primary_key=True)
+    policy_value: Decimal = Field(nullable=False)
+    description: Optional[str] = Field(default=None, max_length=500)
+    updated_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
 
 
 class Book(SQLModel, table=True):
