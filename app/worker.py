@@ -2,7 +2,6 @@ import logging
 from typing import Any
 from uuid import UUID
 
-import httpx
 
 from app.core.celery_app import celery_app
 from app.models.wms import ReturnJob, ReturnJobStatus
@@ -13,10 +12,15 @@ from app.services.return_job_service import (
     process_wms_result_with_lock,
     save_inspection_failed,
 )
+
 from app.services.wms_client import (
+    WMSNonRetryableError,
+    WMSRetryableError,
     call_wms_approve_api,
     call_wms_reject_api,
 )
+
+from app.services.dlq_service import push_inspection_failure_to_dlq
 
 logger = logging.getLogger(__name__)
 
@@ -121,10 +125,55 @@ def execute_wms_action(
         f"지원하지 않는 AI 판정값입니다: {decision}"
     )
 
+
+# Redis 알림은 상태 전달용, 실패해도 핵심 검수 트랜잭션까지 실패 시키지 않음.
+def publish_event_safely(
+    event_name: str,
+    publish_function,
+    **kwargs: Any,
+) -> bool:
+    try:
+        publish_function(**kwargs)
+        return True
+    except Exception:
+        logger.exception(
+            "Redis 이벤트 발행에 실패했습니다. "
+            "event=%s kwargs=%s",
+            event_name,
+            kwargs,
+        )
+        return False  
+
+# DLQ 적재 안전 함수 추가
+def push_dlq_safely(
+    job_id: UUID,
+    task_id: str,
+    error: Exception,
+    retry_count: int,
+) -> bool:
+    try:
+        push_inspection_failure_to_dlq(
+            job_id=str(job_id),
+            task_id=task_id,
+            error=error,
+            retry_count=retry_count,
+        )
+        return True
+
+    except Exception:
+        logger.exception(
+            "DLQ 적재에 실패했습니다. "
+            "job_id=%s task_id=%s",
+            job_id,
+            task_id,
+        )
+        return False 
+    
 def handle_inspection_failure(
     job_id: UUID,
     task_id: str,
     error: Exception,
+    retry_count: int,
 ) -> None:
     failed_job = save_inspection_failed(
         return_job_id=job_id,
@@ -152,23 +201,12 @@ def handle_inspection_failure(
         error=error,
     )
 
-# Redis 알림은 상태 전달용, 실패해도 핵심 검수 트랜잭션까지 실패 시키지 않음.
-def publish_event_safely(
-    event_name: str,
-    publish_function,
-    **kwargs: Any,
-) -> bool:
-    try:
-        publish_function(**kwargs)
-        return True
-    except Exception:
-        logger.exception(
-            "Redis 이벤트 발행에 실패했습니다. "
-            "event=%s kwargs=%s",
-            event_name,
-            kwargs,
-        )
-        return False    
+    push_dlq_safely(
+        job_id=failed_job.id,
+        task_id=task_id,
+        error=error,
+        retry_count=retry_count,
+    )
 
 # celery task
 @celery_app.task(
@@ -285,10 +323,11 @@ def process_inspection(
         }
 
     # WMS API 등 HTTP 통신 오류
-    except httpx.HTTPError as error:
+        # 타임아웃, 연결 실패, 408/429, 5xx 등 재시도 가능 오류
+    except WMSRetryableError as error:
         logger.warning(
             (
-                "WMS request failed. "
+                "Retryable WMS request failed. "
                 "task_id=%s job_id=%s retry=%s/%s error=%s"
             ),
             task_id,
@@ -298,7 +337,6 @@ def process_inspection(
             error,
         )
 
-        # 남은 재시도 횟수가 있으면 다시 실행
         if self.request.retries < self.max_retries:
             raise self.retry(exc=error)
 
@@ -312,20 +350,24 @@ def process_inspection(
             job_id=job_id,
             task_id=task_id,
             error=error,
+            retry_count=self.request.retries,
         )
         raise
 
-    # LangGraph, DB 처리 등의 일반 오류
-    except Exception as error:
+    # 400, 401, 403, 404 등 재시도로 해결되지 않는 오류
+    except WMSNonRetryableError as error:
         logger.exception(
-            "Inspection failed. task_id=%s job_id=%s",
+            "Non-retryable WMS request failed. "
+            "task_id=%s job_id=%s error=%s",
             task_id,
             job_id,
+            error,
         )
 
         handle_inspection_failure(
             job_id=job_id,
             task_id=task_id,
             error=error,
+            retry_count=self.request.retries,
         )
         raise
