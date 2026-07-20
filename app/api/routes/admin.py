@@ -5,7 +5,7 @@ from sqlmodel import Session, select
 
 from app.core.database import engine
 from app.api.dependencies.auth import require_master
-from app.models.wms import ReturnJob, User
+from app.models.wms import ReturnJob, ReturnJobStatus, User
 
 router = APIRouter()
 
@@ -32,22 +32,25 @@ def get_inspection_metrics(
         processing_times = []
 
         for job in jobs:
-            if job.status == "PENDING":
+            if job.status == ReturnJobStatus.PENDING:
                 pending_jobs += 1
 
-            elif job.status == "PROCESSING":
+            elif job.status == ReturnJobStatus.PROCESSING:
                 processing_jobs += 1
 
-            elif job.status == "APPROVED":
+            elif job.status == ReturnJobStatus.APPROVED:
                 approved_jobs += 1
 
-            elif job.status == "REJECTED":
+            elif job.status == ReturnJobStatus.REJECTED:
                 rejected_jobs += 1
 
-            elif job.status == "FAILED":
+            elif job.status == ReturnJobStatus.FAILED:
                 failed_jobs += 1
 
-            if job.status in ["APPROVED", "REJECTED"]:
+            if job.status in {
+                ReturnJobStatus.APPROVED,
+                ReturnJobStatus.REJECTED,
+            }:
                 processing_time = (
                     job.updated_at - job.created_at
                 ).total_seconds()
