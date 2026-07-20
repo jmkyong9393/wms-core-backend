@@ -7,6 +7,7 @@ from app.api.routes import (
     admin,
     admin_users,
     auth,
+    books,
     certificates,
     db,
     inbound,
@@ -62,10 +63,15 @@ app.include_router(inspections.router, prefix="/api/v1/inspections", tags=["Insp
 app.include_router(stream.router, prefix="/api/v1/inspections", tags=["Inspections Stream"])
 
 # WMS 업무 API
-app.include_router(orders.router, prefix="/api/orders", tags=["Orders"])
+app.include_router(books.router, prefix="/api/v1/books", tags=["Books"])
+app.include_router(inbound.router, prefix="/api/v1/inbound", tags=["Inbound"])
+app.include_router(orders.router, prefix="/api/v1/orders", tags=["Orders"])
+app.include_router(inventory.v1_router, prefix="/api/v1/inventory", tags=["Inventory"])
+app.include_router(outbound.router, prefix="/api/v1/outbound", tags=["Outbound"])
+app.include_router(certificates.router, prefix="/api/v1/certificate", tags=["Certificate"])
+
+# 기존 개발용 재고 상태 API
 app.include_router(inventory.router, prefix="/api/inventory", tags=["Inventory"])
-app.include_router(outbound.router, prefix="/api/outbound", tags=["Outbound"])
-app.include_router(certificates.router, prefix="/api/certificate", tags=["Certificate"])
 
 # 관리자 및 개발 지원 API
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["Admin"])
