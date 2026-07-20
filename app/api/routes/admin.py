@@ -1,19 +1,24 @@
 from typing import Any, Dict
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from sqlmodel import Session, select
 
 from app.core.database import engine
-from app.models.wms import ReturnJob
+from app.api.dependencies.auth import require_master
+from app.models.wms import ReturnJob, ReturnJobStatus, User
 
 router = APIRouter()
 
 
 # 관리자 대시보드용 AI 검수 작업 지표 조회 API
 @router.get("/inspection-metrics")
-def get_inspection_metrics() -> Dict[str, Any]:
+def get_inspection_metrics(
+    current_master: User = Depends(require_master),
+) -> Dict[str, Any]:
     with Session(engine) as session:
-        statement = select(ReturnJob)
+        statement = select(ReturnJob).where(
+            ReturnJob.tenant_id == current_master.tenant_id,
+        )
         jobs = session.exec(statement).all()
 
         total_jobs = len(jobs)
@@ -27,24 +32,25 @@ def get_inspection_metrics() -> Dict[str, Any]:
         processing_times = []
 
         for job in jobs:
-            # 상태별 개수 집계
-            if job.status == "PENDING":
+            if job.status == ReturnJobStatus.PENDING:
                 pending_jobs += 1
 
-            elif job.status == "PROCESSING":
+            elif job.status == ReturnJobStatus.PROCESSING:
                 processing_jobs += 1
 
-            elif job.status == "APPROVED":
+            elif job.status == ReturnJobStatus.APPROVED:
                 approved_jobs += 1
 
-            elif job.status == "REJECTED":
+            elif job.status == ReturnJobStatus.REJECTED:
                 rejected_jobs += 1
 
-            elif job.status == "FAILED":
+            elif job.status == ReturnJobStatus.FAILED:
                 failed_jobs += 1
 
-            # 정상 완료된 작업만 평균 처리 시간 계산
-            if job.status in ["APPROVED", "REJECTED"]:
+            if job.status in {
+                ReturnJobStatus.APPROVED,
+                ReturnJobStatus.REJECTED,
+            }:
                 processing_time = (
                     job.updated_at - job.created_at
                 ).total_seconds()

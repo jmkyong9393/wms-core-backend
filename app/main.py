@@ -1,9 +1,12 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from app.core.config import settings
-from app.core.database import init_db
+from fastapi.responses import JSONResponse
+
+
 from app.api.routes import (
     admin,
+    admin_users,
+    auth,
     certificates,
     db,
     inspections,
@@ -11,11 +14,27 @@ from app.api.routes import (
     mock,
     orders,
     outbound,
-    returns,
     stream,
 )
+from app.core.config import settings
+from app.core.database import init_db
+from app.core.exceptions import AppException
 
 app = FastAPI(title=settings.PROJECT_NAME)
+
+
+@app.exception_handler(AppException)
+async def app_exception_handler(
+    request: Request,
+    exc: AppException,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "detail": exc.detail,
+            "error_code": exc.error_code,
+        },
+    )
 
 app.add_middleware(
     CORSMiddleware,
@@ -33,18 +52,25 @@ app.add_middleware(
 def on_startup():
     init_db()
 
-app.include_router(orders.router, prefix="/api/orders", tags=["Orders"])
-app.include_router(returns.router, prefix="/api/returns", tags=["Returns"])
-app.include_router(inventory.router, prefix="/api/inventory", tags=["Inventory"])
+# 인증 및 관리자 API
+app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])
+app.include_router(admin_users.router, prefix="/api/v1/users/admin", tags=["Admin Users"])
 
-app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
-app.include_router(stream.router, prefix="/api/stream", tags=["Stream"])
-
-app.include_router(db.router, prefix="/api/db", tags=["Database"])
-app.include_router(mock.router, prefix="/api/mock", tags=["Mock"])
+# AI 검수 API
 app.include_router(inspections.router, prefix="/api/v1/inspections", tags=["Inspections"])
+app.include_router(stream.router, prefix="/api/v1/inspections", tags=["Inspections Stream"])
+
+# WMS 업무 API
+app.include_router(orders.router, prefix="/api/orders", tags=["Orders"])
+app.include_router(inventory.router, prefix="/api/inventory", tags=["Inventory"])
 app.include_router(outbound.router, prefix="/api/outbound", tags=["Outbound"])
 app.include_router(certificates.router, prefix="/api/certificate", tags=["Certificate"])
+
+# 관리자 및 개발 지원 API
+app.include_router(admin.router, prefix="/api/v1/admin", tags=["Admin"])
+app.include_router(db.router, prefix="/api/db", tags=["Database"])
+app.include_router(mock.router, prefix="/api/mock", tags=["Mock"])
+
 
 
 @app.get("/")

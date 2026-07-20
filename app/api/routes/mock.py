@@ -12,6 +12,7 @@ from app.models.wms import (
     InboundJob,
     InboundStatus,
     InboundType,
+    InspectionMode,
     Inventory,
     InventoryLog,
     InventoryTransactionType,
@@ -30,6 +31,8 @@ from app.models.wms import (
     UserRole,
 )
 
+from app.api.dependencies.auth import require_master
+
 router = APIRouter()
 
 
@@ -38,7 +41,10 @@ def _count(session: Session, model: type) -> int:
 
 
 @router.post("/seed")
-def seed_mock_data(session: Session = Depends(get_session)):
+def seed_mock_data(
+    current_master: User = Depends(require_master),
+    session: Session = Depends(get_session),
+):
     book = Book(
         title="Mock WMS Book",
         isbn="9780000000000",
@@ -110,10 +116,12 @@ def seed_mock_data(session: Session = Depends(get_session)):
     session.add(order_item)
 
     return_job = ReturnJob(
+        tenant_id=current_master.tenant_id,
         order_id=order.id,
         book_id=book.id,
+        mode=InspectionMode.RETURN,
         status=ReturnJobStatus.PROCESSING,
-        image_urls=["/returns/mock/img1.jpg"],
+        image_paths=["/returns/mock/img1.jpg"],
         ubci_score=95,
         agent_logs={"vision": {"status": "mock"}},
         final_report="Mock inspection report",
@@ -132,6 +140,7 @@ def seed_mock_data(session: Session = Depends(get_session)):
     session.add(inventory_log)
 
     user = User(
+        tenant_id=current_master.tenant_id,
         employee_id="mock-worker",
         email="mock-worker@example.com",
         name="Mock Worker",
