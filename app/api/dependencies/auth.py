@@ -111,6 +111,19 @@ def require_master(
 
     return current_user
 
+# MASTER 또는 ADMIN 권한 사용자 확인
+def require_admin_or_master(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    if current_user.role not in {
+        UserRole.MASTER,
+        UserRole.ADMIN,
+    }:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="MASTER 또는 ADMIN 권한이 필요합니다.",
+        )
 
+    return current_user
 
 
