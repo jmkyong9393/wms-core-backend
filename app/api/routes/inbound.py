@@ -5,7 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func
+from sqlalchemy import func, text, update
 from sqlmodel import Session, select
 
 from app.core.database import get_session
@@ -24,6 +24,21 @@ from app.models.wms import (
 )
 
 router = APIRouter()
+
+
+def _lock_inbound_isbns(
+    session: Session,
+    items: List["NewStockInboundItemRequest"],
+) -> None:
+    # 아직 생성되지 않은 Book도 ISBN 단위로 직렬화하고, 정렬로 교착을 방지한다.
+    for isbn in sorted({item.isbn for item in items}):
+        session.exec(
+            text(
+                "SELECT pg_advisory_xact_lock("
+                "hashtextextended(:isbn, 0)"
+                ")"
+            ).bindparams(isbn=isbn)
+        )
 
 
 class NewStockInboundItemRequest(BaseModel):
@@ -89,82 +104,100 @@ def create_new_stock_inbound(
             detail="Location is inactive",
         )
 
-    inbound_job = InboundJob(
-        inbound_type=InboundType.NEW_STOCK,
-        status=InboundStatus.COMPLETED,
-        supplier_name=request.supplier_name,
-    )
-    session.add(inbound_job)
-    session.flush()
+    try:
+        _lock_inbound_isbns(session, request.items)
 
-    response_items: list[NewStockInboundItemResponse] = []
-    total_quantity = 0
-
-    for item in request.items:
-        book = session.exec(select(Book).where(Book.isbn == item.isbn)).first()
-        if book is None: # Book이 없다면 새로 등록도 해준다.
-            book = Book(
-                isbn=item.isbn,
-                title=item.title,
-                publisher=item.publisher,
-                base_price=item.base_price,
-                standard_size=item.standard_size,
-                thickness_mm=item.thickness_mm,
-            )
-            session.add(book)
-            session.flush()
-
-        session.add(
-            InboundItem(
-                inbound_job_id=inbound_job.id,
-                book_id=book.id,
-                quantity=item.quantity,
-            )
+        inbound_job = InboundJob(
+            inbound_type=InboundType.NEW_STOCK,
+            status=InboundStatus.COMPLETED,
+            supplier_name=request.supplier_name,
         )
+        session.add(inbound_job)
+        session.flush()
 
-        inventory = session.exec(
-            select(Inventory).where(
-                Inventory.book_id == book.id,
-                Inventory.location_id == location.id,
+        response_items: list[NewStockInboundItemResponse] = []
+        total_quantity = 0
+
+        for item in request.items:
+            book = session.exec(
+                select(Book).where(Book.isbn == item.isbn)
+            ).first()
+            if book is None:  # Book이 없다면 새로 등록도 해준다.
+                book = Book(
+                    isbn=item.isbn,
+                    title=item.title,
+                    publisher=item.publisher,
+                    base_price=item.base_price,
+                    standard_size=item.standard_size,
+                    thickness_mm=item.thickness_mm,
+                )
+                session.add(book)
+                session.flush()
+
+            session.add(
+                InboundItem(
+                    inbound_job_id=inbound_job.id,
+                    book_id=book.id,
+                    quantity=item.quantity,
+                )
             )
-        ).first()
-        if inventory is None:
-            inventory = Inventory(
-                book_id=book.id,
-                location_id=location.id,
-                quantity=0,
+
+            inventory = session.exec(
+                select(Inventory)
+                .where(
+                    Inventory.book_id == book.id,
+                    Inventory.location_id == location.id,
+                )
+                .with_for_update()
+            ).first()
+            if inventory is None:
+                inventory = Inventory(
+                    book_id=book.id,
+                    location_id=location.id,
+                    quantity=0,
+                )
+                session.add(inventory)
+                session.flush()
+
+            now = datetime.utcnow()
+            inventory.quantity += item.quantity
+            inventory.updated_at = now
+            session.exec(
+                update(Book)
+                .where(Book.id == book.id)
+                .values(
+                    virtual_stock=Book.virtual_stock + item.quantity,
+                    updated_at=now,
+                )
+                .execution_options(synchronize_session=False)
             )
-            session.add(inventory)
-            session.flush()
 
-        inventory.quantity += item.quantity
-        inventory.updated_at = datetime.utcnow()
-        book.virtual_stock += item.quantity
-        book.updated_at = datetime.utcnow()
-
-        session.add(
-            InventoryLog(
-                transaction_type=InventoryTransactionType.INBOUND,
-                book_id=book.id,
-                condition_grade=ConditionGrade.MINT,
-                quantity_change=item.quantity,
-                picked_location=location.barcode,
+            session.add(
+                InventoryLog(
+                    transaction_type=InventoryTransactionType.INBOUND,
+                    book_id=book.id,
+                    condition_grade=ConditionGrade.MINT,
+                    quantity_change=item.quantity,
+                    picked_location=location.barcode,
+                )
             )
-        )
 
-        total_quantity += item.quantity
-        response_items.append(
-            NewStockInboundItemResponse(
-                book_id=book.id,
-                isbn=book.isbn or item.isbn,
-                title=book.title,
-                quantity=item.quantity,
-                inventory_id=inventory.id,
-                inventory_quantity=inventory.quantity,
+            total_quantity += item.quantity
+            response_items.append(
+                NewStockInboundItemResponse(
+                    book_id=book.id,
+                    isbn=book.isbn or item.isbn,
+                    title=book.title,
+                    quantity=item.quantity,
+                    inventory_id=inventory.id,
+                    inventory_quantity=inventory.quantity,
+                )
             )
-        )
 
-    session.commit()
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
 
     return NewStockInboundResponse(
         inbound_id=inbound_job.id,
