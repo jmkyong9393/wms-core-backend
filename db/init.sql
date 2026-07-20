@@ -4,7 +4,8 @@ CREATE TYPE inbound_status AS ENUM ('RECEIVED', 'CHECKING', 'COMPLETED');
 CREATE TYPE condition_grade AS ENUM ('MINT', 'EXCELLENT', 'GOOD', 'NORMAL', 'REJECT');
 CREATE TYPE order_type AS ENUM ('B2B_ORDER', 'AUTO_PO');
 CREATE TYPE order_status AS ENUM ('PENDING', 'PICKING', 'SHIPPED', 'RETURN_REQUESTED');
-CREATE TYPE return_job_status AS ENUM ('PENDING', 'PROCESSING', 'APPROVED', 'REJECTED', 'HITL_REQUIRED');
+CREATE TYPE return_job_status AS ENUM ('PENDING', 'PROCESSING', 'APPROVED', 'REJECTED', 'HITL_REQUIRED', 'FAILED');
+CREATE TYPE inspection_mode AS ENUM ('RETURN', 'USED_PURCHASE');
 CREATE TYPE inventory_transaction_type AS ENUM ('INBOUND', 'OUTBOUND', 'RETURN_RESTOCK', 'DISCARD');
 CREATE TYPE user_role AS ENUM ('MASTER', 'WORKER', 'GUEST', 'PENDING');
 CREATE TYPE user_status AS ENUM ('ACTIVE', 'INACTIVE');
@@ -13,14 +14,14 @@ CREATE TYPE post_category AS ENUM ('NOTICE', 'MANUAL', 'GENERAL');
 
 CREATE TABLE tenants (
     id UUID PRIMARY KEY,
-    code VARCHAR(50) NOT NULL UNIQUE,
+    code VARCHAR(50) NOT NULL,
     name VARCHAR(100) NOT NULL,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX ix_tenants_code ON tenants(code);
+CREATE UNIQUE INDEX ix_tenants_code ON tenants(code);
 
 CREATE TABLE fds_policies (
     policy_key VARCHAR(100) PRIMARY KEY,
@@ -118,11 +119,13 @@ CREATE TABLE return_jobs (
     tenant_id UUID NOT NULL REFERENCES tenants(id),
     order_id UUID REFERENCES orders(id),
     book_id UUID NOT NULL REFERENCES books(id),
+    task_id VARCHAR,
+    mode inspection_mode NOT NULL,
     status return_job_status NOT NULL,
-    image_urls JSONB,
+    image_paths JSONB,
     ubci_score INTEGER,
     agent_logs JSONB,
-    final_report TEXT,
+    final_report VARCHAR,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -144,18 +147,21 @@ CREATE TABLE inventory_logs (
 CREATE TABLE users (
     id UUID PRIMARY KEY,
     tenant_id UUID NOT NULL REFERENCES tenants(id),
-    employee_id VARCHAR,
+    employee_id VARCHAR NOT NULL,
     email VARCHAR,
     name VARCHAR NOT NULL,
     password_hash VARCHAR NOT NULL,
     role user_role NOT NULL,
-    status user_status DEFAULT 'ACTIVE',
+    status user_status NOT NULL DEFAULT 'ACTIVE',
+    must_change_password BOOLEAN NOT NULL DEFAULT TRUE,
     last_login TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX ix_users_tenant_id ON users(tenant_id);
+CREATE UNIQUE INDEX ix_users_employee_id ON users(employee_id);
+CREATE UNIQUE INDEX ix_users_email ON users(email);
 
 CREATE TABLE boards (
     id UUID PRIMARY KEY,
