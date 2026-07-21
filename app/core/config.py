@@ -15,9 +15,10 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30 #현재는 30분 설정
 
-    # SSE 1회성 티켓 설정
+    # SSE 티켓 설정
     REDIS_URL: str = "redis://localhost:6379/0"
-    SSE_TICKET_EXPIRE_SECONDS: int = 60
+    SSE_TICKET_EXPIRE_SECONDS: int = 300
+    SSE_HEARTBEAT_SECONDS: int = 15
 
     # 최초 MASTER 계정 설정
     INITIAL_MASTER_EMPLOYEE_ID: str

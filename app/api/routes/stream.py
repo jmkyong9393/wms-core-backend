@@ -11,7 +11,7 @@ from app.core.config import settings
 from app.core.database import engine
 from app.models.wms import ReturnJob, ReturnJobStatus
 from app.services.redis_pubsub import get_return_job_channel
-from app.services.sse_ticket_service import consume_sse_ticket
+from app.services.sse_ticket_service import validate_sse_ticket
 
 
 router = APIRouter()
@@ -187,7 +187,7 @@ async def stream_inspection_status(
         min_length=20,
     ),
 ) -> StreamingResponse:
-    ticket_payload = await consume_sse_ticket(
+    ticket_payload = await validate_sse_ticket(
         ticket=ticket,
         job_id=job_id,
     )
