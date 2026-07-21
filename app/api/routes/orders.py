@@ -3,7 +3,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import Session, select
 
 from app.core.database import get_session
@@ -13,25 +13,63 @@ router = APIRouter()
 
 
 class OrderItemRequest(BaseModel):
-    book_id: UUID
-    quantity: int = Field(gt=0)
+    book_id: UUID = Field(description="주문할 도서 마스터 ID")
+    quantity: int = Field(gt=0, description="주문 수량")
 
 
 class CreateOrderRequest(BaseModel):
-    customer_name: str = Field(min_length=1)
-    customer_id: Optional[UUID] = None
-    logistics_center: Optional[str] = None
-    items: List[OrderItemRequest] = Field(min_length=1)
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "customer_name": "교보문고 강남점",
+                "customer_id": None,
+                "logistics_center": "SEOUL_DC",
+                "items": [
+                    {
+                        "book_id": "00000000-0000-4000-8000-000000000001",
+                        "quantity": 10,
+                    }
+                ],
+            }
+        }
+    )
+
+    customer_name: str = Field(min_length=1, description="B2B 고객사명")
+    customer_id: Optional[UUID] = Field(
+        default=None,
+        description="고객 고유 ID. 현재 B2B MVP에서는 선택 사항",
+    )
+    logistics_center: Optional[str] = Field(
+        default=None,
+        description="주문을 처리할 물류 거점 식별자",
+    )
+    items: List[OrderItemRequest] = Field(
+        min_length=1,
+        description="정상 신간 주문 품목 목록",
+    )
 
 
 class CreateOrderResponse(BaseModel):
-    order_id: UUID
-    total_price: Decimal
-    applied_discount: str  # 할인 적용되었는지 상태를 나타내는 str 값. 
-    status: OrderStatus
+    order_id: UUID = Field(description="생성된 주문 ID")
+    total_price: Decimal = Field(description="주문 생성 시점의 총 주문 금액")
+    applied_discount: str = Field(description="적용된 할인 정책 식별자")
+    status: OrderStatus = Field(description="주문 처리 상태")
 
 
-@router.post("", response_model=CreateOrderResponse)
+@router.post(
+    "",
+    response_model=CreateOrderResponse,
+    operation_id="createNewStockOrder",
+    summary="정상 신간 B2B 주문 생성",
+    description=(
+        "book_id와 수량을 기준으로 정상 신간 주문을 생성합니다. 현재 구현은 "
+        "LPN 기반 중고 단품 주문이나 UBCI 동적 가격을 포함하지 않습니다."
+    ),
+    responses={
+        404: {"description": "주문 품목의 도서 마스터를 찾을 수 없음"},
+        409: {"description": "주문 품목에 유효한 기준 가격이 없음"},
+    },
+)
 def create_order(
     request: CreateOrderRequest,
     session: Session = Depends(get_session),

@@ -4,7 +4,7 @@ from typing import List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, text, update
 from sqlmodel import Session, select
 
@@ -42,50 +42,101 @@ def _lock_inbound_isbns(
 
 
 class NewStockInboundItemRequest(BaseModel):
-    isbn: str = Field(min_length=10, max_length=13)
-    title: str = Field(min_length=1)
-    publisher: str | None = None
-    base_price: Decimal = Field(gt=0)
-    standard_size: StandardSize | None = None
-    thickness_mm: int | None = Field(default=None, gt=0)
-    quantity: int = Field(gt=0)
+    isbn: str = Field(
+        min_length=10,
+        max_length=13,
+        description="입고 도서 ISBN",
+        examples=["9788912345678"],
+    )
+    title: str = Field(min_length=1, description="도서명")
+    publisher: str | None = Field(default=None, description="출판사명")
+    base_price: Decimal = Field(gt=0, description="도서 기준 판매가")
+    standard_size: StandardSize | None = Field(
+        default=None,
+        description="3D Bin Packing용 도서 규격",
+    )
+    thickness_mm: int | None = Field(
+        default=None,
+        gt=0,
+        description="도서 두께(mm)",
+    )
+    quantity: int = Field(gt=0, description="입고 수량")
 
 
 class NewStockInboundRequest(BaseModel):
-    supplier_name: str | None = None
-    location_barcode: str = Field(min_length=1)
-    items: List[NewStockInboundItemRequest] = Field(min_length=1)
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "supplier_name": "교보문고",
+                "location_barcode": "A-1-3",
+                "items": [
+                    {
+                        "isbn": "9788912345678",
+                        "title": "해리포터와 마법사의 돌",
+                        "publisher": "문학수첩",
+                        "base_price": "15000.00",
+                        "standard_size": "A5",
+                        "thickness_mm": 20,
+                        "quantity": 50,
+                    }
+                ],
+            }
+        }
+    )
+
+    supplier_name: str | None = Field(default=None, description="공급처명")
+    location_barcode: str = Field(
+        min_length=1,
+        description="신간을 적재할 활성 로케이션 바코드",
+    )
+    items: List[NewStockInboundItemRequest] = Field(
+        min_length=1,
+        description="입고할 정상 신간 품목 목록",
+    )
 
 
 class NewStockInboundItemResponse(BaseModel):
-    book_id: UUID
-    isbn: str
-    title: str
-    quantity: int
-    inventory_id: UUID
-    inventory_quantity: int
+    book_id: UUID = Field(description="도서 마스터 ID")
+    isbn: str = Field(description="도서 ISBN")
+    title: str = Field(description="도서명")
+    quantity: int = Field(description="이번 요청에서 입고된 수량")
+    inventory_id: UUID = Field(description="반영된 묶음 재고 ID")
+    inventory_quantity: int = Field(description="입고 반영 후 로케이션 재고 수량")
 
 
 class NewStockInboundResponse(BaseModel):
-    inbound_id: UUID
-    inbound_type: InboundType
-    status: InboundStatus
-    location_id: UUID
-    location_barcode: str
-    total_quantity: int
-    items: List[NewStockInboundItemResponse]
+    inbound_id: UUID = Field(description="생성된 입고 작업 ID")
+    inbound_type: InboundType = Field(description="입고 유형")
+    status: InboundStatus = Field(description="입고 처리 상태")
+    location_id: UUID = Field(description="입고 로케이션 ID")
+    location_barcode: str = Field(description="입고 로케이션 바코드")
+    total_quantity: int = Field(description="이번 입고 작업의 총수량")
+    items: List[NewStockInboundItemResponse] = Field(description="품목별 반영 결과")
 
 
 class InboundHistoryItemResponse(BaseModel):
-    inbound_id: UUID
-    inbound_type: InboundType
-    supplier_name: str | None = None
-    status: InboundStatus
-    total_quantity: int
-    date: datetime
+    inbound_id: UUID = Field(description="입고 작업 ID")
+    inbound_type: InboundType = Field(description="입고 유형")
+    supplier_name: str | None = Field(default=None, description="공급처명")
+    status: InboundStatus = Field(description="입고 처리 상태")
+    total_quantity: int = Field(description="입고 작업의 총수량")
+    date: datetime = Field(description="입고 작업 생성 시각")
 
 
-@router.post("/new-stock", response_model=NewStockInboundResponse)
+@router.post(
+    "/new-stock",
+    response_model=NewStockInboundResponse,
+    operation_id="createNewStockInbound",
+    summary="정상 신간 입고 및 묶음 재고 편입",
+    description=(
+        "정상 신간 입고 작업과 품목을 생성하고 로케이션별 묶음 재고를 "
+        "증가시킵니다. 동일 ISBN의 동시 입고는 PostgreSQL Lock으로 직렬화합니다."
+    ),
+    responses={
+        404: {"description": "입고 로케이션 바코드를 찾을 수 없음"},
+        409: {"description": "입고 로케이션이 비활성 상태"},
+    },
+)
 def create_new_stock_inbound(
     request: NewStockInboundRequest,
     session: Session = Depends(get_session),
@@ -210,9 +261,20 @@ def create_new_stock_inbound(
     )
 
 
-@router.get("/history", response_model=List[InboundHistoryItemResponse])
+@router.get(
+    "/history",
+    response_model=List[InboundHistoryItemResponse],
+    operation_id="getInboundHistory",
+    summary="최근 입고 이력 조회",
+    description="최근 입고 작업을 생성 시각 역순으로 조회합니다.",
+)
 def get_inbound_history(
-    limit: int = Query(default=10, ge=1, le=100),
+    limit: int = Query(
+        default=10,
+        ge=1,
+        le=100,
+        description="조회할 최대 입고 작업 수",
+    ),
     session: Session = Depends(get_session),
 ):
     inbound_jobs = session.exec(

@@ -3,7 +3,7 @@ from typing import List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
 from app.core.database import get_session
@@ -14,17 +14,19 @@ v1_router = APIRouter()
 
 
 class InventoryBookResponse(BaseModel):
-    title: str
-    isbn: str | None = None
+    title: str = Field(description="도서명")
+    isbn: str | None = Field(default=None, description="도서 ISBN")
 
 
 class InventoryListItemResponse(BaseModel):
-    id: UUID
-    book: InventoryBookResponse
-    grade: ConditionGrade
-    zone: str
-    quantity: int
-    date: datetime
+    id: UUID = Field(description="묶음 재고 또는 중고 단품 재고 ID")
+    book: InventoryBookResponse = Field(description="재고 도서 정보")
+    grade: ConditionGrade = Field(description="재고의 상태 등급")
+    zone: str = Field(description="재고가 보관된 로케이션")
+    quantity: int = Field(
+        description="재고 수량. 중고 단품 재고는 항상 1",
+    )
+    date: datetime = Field(description="재고가 마지막으로 변경된 시각")
 
 @router.get("/status")
 def get_inventory_status():
@@ -42,7 +44,16 @@ def _format_location(location: Location) -> str:
     return location.barcode or f"{location.zone}-{location.rack}-{location.shelf}"
 
 
-@v1_router.get("", response_model=List[InventoryListItemResponse])
+@v1_router.get(
+    "",
+    response_model=List[InventoryListItemResponse],
+    operation_id="listInventory",
+    summary="단품 및 묶음 재고 통합 조회",
+    description=(
+        "정상 신간 묶음 재고와 중고·반품 LPN 단품 재고를 하나의 목록으로 "
+        "조회합니다. 이 API는 재고를 변경하지 않습니다."
+    ),
+)
 def list_inventory(session: Session = Depends(get_session)):
     new_stock_rows = session.exec(
         select(Inventory, Book, Location)

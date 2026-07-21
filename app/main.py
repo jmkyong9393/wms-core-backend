@@ -22,7 +22,37 @@ from app.core.config import settings
 from app.core.database import init_db
 from app.core.exceptions import AppException
 
-app = FastAPI(title=settings.PROJECT_NAME)
+WMS_OPENAPI_TAGS = [
+    {
+        "name": "Books",
+        "description": "ISBN 기반 도서 마스터 조회 API",
+    },
+    {
+        "name": "Inbound",
+        "description": "신간 입고, 중고 매입, 고객 반품 입고와 통합 입고 이력 조회 API",
+    },
+    {
+        "name": "Inventory",
+        "description": "신간 묶음 재고와 중고 단품 재고 통합 조회 API",
+    },
+    {
+        "name": "Orders",
+        "description": "신간 묶음 재고와 중고 LPN 단품 재고의 주문 생성 API",
+    },
+    {
+        "name": "Outbound",
+        "description": "신간 묶음 재고와 중고 LPN 단품 재고의 피킹 및 출고 처리 API",
+    },
+]
+
+app = FastAPI(
+    title=settings.PROJECT_NAME,
+    description=(
+        "B2B WMS의 도서 조회, 입고, 통합 재고 조회, 주문 및 "
+        "동시성 제어 출고 API를 제공합니다."
+    ),
+    openapi_tags=WMS_OPENAPI_TAGS,
+)
 
 
 @app.exception_handler(AppException)
