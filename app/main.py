@@ -7,8 +7,10 @@ from app.api.routes import (
     admin,
     admin_users,
     auth,
+    books,
     certificates,
     db,
+    inbound,
     inspections,
     inventory,
     mock,
@@ -20,7 +22,37 @@ from app.core.config import settings
 from app.core.database import init_db
 from app.core.exceptions import AppException
 
-app = FastAPI(title=settings.PROJECT_NAME)
+WMS_OPENAPI_TAGS = [
+    {
+        "name": "Books",
+        "description": "ISBN 기반 도서 마스터 조회 API",
+    },
+    {
+        "name": "Inbound",
+        "description": "신간 입고, 중고 매입, 고객 반품 입고와 통합 입고 이력 조회 API",
+    },
+    {
+        "name": "Inventory",
+        "description": "신간 묶음 재고와 중고 단품 재고 통합 조회 API",
+    },
+    {
+        "name": "Orders",
+        "description": "신간 묶음 재고와 중고 LPN 단품 재고의 주문 생성 API",
+    },
+    {
+        "name": "Outbound",
+        "description": "신간 묶음 재고와 중고 LPN 단품 재고의 피킹 및 출고 처리 API",
+    },
+]
+
+app = FastAPI(
+    title=settings.PROJECT_NAME,
+    description=(
+        "B2B WMS의 도서 조회, 입고, 통합 재고 조회, 주문 및 "
+        "동시성 제어 출고 API를 제공합니다."
+    ),
+    openapi_tags=WMS_OPENAPI_TAGS,
+)
 
 
 @app.exception_handler(AppException)
@@ -62,10 +94,15 @@ app.include_router(inspections.router, prefix="/api/v1/inspections", tags=["Insp
 app.include_router(stream.router, prefix="/api/v1/inspections", tags=["Inspections Stream"])
 
 # WMS 업무 API
-app.include_router(orders.router, prefix="/api/orders", tags=["Orders"])
+app.include_router(books.router, prefix="/api/v1/books", tags=["Books"])
+app.include_router(inbound.router, prefix="/api/v1/inbound", tags=["Inbound"])
+app.include_router(orders.router, prefix="/api/v1/orders", tags=["Orders"])
+app.include_router(inventory.v1_router, prefix="/api/v1/inventory", tags=["Inventory"])
+app.include_router(outbound.router, prefix="/api/v1/outbound", tags=["Outbound"])
+app.include_router(certificates.router, prefix="/api/v1/certificate", tags=["Certificate"])
+
+# 기존 개발용 재고 상태 API
 app.include_router(inventory.router, prefix="/api/inventory", tags=["Inventory"])
-app.include_router(outbound.router, prefix="/api/outbound", tags=["Outbound"])
-app.include_router(certificates.router, prefix="/api/certificate", tags=["Certificate"])
 
 # 관리자 및 개발 지원 API
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["Admin"])

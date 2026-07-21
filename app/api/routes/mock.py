@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from fastapi import APIRouter, Depends
 from sqlalchemy import func
 from sqlmodel import Session, select
@@ -8,6 +10,7 @@ from app.models.wms import (
     BoardPost,
     Book,
     ConditionGrade,
+    FdsReport,
     InboundItem,
     InboundJob,
     InboundStatus,
@@ -29,6 +32,7 @@ from app.models.wms import (
     TicketStatus,
     User,
     UserRole,
+    WeeklyInsight,
 )
 
 from app.api.dependencies.auth import require_master
@@ -47,7 +51,8 @@ def seed_mock_data(
 ):
     book = Book(
         title="Mock WMS Book",
-        isbn="9780000000000",
+        isbn=f"978{seed_suffix}",
+        publisher="Mock Publisher",
         standard_size=StandardSize.A5,
         thickness_mm=22,
         base_price=15000,
@@ -98,10 +103,12 @@ def seed_mock_data(
     session.add(used_item)
 
     order = Order(
+        customer_id=customer_id,
         customer_name="Mock B2B Customer",
         type=OrderType.B2B_ORDER,
         total_price=15000,
         status=OrderStatus.PENDING,
+        logistics_center="SEOUL_DC",
     )
     session.add(order)
     session.flush()
@@ -109,6 +116,7 @@ def seed_mock_data(
     order_item = OrderItem(
         order_id=order.id,
         book_id=book.id,
+        location_id=location.id,
         quantity=1,
         unit_price=book.base_price,
         final_price=book.base_price,
@@ -138,6 +146,23 @@ def seed_mock_data(
         picked_location=location.barcode,
     )
     session.add(inventory_log)
+
+    fds_report = FdsReport(
+        customer_id=customer_id,
+        fraud_score=95,
+        fraud_reason="Mock repeated return pattern",
+    )
+    session.add(fds_report)
+
+    weekly_insight = WeeklyInsight(
+        report_week=f"2026-W28-MOCK-{seed_suffix}",
+        saved_labor_cost_krw=1200000,
+        top_defective_publishers={"Mock Publisher": 3},
+        location_hotspots={"A-1-3": 2},
+        logistics_hotspots={"SEOUL_DC": 1},
+        predicted_returns=12,
+    )
+    session.add(weekly_insight)
 
     user = User(
         tenant_id=current_master.tenant_id,
@@ -178,9 +203,11 @@ def seed_mock_data(
 
 @router.post("/seed/order-outbound")
 def seed_order_outbound_data(session: Session = Depends(get_session)):
+    seed_suffix = str(uuid4().int)[-10:]
     book = Book(
         title="Order Outbound Seed Book",
-        isbn="9781111111111",
+        isbn=f"979{seed_suffix}",
+        publisher="Order Seed Publisher",
         standard_size=StandardSize.A5,
         thickness_mm=20,
         base_price=18000,
@@ -238,6 +265,8 @@ def get_mock_summary(session: Session = Depends(get_session)):
         "order_items": _count(session, OrderItem),
         "return_jobs": _count(session, ReturnJob),
         "inventory_logs": _count(session, InventoryLog),
+        "fds_reports": _count(session, FdsReport),
+        "weekly_insights": _count(session, WeeklyInsight),
         "users": _count(session, User),
         "boards": _count(session, Board),
         "board_posts": _count(session, BoardPost),
