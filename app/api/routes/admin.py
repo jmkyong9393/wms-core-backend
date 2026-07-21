@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 from sqlmodel import Session, select
 
 from app.core.database import engine
-from app.api.dependencies.auth import require_master
+from app.api.dependencies.auth import require_admin_or_master
 from app.models.wms import ReturnJob, ReturnJobStatus, User
 
 router = APIRouter()
@@ -13,11 +13,11 @@ router = APIRouter()
 # 관리자 대시보드용 AI 검수 작업 지표 조회 API
 @router.get("/inspection-metrics")
 def get_inspection_metrics(
-    current_master: User = Depends(require_master),
+    current_admin: User = Depends(require_admin_or_master),
 ) -> Dict[str, Any]:
     with Session(engine) as session:
         statement = select(ReturnJob).where(
-            ReturnJob.tenant_id == current_master.tenant_id,
+            ReturnJob.tenant_id == current_admin.tenant_id,
         )
         jobs = session.exec(statement).all()
 
