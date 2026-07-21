@@ -128,18 +128,46 @@ class LangGraphInspectionWrapper:
             image_paths=image_paths,
         )
 
-        # 하나의 검수 작업을 구분하기 위한 thread_id
+       # 하나의 검수 작업을 구분하기 위한 thread_id
+        thread_id = f"tenant-{tenant_id}-inspection-{job_id}"
+
         config = {
             "configurable": {
-                "thread_id": f"tenant-{tenant_id}-inspection-{job_id}",
+                "thread_id": thread_id,
             }
         }
 
-        final_state = graph.invoke(
+        graph.invoke(
             initial_state,
             config=config,
         )
 
+        snapshot = graph.get_state(config)
+        current_state = snapshot.values
+
+        # human_node 실행 직전에 멈췄다면 관리자 검토가 필요한 상태
+        if "human_node" in snapshot.next:
+            return {
+                "decision": "HITL_REQUIRED",
+                "ubci_score": current_state.get("ubci_score"),
+                "final_report": None,
+                "agent_logs": {
+                    "is_mint": current_state.get("is_mint"),
+                    "defects": current_state.get("defects"),
+                    "reason_code": current_state.get("reason_code"),
+                    "repair_directive": current_state.get(
+                        "repair_directive"
+                    ),
+                    "revision_count": current_state.get(
+                        "revision_count"
+                    ),
+                    "human_feedback": current_state.get(
+                        "human_feedback"
+                    ),
+                    "thread_id": thread_id,
+                },
+            }
+
         return self.convert_final_state_to_worker_result(
-            final_state
+            current_state
         )

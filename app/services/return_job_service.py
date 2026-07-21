@@ -219,6 +219,120 @@ def save_inspection_failed(
         )
 
         return job
+    
+
+# LangGraph가 HITL 지점에서 중단된 경우
+# AI 중간 결과를 저장하고 관리자 검토 대기 상태로 변경
+def save_inspection_hitl_required(
+    return_job_id: UUID,
+    celery_task_id: str,
+    ai_result: dict[str, Any],
+) -> ReturnJob:
+    with Session(engine) as session:
+        job = find_return_job_by_id_for_update(
+            session=session,
+            job_id=return_job_id,
+        )
+
+        if job is None:
+            raise ValueError(
+                "ReturnJob을 찾을 수 없습니다. "
+                f"job_id={return_job_id}"
+            )
+
+        if job.task_id != celery_task_id:
+            raise ValueError(
+                "현재 Celery 작업과 ReturnJob의 task_id가 일치하지 않습니다. "
+                f"job_id={return_job_id} "
+                f"existing_task_id={job.task_id} "
+                f"current_task_id={celery_task_id}"
+            )
+
+        if job.status in {
+            ReturnJobStatus.APPROVED,
+            ReturnJobStatus.REJECTED,
+            ReturnJobStatus.FAILED,
+        }:
+            raise ValueError(
+                "이미 종료된 검수 작업입니다. "
+                f"job_id={return_job_id} "
+                f"status={job.status}"
+            )
+
+        job.status = ReturnJobStatus.HITL_REQUIRED
+        job.ubci_score = ai_result.get("ubci_score")
+        job.final_report = ai_result.get("final_report")
+        job.agent_logs = {
+            **(job.agent_logs or {}),
+            **(ai_result.get("agent_logs") or {}),
+            "hitl": {
+                "required": True,
+                "task_id": celery_task_id,
+            },
+        }
+
+        save_return_job(
+            session=session,
+            job=job,
+        )
+
+        return job
+
+# LangGraph 검수 결과를 WMS 호출 전에 DB에 저장
+def save_ai_inspection_result(
+    return_job_id: UUID,
+    celery_task_id: str,
+    ai_result: dict[str, Any],
+) -> ReturnJob:
+    with Session(engine) as session:
+        job = find_return_job_by_id_for_update(
+            session=session,
+            job_id=return_job_id,
+        )
+
+        if job is None:
+            raise ValueError(
+                "ReturnJob을 찾을 수 없습니다. "
+                f"job_id={return_job_id}"
+            )
+
+        if job.task_id != celery_task_id:
+            raise ValueError(
+                "현재 Celery 작업과 ReturnJob의 task_id가 일치하지 않습니다. "
+                f"job_id={return_job_id} "
+                f"existing_task_id={job.task_id} "
+                f"current_task_id={celery_task_id}"
+            )
+
+        if job.status != ReturnJobStatus.PROCESSING:
+            raise ValueError(
+                "AI 결과를 저장할 수 있는 상태가 아닙니다. "
+                f"job_id={return_job_id} "
+                f"status={job.status}"
+            )
+
+        decision = ai_result.get("decision")
+
+        if decision not in {"APPROVE", "REJECT"}:
+            raise ValueError(
+                f"저장할 수 없는 AI 판정입니다: {decision}"
+            )
+
+        job.ubci_score = ai_result.get("ubci_score")
+        job.final_report = ai_result.get("final_report")
+        job.agent_logs = {
+            **(job.agent_logs or {}),
+            **(ai_result.get("agent_logs") or {}),
+            "ai_decision": decision,
+            "ai_completed": True,
+        }
+
+        save_return_job(
+            session=session,
+            job=job,
+        )
+
+        return job
 
 # ReturnJob 행을 잠근 상태에서 WMS API를 호출하고 최종 검수 결과를 저장한다.
 def process_wms_result_with_lock(
@@ -280,6 +394,77 @@ def process_wms_result_with_lock(
         job.final_report = ai_result.get("final_report")
         job.agent_logs = {
             **(ai_result.get("agent_logs") or {}),
+            **wms_logs,
+        }
+        job.status = ReturnJobStatus(final_status)
+        job.updated_at = datetime.utcnow()
+
+        session.add(job)
+        session.commit()
+        session.refresh(job)
+
+        return job, True
+    
+# DB에 저장된 AI 판정 결과를 이용해 WMS만 호출하고 최종 상태를 저장
+def process_saved_wms_result_with_lock(
+    return_job_id: UUID,
+    execute_wms_action,
+) -> tuple[ReturnJob, bool]:
+    with Session(engine) as session:
+        job = find_return_job_by_id_for_update(
+            session=session,
+            job_id=return_job_id,
+        )
+
+        if job is None:
+            raise ValueError(
+                "ReturnJob을 찾을 수 없습니다. "
+                f"job_id={return_job_id}"
+            )
+
+        # 이미 최종 처리됐다면 WMS 중복 호출 차단
+        if job.status in {
+            ReturnJobStatus.APPROVED,
+            ReturnJobStatus.REJECTED,
+        }:
+            logger.warning(
+                "이미 완료된 검수 작업입니다. "
+                "WMS 재호출을 생략합니다. "
+                "job_id=%s status=%s",
+                return_job_id,
+                job.status,
+            )
+            return job, False
+
+        if job.status != ReturnJobStatus.PROCESSING:
+            raise ValueError(
+                "WMS 처리가 가능한 상태가 아닙니다. "
+                f"job_id={return_job_id} "
+                f"status={job.status}"
+            )
+
+        agent_logs = job.agent_logs or {}
+        decision = agent_logs.get("ai_decision")
+
+        if agent_logs.get("ai_completed") is not True:
+            raise ValueError(
+                "AI 검수 결과가 완료되지 않았습니다. "
+                f"job_id={return_job_id}"
+            )
+
+        if decision not in {"APPROVE", "REJECT"}:
+            raise ValueError(
+                f"저장된 AI 판정값이 올바르지 않습니다: {decision}"
+            )
+
+        final_status, wms_logs = execute_wms_action(
+            decision=decision,
+            book_id=job.book_id,
+            return_job_id=job.id,
+        )
+
+        job.agent_logs = {
+            **agent_logs,
             **wms_logs,
         }
         job.status = ReturnJobStatus(final_status)

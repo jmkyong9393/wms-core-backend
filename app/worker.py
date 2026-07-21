@@ -10,7 +10,10 @@ from app.services.redis_pubsub import publish_return_job_event
 from app.services.return_job_service import (
     prepare_processing_job,
     process_wms_result_with_lock,
+    process_saved_wms_result_with_lock,
+    save_ai_inspection_result,
     save_inspection_failed,
+    save_inspection_hitl_required,
 )
 
 from app.services.wms_client import (
@@ -25,6 +28,7 @@ from app.services.dlq_service import push_inspection_failure_to_dlq
 logger = logging.getLogger(__name__)
 
 TASK_NAME = "app.worker.process_inspection"
+WMS_TASK_NAME = "app.worker.process_wms_action"
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 5
 
@@ -57,13 +61,19 @@ def publish_final_event(
         else str(job.status)
     )
 
+    progress = (
+        80
+        if status == ReturnJobStatus.HITL_REQUIRED.value
+        else 100
+    )
+
     publish_return_job_event(
         job_id=str(job.id),
         event={
             "job_id": str(job.id),
             "task_id": task_id,
             "status": status,
-            "progress": 100,
+            "progress": progress,
             "ubci_score": job.ubci_score,
         },
     )
@@ -208,6 +218,126 @@ def handle_inspection_failure(
         retry_count=retry_count,
     )
 
+
+# DB에 저장된 AI 판정 결과를 바탕으로 WMS 승인/반려 API만 실행하는 Celery 작업
+# AI 검수와 WMS 연동을 분리하여 WMS 통신 실패 시 LangGraph를 다시 실행하지 않고,
+# WMS 호출 단계만 최대 3회 재시도한다.
+@celery_app.task(
+    bind=True,
+    name=WMS_TASK_NAME,
+    max_retries=MAX_RETRIES,
+    default_retry_delay=RETRY_DELAY_SECONDS,
+)
+def process_wms_action(
+    self,
+    return_job_id: str,
+) -> dict[str, Any]:
+    """
+    AI 검수가 완료된 ReturnJob의 저장된 판정값을 조회하여
+    WMS 승인 또는 반려 API를 호출하는 후속 Celery 작업.
+
+    처리 흐름:
+    1. ReturnJob에 저장된 AI 판정값 조회
+    2. AI 판정에 따라 WMS 승인/반려 API 호출
+    3. 최종 상태를 APPROVED 또는 REJECTED로 저장
+    4. 최종 상태를 Redis Pub/Sub로 전달
+    5. WMS 통신 오류 발생 시 이 작업만 재시도
+    """
+    task_id = self.request.id
+    job_id = UUID(return_job_id)
+
+    try:
+        logger.info(
+            "WMS action started. task_id=%s job_id=%s",
+            task_id,
+            job_id,
+        )
+
+        job, wms_called = process_saved_wms_result_with_lock(
+            return_job_id=job_id,
+            execute_wms_action=execute_wms_action,
+        )
+
+        if not wms_called:
+            logger.warning(
+                "WMS 중복 호출이 차단되었습니다. "
+                "task_id=%s job_id=%s status=%s",
+                task_id,
+                job.id,
+                job.status,
+            )
+
+        publish_event_safely(
+            event_name="FINAL",
+            publish_function=publish_final_event,
+            job=job,
+            task_id=task_id,
+        )
+
+        logger.info(
+            "WMS action completed. "
+            "task_id=%s job_id=%s status=%s",
+            task_id,
+            job.id,
+            job.status,
+        )
+
+        return {
+            "task_id": task_id,
+            "job_id": str(job.id),
+            "status": (
+                job.status.value
+                if hasattr(job.status, "value")
+                else str(job.status)
+            ),
+        }
+
+    except WMSRetryableError as error:
+        logger.warning(
+            "Retryable WMS request failed. "
+            "task_id=%s job_id=%s retry=%s/%s error=%s",
+            task_id,
+            job_id,
+            self.request.retries,
+            self.max_retries,
+            error,
+        )
+
+        if self.request.retries < self.max_retries:
+            raise self.retry(exc=error)
+
+        logger.exception(
+            "WMS retry exhausted. task_id=%s job_id=%s",
+            task_id,
+            job_id,
+        )
+
+        handle_inspection_failure(
+            job_id=job_id,
+            task_id=task_id,
+            error=error,
+            retry_count=self.request.retries,
+        )
+        raise
+
+    except WMSNonRetryableError as error:
+        logger.exception(
+            "Non-retryable WMS request failed. "
+            "task_id=%s job_id=%s error=%s",
+            task_id,
+            job_id,
+            error,
+        )
+
+        handle_inspection_failure(
+            job_id=job_id,
+            task_id=task_id,
+            error=error,
+            retry_count=self.request.retries,
+        )
+        raise
+
+
 # celery task
 @celery_app.task(
     bind=True,
@@ -273,37 +403,64 @@ def process_inspection(
         # AI 최종 판정 확인
         decision = ai_result.get("decision")
 
-        if decision not in ["APPROVE", "REJECT"]:
-            raise ValueError(
-                f"지원하지 않는 AI 판정입니다: {decision}"
+        # HITL 중단 시 WMS를 호출하지 않고 관리자 검토 대기 상태로 저장
+        if decision == "HITL_REQUIRED":
+            job = save_inspection_hitl_required(
+                return_job_id=job_id,
+                celery_task_id=task_id,
+                ai_result=ai_result,
             )
 
-        # 4~5. DB Lock을 획득한 뒤 WMS 호출 및 최종 결과 저장
-        job, wms_called = process_wms_result_with_lock(
-            return_job_id=job_id,
-            ai_result=ai_result,
-            execute_wms_action=execute_wms_action,
-        )
+            publish_event_safely(
+                event_name="HITL_REQUIRED",
+                publish_function=publish_final_event,
+                job=job,
+                task_id=task_id,
+            )
 
-        if not wms_called:
-            logger.warning(
-                "WMS 중복 호출이 차단되었습니다. "
+            logger.info(
+                "Inspection paused for HITL. "
                 "task_id=%s job_id=%s status=%s",
                 task_id,
                 job.id,
                 job.status,
             )
 
-        # 6. 최종 상태 실시간 전달
-        publish_event_safely(
-            event_name="FINAL",
-            publish_function=publish_final_event,
-            job=job,
-            task_id=task_id,
+            return {
+                "task_id": task_id,
+                "job_id": str(job.id),
+                "tenant_id": str(job.tenant_id),
+                "book_id": str(job.book_id),
+                "status": ReturnJobStatus.HITL_REQUIRED.value,
+                "ubci_score": job.ubci_score,
+            }
+        
+        if decision not in ["APPROVE", "REJECT"]:
+            raise ValueError(
+                f"지원하지 않는 AI 판정입니다: {decision}"
+            )
+
+        # 4. AI 검수 결과를 DB에 먼저 저장
+        job = save_ai_inspection_result(
+            return_job_id=job_id,
+            celery_task_id=task_id,
+            ai_result=ai_result,
+        )
+
+        # 5. WMS 호출은 별도 Celery 작업으로 분리
+        wms_task = process_wms_action.delay(str(job.id))
+
+        logger.info(
+            "WMS action task queued. "
+            "inspection_task_id=%s wms_task_id=%s job_id=%s",
+            task_id,
+            wms_task.id,
+            job.id,
         )
 
         logger.info(
-            "Inspection completed. task_id=%s job_id=%s status=%s",
+            "AI inspection completed. "
+            "task_id=%s job_id=%s status=%s",
             task_id,
             job.id,
             job.status,
@@ -311,6 +468,7 @@ def process_inspection(
 
         return {
             "task_id": task_id,
+            "wms_task_id": wms_task.id,
             "job_id": str(job.id),
             "tenant_id": str(job.tenant_id),
             "book_id": str(job.book_id),

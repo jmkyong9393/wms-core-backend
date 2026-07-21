@@ -34,6 +34,7 @@ async def app_exception_handler(
             "detail": exc.detail,
             "error_code": exc.error_code,
         },
+        headers=exc.headers,
     )
 
 app.add_middleware(

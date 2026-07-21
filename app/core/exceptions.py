@@ -8,10 +8,13 @@ class AppException(Exception):
                         status_code: int,
                         detail: str,
                         error_code: str,
+                        headers: dict[str, str] | None = None,
         ) -> None:
                 self.status_code = status_code
                 self.detail = detail
                 self.error_code = error_code
+                self.headers = headers
+                
                 super().__init__(detail)
 
 # 로그인 정보 오류
@@ -113,4 +116,51 @@ class LastActiveMasterException(AppException):
             status_code=status.HTTP_409_CONFLICT,
             detail="마지막 활성 MASTER 계정은 강등하거나 비활성화할 수 없습니다.",
             error_code="LAST_ACTIVE_MASTER",
+        )
+
+# HITL 관리자 판단 대상 검수 작업을 찾을 수 없는 경우
+class HITLJobNotFoundException(AppException):
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="관리자 검토 대상 검수 작업을 찾을 수 없습니다.",
+            error_code="HITL_JOB_NOT_FOUND",
+        )
+
+
+# HITL_REQUIRED 상태가 아닌 작업에 관리자 판단을 요청한 경우
+class InvalidHITLStateException(AppException):
+    def __init__(self, current_status: str) -> None:
+        super().__init__(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "관리자 판단을 처리할 수 없는 검수 상태입니다. "
+                f"current_status={current_status}"
+            ),
+            error_code="INVALID_HITL_STATE",
+        )
+
+
+# 관리자 판단 이후 Celery 작업 등록에 실패한 경우
+class HITLTaskDispatchException(AppException):
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "관리자 판단 후속 작업을 비동기 큐에 등록하지 못했습니다. "
+                "잠시 후 다시 시도해 주세요."
+            ),
+            error_code="HITL_TASK_DISPATCH_FAILED",
+            headers={
+                "Retry-After": "5",
+            },
+        )
+
+# ADMIN 권한이 필요한 API에 일반 사용자가 접근한 경우
+class AdminPermissionRequiredException(AppException):
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="ADMIN 권한이 필요합니다.",
+            error_code="ADMIN_PERMISSION_REQUIRED",
         )
