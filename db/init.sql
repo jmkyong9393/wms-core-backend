@@ -1,7 +1,7 @@
 CREATE TYPE standard_size AS ENUM ('A5', 'B5');
 CREATE TYPE inbound_type AS ENUM ('NEW_STOCK', 'USED_PURCHASE', 'CUSTOMER_RETURN');
 CREATE TYPE inbound_status AS ENUM ('RECEIVED', 'CHECKING', 'COMPLETED');
-CREATE TYPE condition_grade AS ENUM ('MINT', 'EXCELLENT', 'GOOD', 'NORMAL', 'REJECT');
+CREATE TYPE condition_grade AS ENUM ('MINT', 'EXCELLENT', 'NORMAL', 'REJECT');
 CREATE TYPE order_type AS ENUM ('B2B_ORDER', 'AUTO_PO');
 CREATE TYPE order_status AS ENUM ('PENDING', 'PICKING', 'SHIPPED', 'RETURN_REQUESTED');
 CREATE TYPE return_job_status AS ENUM ('PENDING', 'PROCESSING', 'APPROVED', 'REJECTED', 'HITL_REQUIRED', 'FAILED');
@@ -87,7 +87,7 @@ CREATE TABLE inventory_used_items (
     book_id UUID NOT NULL REFERENCES books(id),
     location_id UUID NOT NULL REFERENCES locations(id),
     lpn_barcode VARCHAR NOT NULL UNIQUE,
-    ubci_score INTEGER,
+    ubci_score NUMERIC(5, 2),
     condition_grade condition_grade NOT NULL,
     certificate_url VARCHAR,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -127,7 +127,7 @@ CREATE TABLE return_jobs (
     mode inspection_mode NOT NULL,
     status return_job_status NOT NULL,
     image_paths JSONB,
-    ubci_score INTEGER,
+    ubci_score NUMERIC(5, 2),
     agent_logs JSONB,
     final_report VARCHAR,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

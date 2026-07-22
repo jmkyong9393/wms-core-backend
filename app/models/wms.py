@@ -30,7 +30,6 @@ class InboundStatus(str, Enum):
 class ConditionGrade(str, Enum):
     MINT = "MINT"
     EXCELLENT = "EXCELLENT"
-    GOOD = "GOOD"
     NORMAL = "NORMAL"
     REJECT = "REJECT"
 
@@ -186,7 +185,10 @@ class InventoryUsedItem(SQLModel, table=True):
     book_id: uuid.UUID = Field(foreign_key="books.id")
     location_id: uuid.UUID = Field(foreign_key="locations.id")
     lpn_barcode: str = Field(nullable=False, unique=True)
-    ubci_score: Optional[int] = Field(default=None)
+    ubci_score: Optional[Decimal] = Field(
+        default=None,
+        sa_column=Column(Numeric(5, 2)),
+    )
     condition_grade: ConditionGrade = Field(nullable=False)
     certificate_url: Optional[str] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -238,7 +240,10 @@ class ReturnJob(SQLModel, table=True):
 
     image_paths: Optional[list] = Field(default=None, sa_column=Column(JSONB))
 
-    ubci_score: Optional[int] = Field(default=None)
+    ubci_score: Optional[Decimal] = Field(
+        default=None,
+        sa_column=Column(Numeric(5, 2)),
+    )
 
     agent_logs: Optional[dict] = Field(
         default_factory=dict,
