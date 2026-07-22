@@ -106,13 +106,14 @@ class LangGraphInspectionWrapper:
 
     # Supervisor 실행 후 최종 결과를 dict로 반환
     def run_inspection(
-        self,
-        job_id: UUID,
-        tenant_id: UUID,
-        book_id: UUID,
-        mode: str,
-        image_paths: list[str],
-    ) -> dict[str, Any]:
+            self,
+            job_id: UUID,
+            inspection_task_id: str,
+            tenant_id: UUID,
+            book_id: UUID,
+            mode: str,
+            image_paths: list[str],
+        ) -> dict[str, Any]:
         # supervisor가 wrapper를 참조할 수 있어 순환 import를 방지한다.
         from app.ai.supervisor import (
             app_graph,
@@ -128,8 +129,13 @@ class LangGraphInspectionWrapper:
             image_paths=image_paths,
         )
 
-       # 하나의 검수 작업을 구분하기 위한 thread_id
-        thread_id = f"tenant-{tenant_id}-inspection-{job_id}"
+       # 최초 검수와 관리자 재검수가 서로 다른 체크포인트를 사용하도록
+        # Celery Task ID를 LangGraph thread_id에 포함한다.
+        thread_id = (
+            f"tenant-{tenant_id}"
+            f"-inspection-{job_id}"
+            f"-task-{inspection_task_id}"
+        )
 
         config = {
             "configurable": {

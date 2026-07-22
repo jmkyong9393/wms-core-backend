@@ -13,10 +13,11 @@ REDIS_URL = os.getenv(
 
 INSPECTION_DLQ_KEY = "wms:dlq:inspection"
 
-
+# 실패한 Celery 작업 정보를 Redis DLQ에 저장
 def push_inspection_failure_to_dlq(
     job_id: str,
     task_id: str,
+    source_task: str,
     error: Exception,
     retry_count: int,
 ) -> None:
@@ -28,7 +29,7 @@ def push_inspection_failure_to_dlq(
     dlq_message: dict[str, Any] = {
         "job_id": job_id,
         "task_id": task_id,
-        "source_task": "app.worker.process_inspection",
+        "source_task": source_task,
         "error_type": type(error).__name__,
         "error_message": str(error),
         "retry_count": retry_count,

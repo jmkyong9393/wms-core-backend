@@ -15,7 +15,7 @@ def get_sse_ticket_key(ticket: str) -> str:
     return f"{SSE_TICKET_KEY_PREFIX}:{ticket}"
 
 
-# JWT 인증을 통과한 사용자에게 1회성 SSE 티켓 발급
+# JWT 인증을 통과한 사용자에게 TTL 동안 재접속 가능한 단기 SSE 티켓 발급
 async def issue_sse_ticket(
     job_id: UUID,
     user_id: UUID,

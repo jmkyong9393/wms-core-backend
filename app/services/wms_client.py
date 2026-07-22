@@ -1,6 +1,8 @@
 import os
 from typing import Any
 
+from app.core.config import settings
+
 import httpx
 
 class WMSRetryableError(Exception):
@@ -15,8 +17,6 @@ WMS_BASE_URL = os.getenv(
     "http://api:8000",
 ).rstrip("/")
 
-# WMS API 요청 제한 시간
-WMS_REQUEST_TIMEOUT_SECONDS = 10.0
 
 # 실제 WMS API 스펙 확정 후 경로와 요청 Body 조정 필요
 WMS_APPROVE_PATH = "/api/inventory/approve"
@@ -34,7 +34,7 @@ def post_wms_request(
             headers={
                 "Idempotency-Key": idempotency_key,
             },
-            timeout=WMS_REQUEST_TIMEOUT_SECONDS,
+            timeout=settings.WMS_REQUEST_TIMEOUT_SECONDS,
         )
 
     # 타임아웃, 연결 실패, DNS 오류 등

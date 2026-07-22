@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
@@ -77,6 +77,59 @@ def update_return_job_status(
         session=session,
         job=job,
     )
+
+
+# AI 검수 완료 후 WMS Celery Task 등록 실패 정보를 저장한다.
+# FAILED로 상태를 바꾸지 않고, 기존 AI 결과 그대로 보존.
+def save_wms_dispatch_failed(
+    return_job_id: UUID,
+    inspection_task_id: str,
+    error: Exception,
+) -> ReturnJob:
+
+    with Session(engine) as session:
+        job = find_return_job_by_id_for_update(
+            session=session,
+            job_id=return_job_id,
+        )
+
+        if job is None:
+            raise ValueError(
+                "ReturnJob을 찾을 수 없습니다. "
+                f"job_id={return_job_id}"
+            )
+
+        if job.task_id != inspection_task_id:
+            raise ValueError(
+                "현재 AI Celery Task와 ReturnJob의 task_id가 일치하지 않습니다. "
+                f"job_id={return_job_id} "
+                f"existing_task_id={job.task_id} "
+                f"current_task_id={inspection_task_id}"
+            )
+
+        if job.status != ReturnJobStatus.PROCESSING:
+            raise ValueError(
+                "WMS Task 등록 실패 정보를 저장할 수 있는 상태가 아닙니다. "
+                f"job_id={return_job_id} "
+                f"status={job.status}"
+            )
+
+        existing_logs = job.agent_logs or {}
+
+        job.agent_logs = {
+            **existing_logs,
+            "wms_dispatch_failed": True,
+            "wms_dispatch_error": str(error),
+            "wms_dispatch_failed_at": datetime.now(
+                timezone.utc
+            ).isoformat(),
+        }
+
+        session.add(job)
+        session.commit()
+        session.refresh(job)
+
+        return job
 
 
 # Celery 작업 시작 전 ReturnJob을 조회하고
@@ -219,7 +272,69 @@ def save_inspection_failed(
         )
 
         return job
-    
+
+
+# AI 검수 결과는 보존하고 WMS 처리 실패 정보만 저장
+def save_wms_processing_failed(
+    return_job_id: UUID,
+    wms_task_id: str,
+    error: Exception,
+) -> ReturnJob | None:
+    with Session(engine) as session:
+        job = find_return_job_by_id_for_update(
+            session=session,
+            job_id=return_job_id,
+        )
+
+        if job is None:
+            logger.error(
+                "WMS 실패 상태 저장 실패: ReturnJob을 찾을 수 없습니다. "
+                "job_id=%s",
+                return_job_id,
+            )
+            return None
+
+        if job.status in {
+            ReturnJobStatus.APPROVED,
+            ReturnJobStatus.REJECTED,
+        }:
+            logger.warning(
+                "이미 최종 처리된 작업이므로 WMS 실패 상태로 변경하지 않습니다. "
+                "job_id=%s status=%s",
+                return_job_id,
+                job.status,
+            )
+            return job
+
+        if job.status == ReturnJobStatus.FAILED:
+            logger.warning(
+                "이미 FAILED 처리된 작업이므로 중복 저장을 생략합니다. "
+                "job_id=%s",
+                return_job_id,
+            )
+            return None
+
+        # AI의 ubci_score와 final_report는 그대로 보존
+        job.status = ReturnJobStatus.FAILED
+        job.agent_logs = {
+            **(job.agent_logs or {}),
+            "wms_error": {
+                "type": type(error).__name__,
+                "message": str(error),
+                "task_id": wms_task_id,
+                "failed_at": datetime.now(
+                    timezone.utc
+                ).isoformat(),
+            },
+        }
+
+        save_return_job(
+            session=session,
+            job=job,
+        )
+
+        return job
+
 
 # LangGraph가 HITL 지점에서 중단된 경우
 # AI 중간 결과를 저장하고 관리자 검토 대기 상태로 변경
@@ -334,76 +449,6 @@ def save_ai_inspection_result(
 
         return job
 
-# ReturnJob 행을 잠근 상태에서 WMS API를 호출하고 최종 검수 결과를 저장한다.
-def process_wms_result_with_lock(
-    return_job_id: UUID,
-    ai_result: dict[str, Any],
-    execute_wms_action,
-) -> tuple[ReturnJob, bool]:
-
-    with Session(engine) as session:
-        job = find_return_job_by_id_for_update(
-            session=session,
-            job_id=return_job_id,
-        )
-
-        if job is None:
-            raise ValueError(
-                "ReturnJob을 찾을 수 없습니다. "
-                f"job_id={return_job_id}"
-            )
-
-        # 이미 최종 처리된 작업이면 WMS를 다시 호출하지 않음
-        if job.status in {
-            ReturnJobStatus.APPROVED,
-            ReturnJobStatus.REJECTED,
-        }:
-            logger.warning(
-                "이미 완료된 검수 작업입니다. "
-                "WMS 재호출을 생략합니다. "
-                "job_id=%s status=%s",
-                return_job_id,
-                job.status,
-            )
-
-            return job, False
-
-        # WMS 호출은 PROCESSING 상태에서만 허용
-        if job.status != ReturnJobStatus.PROCESSING:
-            raise ValueError(
-                "WMS 처리가 가능한 상태가 아닙니다. "
-                f"job_id={return_job_id} "
-                f"status={job.status}"
-            )
-
-        decision = ai_result.get("decision")
-
-        if decision not in {"APPROVE", "REJECT"}:
-            raise ValueError(
-                f"지원하지 않는 AI 판정입니다: {decision}"
-            )
-
-        # Lock을 보유한 상태에서 WMS API 호출
-        final_status, wms_logs = execute_wms_action(
-            decision=decision,
-            book_id=job.book_id,
-            return_job_id=job.id,
-        )
-
-        job.ubci_score = ai_result.get("ubci_score")
-        job.final_report = ai_result.get("final_report")
-        job.agent_logs = {
-            **(ai_result.get("agent_logs") or {}),
-            **wms_logs,
-        }
-        job.status = ReturnJobStatus(final_status)
-        job.updated_at = datetime.utcnow()
-
-        session.add(job)
-        session.commit()
-        session.refresh(job)
-
-        return job, True
     
 # DB에 저장된 AI 판정 결과를 이용해 WMS만 호출하고 최종 상태를 저장
 def process_saved_wms_result_with_lock(
@@ -457,6 +502,15 @@ def process_saved_wms_result_with_lock(
                 f"저장된 AI 판정값이 올바르지 않습니다: {decision}"
             )
 
+
+        # 동일 ReturnJob에 대한 WMS 중복 호출을 막기 위해
+        # DB 행 Lock을 유지한 상태에서 외부 API를 호출한다.
+        #
+        # 주의:
+        # WMS 응답 지연 동안 DB Lock과 Connection이 유지되므로
+        # 요청 타임아웃을 짧게 제한한다.
+        # WMS 서버의 Idempotency-Key 처리가 완료되면
+        # 외부 호출 전 Lock 해제 구조를 다시 검토한다.
         final_status, wms_logs = execute_wms_action(
             decision=decision,
             book_id=job.book_id,
@@ -475,3 +529,4 @@ def process_saved_wms_result_with_lock(
         session.refresh(job)
 
         return job, True
+

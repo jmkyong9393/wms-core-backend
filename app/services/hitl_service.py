@@ -12,6 +12,16 @@ from app.models.wms import ReturnJob, ReturnJobStatus, User
 from app.schemas.hitl import HITLAction
 
 
+
+def save_return_job(
+    session: Session,
+    return_job: ReturnJob,
+) -> None:
+    session.add(return_job)
+    session.commit()
+    session.refresh(return_job)
+
+
 # 관리자 판단 대상 ReturnJob을 Tenant 기준으로 조회하고 행 잠금을 획득
 def get_hitl_job_for_update(
     session: Session,
@@ -194,6 +204,15 @@ def save_hitl_decision(
     )
 
     # 3. Celery 등록 실패 시 복구할 수 있도록 변경 전 데이터 백업
+    # 이전 HITL 처리에서 삭제되지 못한 임시 백업은 새로운 복구 백업 안에 중첩되지 않도록 제거한다.
+    previous_agent_logs = dict(
+        return_job.agent_logs or {}
+    )
+    previous_agent_logs.pop(
+        "hitl_dispatch_backup",
+        None,
+    )
+
     previous_job_data = {
         "task_id": return_job.task_id,
         "status": (
@@ -203,7 +222,7 @@ def save_hitl_decision(
         ),
         "ubci_score": return_job.ubci_score,
         "final_report": return_job.final_report,
-        "agent_logs": dict(return_job.agent_logs or {}),
+        "agent_logs": previous_agent_logs,
     }
 
     # 4. 누가 어떤 판단을 했는지 ADMIN 판단 로그 생성
@@ -218,7 +237,7 @@ def save_hitl_decision(
 
     # 5. 기존 AI 로그를 유지하면서 HITL 판단 이력 추가
     updated_logs = append_hitl_history(
-        agent_logs=return_job.agent_logs,
+        agent_logs=previous_agent_logs,
         decision_log=decision_log,
     )
 
@@ -250,9 +269,10 @@ def save_hitl_decision(
         )
 
     # 7. 변경된 ReturnJob을 DB에 저장
-    session.add(return_job)
-    session.commit()
-    session.refresh(return_job)
+    save_return_job(
+        session=session,
+        return_job=return_job,
+    )
 
     return return_job
 
@@ -302,9 +322,10 @@ def restore_hitl_after_dispatch_failure(
     return_job.agent_logs = previous_logs
     return_job.updated_at = datetime.utcnow()
 
-    session.add(return_job)
-    session.commit()
-    session.refresh(return_job)
+    save_return_job(
+        session=session,
+        return_job=return_job,
+    )
 
     return return_job
 
@@ -333,8 +354,9 @@ def clear_hitl_dispatch_backup(
     return_job.agent_logs = updated_logs
     return_job.updated_at = datetime.utcnow()
 
-    session.add(return_job)
-    session.commit()
-    session.refresh(return_job)
+    save_return_job(
+        session=session,
+        return_job=return_job,
+    )
 
     return return_job

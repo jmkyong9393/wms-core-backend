@@ -9,11 +9,12 @@ from app.services.langgraph_wrapper import LangGraphInspectionWrapper
 from app.services.redis_pubsub import publish_return_job_event
 from app.services.return_job_service import (
     prepare_processing_job,
-    process_wms_result_with_lock,
     process_saved_wms_result_with_lock,
     save_ai_inspection_result,
     save_inspection_failed,
     save_inspection_hitl_required,
+    save_wms_dispatch_failed,
+    save_wms_processing_failed,
 )
 
 from app.services.wms_client import (
@@ -31,6 +32,9 @@ TASK_NAME = "app.worker.process_inspection"
 WMS_TASK_NAME = "app.worker.process_wms_action"
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 5
+
+class WMSTaskDispatchError(RuntimeError):
+    """WMS 후속 Celery Task 등록에 실패한 경우."""
 
 
 # PROCESSING 상태를 프론트에 전달
@@ -62,7 +66,7 @@ def publish_final_event(
     )
 
     progress = (
-        80
+        70
         if status == ReturnJobStatus.HITL_REQUIRED.value
         else 100
     )
@@ -79,10 +83,11 @@ def publish_final_event(
     )
 
 
-# Worker 처리 실패 상태를 프론트에 전달
+# Worker 처리 실패 상태와 실패 단계를 프론트에 전달
 def publish_failed_event(
     job_id: UUID,
     task_id: str,
+    failure_stage: str,
     error: Exception,
 ) -> None:
     publish_return_job_event(
@@ -92,6 +97,25 @@ def publish_failed_event(
             "task_id": task_id,
             "status": ReturnJobStatus.FAILED.value,
             "progress": 100,
+            "failure_stage": failure_stage,
+            "error_message": str(error),
+        },
+    )
+
+# AI 결과는 보존하되 WMS 후속 Task 등록 실패를 프론트에 전달
+def publish_wms_dispatch_failed_event(
+    job_id: UUID,
+    task_id: str,
+    error: Exception,
+) -> None:
+    publish_return_job_event(
+        job_id=str(job_id),
+        event={
+            "job_id": str(job_id),
+            "task_id": task_id,
+            "status": ReturnJobStatus.PROCESSING.value,
+            "progress": 50,
+            "wms_dispatch_failed": True,
             "error_message": str(error),
         },
     )
@@ -154,10 +178,36 @@ def publish_event_safely(
         )
         return False  
 
-# DLQ 적재 안전 함수 추가
+# WMS 후속 Task 등록 실패 정보를 DB에 저장한다.
+# 저장 중 오류가 발생해도 AI 검수 결과가 FAILED로 변경되지 않도록 예외를 막는다.
+def save_wms_dispatch_failed_safely(
+    job_id: UUID,
+    task_id: str,
+    error: Exception,
+) -> bool:
+    try:
+        save_wms_dispatch_failed(
+            return_job_id=job_id,
+            inspection_task_id=task_id,
+            error=error,
+        )
+        return True
+
+    except Exception:
+        logger.exception(
+            "WMS Task 등록 실패 정보를 DB에 저장하지 못했습니다. "
+            "job_id=%s task_id=%s",
+            job_id,
+            task_id,
+        )
+        return False
+
+
+# DLQ 저장 실패가 원래 작업 실패 처리까지 막지 않도록 안전하게 처리
 def push_dlq_safely(
     job_id: UUID,
     task_id: str,
+    source_task: str,
     error: Exception,
     retry_count: int,
 ) -> bool:
@@ -165,6 +215,7 @@ def push_dlq_safely(
         push_inspection_failure_to_dlq(
             job_id=str(job_id),
             task_id=task_id,
+            source_task=source_task,
             error=error,
             retry_count=retry_count,
         )
@@ -173,23 +224,34 @@ def push_dlq_safely(
     except Exception:
         logger.exception(
             "DLQ 적재에 실패했습니다. "
-            "job_id=%s task_id=%s",
+            "job_id=%s task_id=%s source_task=%s",
             job_id,
             task_id,
+            source_task,
         )
-        return False 
+        return False
     
+
 def handle_inspection_failure(
     job_id: UUID,
     task_id: str,
+    source_task: str,
     error: Exception,
     retry_count: int,
 ) -> None:
-    failed_job = save_inspection_failed(
-        return_job_id=job_id,
-        celery_task_id=task_id,
-        error=error,
-    )
+    # WMS 실패는 기존 AI 결과를 보존하고 WMS 오류만 기록
+    if source_task == WMS_TASK_NAME:
+        failed_job = save_wms_processing_failed(
+            return_job_id=job_id,
+            wms_task_id=task_id,
+            error=error,
+        )
+    else:
+        failed_job = save_inspection_failed(
+            return_job_id=job_id,
+            celery_task_id=task_id,
+            error=error,
+        )
 
     if failed_job is None:
         return
@@ -203,20 +265,30 @@ def handle_inspection_failure(
         )
         return
 
+    failure_stage = (
+        "WMS_PROCESSING"
+        if source_task == WMS_TASK_NAME
+        else "AI_INSPECTION"
+    )
+
     publish_event_safely(
         event_name="FAILED",
         publish_function=publish_failed_event,
         job_id=failed_job.id,
         task_id=task_id,
+        failure_stage=failure_stage,
         error=error,
     )
 
     push_dlq_safely(
         job_id=failed_job.id,
         task_id=task_id,
+        source_task=source_task,
         error=error,
         retry_count=retry_count,
     )
+
+    
 
 
 # DB에 저장된 AI 판정 결과를 바탕으로 WMS 승인/반려 API만 실행하는 Celery 작업
@@ -315,6 +387,7 @@ def process_wms_action(
         handle_inspection_failure(
             job_id=job_id,
             task_id=task_id,
+            source_task=WMS_TASK_NAME,
             error=error,
             retry_count=self.request.retries,
         )
@@ -332,9 +405,28 @@ def process_wms_action(
         handle_inspection_failure(
             job_id=job_id,
             task_id=task_id,
+            source_task=WMS_TASK_NAME,
             error=error,
             retry_count=self.request.retries,
         )
+        raise
+
+    except Exception as error:
+        logger.exception(
+            "Unexpected WMS worker error. "
+            "task_id=%s job_id=%s",
+            task_id,
+            job_id,
+        )
+
+        handle_inspection_failure(
+            job_id=job_id,
+            task_id=task_id,
+            source_task=WMS_TASK_NAME,
+            error=error,
+            retry_count=self.request.retries,
+        )
+
         raise
 
 
@@ -342,8 +434,8 @@ def process_wms_action(
 @celery_app.task(
     bind=True,
     name=TASK_NAME,
-    max_retries=MAX_RETRIES,          # 최대 3번 재시도
-    default_retry_delay=RETRY_DELAY_SECONDS,  # 기본 5초 후 재시도
+    max_retries=MAX_RETRIES,          
+    default_retry_delay=RETRY_DELAY_SECONDS,  
 )
 def process_inspection(
     self,
@@ -394,6 +486,7 @@ def process_inspection(
         # 3. LangGraph 실행
         ai_result = LangGraphInspectionWrapper().run_inspection(
             job_id=job_id,
+            inspection_task_id=task_id,
             tenant_id=tenant_id,
             book_id=book_id,
             mode=mode,
@@ -448,7 +541,43 @@ def process_inspection(
         )
 
         # 5. WMS 호출은 별도 Celery 작업으로 분리
-        wms_task = process_wms_action.delay(str(job.id))
+        try:
+            wms_task = process_wms_action.delay(str(job.id))
+
+        except Exception as error:
+            logger.exception(
+                "WMS Celery Task 등록에 실패했습니다. "
+                "inspection_task_id=%s job_id=%s",
+                task_id,
+                job.id,
+            )
+
+            save_wms_dispatch_failed_safely(
+                job_id=job.id,
+                task_id=task_id,
+                error=error,
+            )
+
+            publish_event_safely(
+                event_name="WMS_DISPATCH_FAILED",
+                publish_function=publish_wms_dispatch_failed_event,
+                job_id=job.id,
+                task_id=task_id,
+                error=error,
+            )
+
+            push_dlq_safely(
+                job_id=job.id,
+                task_id=task_id,
+                source_task=TASK_NAME,
+                error=error,
+                retry_count=self.request.retries,
+            )
+
+            raise WMSTaskDispatchError(
+                "WMS 후속 Celery Task 등록에 실패했습니다."
+            ) from error
+
 
         logger.info(
             "WMS action task queued. "
@@ -480,42 +609,23 @@ def process_inspection(
             "ubci_score": job.ubci_score,
         }
 
-    # WMS API 등 HTTP 통신 오류
-        # 타임아웃, 연결 실패, 408/429, 5xx 등 재시도 가능 오류
-    except WMSRetryableError as error:
-        logger.warning(
-            (
-                "Retryable WMS request failed. "
-                "task_id=%s job_id=%s retry=%s/%s error=%s"
-            ),
+
+    except WMSTaskDispatchError as error:
+        logger.error(
+            "WMS 후속 Task 등록 실패로 AI 결과를 보존합니다. "
+            "task_id=%s job_id=%s error=%s",
             task_id,
             job_id,
-            self.request.retries,
-            self.max_retries,
             error,
         )
 
-        if self.request.retries < self.max_retries:
-            raise self.retry(exc=error)
-
-        logger.exception(
-            "WMS retry exhausted. task_id=%s job_id=%s",
-            task_id,
-            job_id,
-        )
-
-        handle_inspection_failure(
-            job_id=job_id,
-            task_id=task_id,
-            error=error,
-            retry_count=self.request.retries,
-        )
         raise
 
-    # 400, 401, 403, 404 등 재시도로 해결되지 않는 오류
-    except WMSNonRetryableError as error:
+    # LangGraph, DB 저장, Celery 후속 작업 등록 등
+    # 예상하지 못한 일반 오류를 최종 실패 처리
+    except Exception as error:
         logger.exception(
-            "Non-retryable WMS request failed. "
+            "Inspection processing failed. "
             "task_id=%s job_id=%s error=%s",
             task_id,
             job_id,
@@ -525,7 +635,9 @@ def process_inspection(
         handle_inspection_failure(
             job_id=job_id,
             task_id=task_id,
+            source_task=TASK_NAME,
             error=error,
             retry_count=self.request.retries,
         )
+
         raise

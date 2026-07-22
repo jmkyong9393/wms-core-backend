@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     # SSE 티켓 설정
     REDIS_URL: str = "redis://localhost:6379/0"
     SSE_TICKET_EXPIRE_SECONDS: int = 300
+    SSE_RETRY_MILLISECONDS: int = 3000
     SSE_HEARTBEAT_SECONDS: int = 15
 
     # 최초 MASTER 계정 설정
@@ -25,6 +26,9 @@ class Settings(BaseSettings):
     INITIAL_MASTER_NAME: str
     INITIAL_MASTER_EMAIL: str | None = None
     INITIAL_MASTER_PASSWORD: str
+
+    # WMS API 요청 제한 시간
+    WMS_REQUEST_TIMEOUT_SECONDS: float = 10.0
 
     class Config:
         env_file = ".env"

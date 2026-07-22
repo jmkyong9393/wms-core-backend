@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 
+
 from app.api.routes import (
     admin,
     admin_users,
