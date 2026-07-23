@@ -233,9 +233,28 @@ class OrderItem(SQLModel, table=True):
     order_id: uuid.UUID = Field(foreign_key="orders.id")
     book_id: uuid.UUID = Field(foreign_key="books.id")
     location_id: Optional[uuid.UUID] = Field(default=None, foreign_key="locations.id")
+    condition_grade: Optional[ConditionGrade] = Field(default=None)
     quantity: int = Field(nullable=False)
     unit_price: Decimal = Field(sa_column=Column(Numeric(12, 2), nullable=False))
     final_price: Decimal = Field(sa_column=Column(Numeric(12, 2), nullable=False))
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class OrderItemLpnAllocation(SQLModel, table=True):
+    __tablename__ = "order_item_lpn_allocations"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    order_item_id: uuid.UUID = Field(
+        foreign_key="order_items.id",
+        nullable=False,
+        index=True,
+    )
+    inventory_used_item_id: uuid.UUID = Field(
+        foreign_key="inventory_used_items.id",
+        nullable=False,
+        unique=True,
+    )
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 

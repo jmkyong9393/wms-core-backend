@@ -116,12 +116,24 @@ CREATE TABLE order_items (
     order_id UUID NOT NULL REFERENCES orders(id),
     book_id UUID NOT NULL REFERENCES books(id),
     location_id UUID REFERENCES locations(id),
+    condition_grade condition_grade,
     quantity INTEGER NOT NULL,
     unit_price DECIMAL(12, 2) NOT NULL,
     final_price DECIMAL(12, 2) NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE order_item_lpn_allocations (
+    id UUID PRIMARY KEY,
+    order_item_id UUID NOT NULL REFERENCES order_items(id),
+    inventory_used_item_id UUID NOT NULL UNIQUE REFERENCES inventory_used_items(id),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX ix_order_item_lpn_allocations_order_item_id
+    ON order_item_lpn_allocations(order_item_id);
 
 CREATE TABLE return_jobs (
     id UUID PRIMARY KEY,
