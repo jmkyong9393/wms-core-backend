@@ -46,9 +46,9 @@ def admit_inspected_item(
     session: Session,
     return_job_id: UUID,
     decision: AdmissionDecision,
-    ubci_score: Decimal,
+    ubci_score: Decimal | None,
     defects: list[dict[str, Any]],
-    location_barcode: str | None,
+    location_id: UUID | None,
 ) -> InventoryAdmissionResult:
     return_job = session.get(ReturnJob, return_job_id)
     if return_job is None:
@@ -110,7 +110,7 @@ def admit_inspected_item(
             requested_decision=decision,
             requested_score=ubci_score,
             requested_defects=defects,
-            requested_location_barcode=location_barcode,
+            requested_location_id=location_id,
         )
 
     if inbound_job.status != InboundStatus.CHECKING:
@@ -139,6 +139,12 @@ def admit_inspected_item(
             inventory_changed=False,
         )
 
+    if ubci_score is None or location_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Approved inspection requires UBCI score and location",
+        )
+
     condition_grade = determine_condition_grade(ubci_score, defects)
     if condition_grade == ConditionGrade.REJECT:
         raise HTTPException(
@@ -146,13 +152,11 @@ def admit_inspected_item(
             detail="Approved inspection result maps to REJECT condition grade",
         )
 
-    location = session.exec(
-        select(Location).where(Location.barcode == location_barcode)
-    ).first()
+    location = session.get(Location, location_id)
     if location is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Location barcode not found",
+            detail="Location not found",
         )
     if not location.is_active:
         raise HTTPException(
@@ -237,9 +241,9 @@ def _replay_completed_admission(
     inbound_item: InboundItem,
     existing_inventory: InventoryUsedItem | None,
     requested_decision: AdmissionDecision,
-    requested_score: Decimal,
+    requested_score: Decimal | None,
     requested_defects: list[dict[str, Any]],
-    requested_location_barcode: str | None,
+    requested_location_id: UUID | None,
 ) -> InventoryAdmissionResult:
     completed_decision: AdmissionDecision = (
         "APPROVE" if existing_inventory is not None else "REJECT"
@@ -262,16 +266,20 @@ def _replay_completed_admission(
             inventory_changed=False,
         )
 
+    if requested_score is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Completed approval cannot be replayed without UBCI score",
+        )
+
     requested_grade = determine_condition_grade(
         requested_score,
         requested_defects,
     )
-    existing_location = session.get(Location, existing_inventory.location_id)
     if (
         requested_grade != existing_inventory.condition_grade
         or requested_score != existing_inventory.ubci_score
-        or existing_location is None
-        or requested_location_barcode != existing_location.barcode
+        or requested_location_id != existing_inventory.location_id
     ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

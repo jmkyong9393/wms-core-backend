@@ -6,7 +6,7 @@ from uuid import UUID
 from sqlmodel import Session, select
 
 from app.core.database import engine
-from app.models.wms import ReturnJob, ReturnJobStatus
+from app.models.wms import ConditionGrade, ReturnJob, ReturnJobStatus
 
 
 logger = logging.getLogger(__name__)
@@ -270,13 +270,20 @@ def process_wms_result_with_lock(
             )
 
         # Lock을 보유한 상태에서 WMS API 호출
-        final_status, wms_logs = execute_wms_action(
+        (
+            final_status,
+            wms_logs,
+            condition_grade,
+            normalized_ubci_score,
+        ) = execute_wms_action(
             decision=decision,
-            book_id=job.book_id,
             return_job_id=job.id,
+            ai_result=ai_result,
+            target_location_id=job.target_location_id,
         )
 
-        job.ubci_score = ai_result.get("ubci_score")
+        job.ubci_score = normalized_ubci_score
+        job.condition_grade = ConditionGrade(condition_grade)
         job.final_report = ai_result.get("final_report")
         job.agent_logs = {
             **(ai_result.get("agent_logs") or {}),

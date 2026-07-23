@@ -39,7 +39,7 @@ def apply_inspection_inventory_result(
             decision=request.decision,
             ubci_score=request.ubci_score,
             defects=request.defects,
-            location_barcode=request.location_barcode,
+            location_id=request.location_id,
         )
         session.commit()
     except Exception:

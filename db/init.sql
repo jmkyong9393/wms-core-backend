@@ -129,6 +129,7 @@ CREATE TABLE return_jobs (
     order_id UUID REFERENCES orders(id),
     book_id UUID NOT NULL REFERENCES books(id),
     inbound_item_id UUID REFERENCES inbound_items(id),
+    target_location_id UUID REFERENCES locations(id),
     task_id VARCHAR,
     mode inspection_mode NOT NULL,
     status return_job_status NOT NULL,

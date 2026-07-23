@@ -12,9 +12,7 @@ WMS_BASE_URL = os.getenv(
 # WMS API 요청 제한 시간
 WMS_REQUEST_TIMEOUT_SECONDS = 10.0
 
-# 실제 WMS API 스펙 확정 후 경로와 요청 Body 조정 필요
-WMS_APPROVE_PATH = "/api/inventory/approve"
-WMS_REJECT_PATH = "/api/inventory/reject"
+WMS_INSPECTION_RESULT_PATH = "/api/v1/internal/inventory/inspection-results"
 
 def post_wms_request(
     path: str,
@@ -34,31 +32,22 @@ def post_wms_request(
     return response.json()
 
 
-# 정상 판정된 도서를 WMS 입고 처리
-def call_wms_approve_api(
-    book_id: str,
+def call_wms_inspection_result_api(
+    return_job_id: str,
+    decision: str,
+    ubci_score: int | float | None,
+    defects: list[dict[str, Any]],
+    location_id: str | None,
     idempotency_key: str,
 ) -> dict[str, Any]:
     return post_wms_request(
-        path=WMS_APPROVE_PATH,
+        path=WMS_INSPECTION_RESULT_PATH,
         payload={
-            "book_id": book_id,
-            "reason": "AI_INSPECTION_PASSED",
-        },
-        idempotency_key=idempotency_key,
-    )
-
-# 불량 판정된 도서를 WMS 반려 처리
-def call_wms_reject_api(
-    book_id: str,
-    reason: str,
-    idempotency_key: str,
-) -> dict[str, Any]:
-    return post_wms_request(
-        path=WMS_REJECT_PATH,
-        payload={
-            "book_id": book_id,
-            "reason": reason,
+            "return_job_id": return_job_id,
+            "decision": decision,
+            "ubci_score": ubci_score,
+            "defects": defects,
+            "location_id": location_id,
         },
         idempotency_key=idempotency_key,
     )

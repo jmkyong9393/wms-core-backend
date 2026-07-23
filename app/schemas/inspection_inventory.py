@@ -23,14 +23,15 @@ class InspectionInventoryRequest(BaseModel):
                         "ratio": 0.03,
                     }
                 ],
-                "location_barcode": "USED-A-1-1",
+                "location_id": "00000000-0000-4000-8000-000000000002",
             }
         }
     )
 
     return_job_id: UUID = Field(description="재고 편입의 근거가 되는 검수 작업 ID")
     decision: InspectionDecision = Field(description="AI 최종 승인 또는 반려 결정")
-    ubci_score: Decimal = Field(
+    ubci_score: Decimal | None = Field(
+        default=None,
         ge=0,
         le=100,
         max_digits=5,
@@ -41,16 +42,17 @@ class InspectionInventoryRequest(BaseModel):
         default_factory=list,
         description="등급 정책의 치명적 결함 판정에 사용할 결함 목록",
     )
-    location_barcode: str | None = Field(
+    location_id: UUID | None = Field(
         default=None,
-        min_length=1,
-        description="승인된 LPN을 적재할 활성 로케이션 바코드",
+        description="승인된 LPN을 적재할 활성 로케이션 ID",
     )
 
     @model_validator(mode="after")
     def validate_approved_location(self):
-        if self.decision == "APPROVE" and not self.location_barcode:
-            raise ValueError("location_barcode is required for approval")
+        if self.decision == "APPROVE" and self.ubci_score is None:
+            raise ValueError("ubci_score is required for approval")
+        if self.decision == "APPROVE" and self.location_id is None:
+            raise ValueError("location_id is required for approval")
         return self
 
 
