@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -14,10 +14,17 @@ from app.models.wms import (
     Inventory,
     InventoryLog,
     InventoryTransactionType,
+    InventoryUsedItem,
     Location,
     Order,
     OrderItem,
+    OrderItemLpnAllocation,
     OrderStatus,
+    UsedInventoryStatus,
+)
+from app.services.fifo_lpn_service import (
+    FifoLpnCandidate,
+    select_fifo_lpn_candidates,
 )
 
 router = APIRouter()
@@ -39,6 +46,14 @@ class PickingListItem(BaseModel):
     book_id: UUID = Field(description="피킹할 도서 마스터 ID")
     location: str = Field(description="피킹할 로케이션 바코드")
     quantity: int = Field(description="해당 로케이션에서 피킹할 수량")
+    condition_grade: Optional[ConditionGrade] = Field(
+        default=None,
+        description="중고 단품의 주문 등급. 신간은 MINT로 반환",
+    )
+    lpn_barcode: Optional[str] = Field(
+        default=None,
+        description="중고 단품 식별 LPN. 신간 묶음 재고는 null",
+    )
 
 
 class PickResponse(BaseModel):
@@ -55,12 +70,13 @@ class PickResponse(BaseModel):
 @router.post(
     "/pick",
     response_model=PickResponse,
-    operation_id="pickNewStockOrder",
-    summary="정상 신간 주문 피킹 및 재고 차감",
+    operation_id="pickWmsOrder",
+    summary="신간 및 등급별 중고 주문 피킹",
     description=(
-        "PENDING 주문의 정상 신간 묶음 재고를 오래된 재고부터 차감하고 "
-        "주문을 SHIPPED로 변경합니다. 주문과 재고 행은 PostgreSQL Lock으로 "
-        "보호되며, 한 품목이라도 부족하면 전체 트랜잭션을 롤백합니다."
+        "신간 묶음 재고는 기존 FIFO로 차감하고, 중고 단품은 요청 등급을 먼저 "
+        "필터링한 뒤 stocked_at이 오래된 LPN부터 선택합니다. 주문과 재고 행은 "
+        "PostgreSQL Lock으로 보호되며, 한 품목이라도 부족하면 전체 "
+        "트랜잭션을 롤백합니다."
     ),
     responses={
         404: {"description": "출고할 주문을 찾을 수 없음"},
@@ -114,12 +130,37 @@ def pick_order(
                 detail="Order has no order items",
             )
 
-        allocations: list[tuple[OrderItem, Inventory, int, str]] = []
+        new_stock_allocations: list[
+            tuple[OrderItem, Inventory, int, str]
+        ] = []
+        used_stock_allocations: list[
+            tuple[OrderItem, FifoLpnCandidate]
+        ] = []
         picked_location_by_order_item: dict[UUID, UUID] = {}
         picked_quantity_by_book: dict[UUID, int] = {}
         reserved_quantity_by_inventory: dict[UUID, int] = {}
+        reserved_used_inventory_ids: set[UUID] = set()
 
         for order_item in order_items:
+            if order_item.condition_grade is not None:
+                lpn_candidates = select_fifo_lpn_candidates(
+                    session=session,
+                    order_item=order_item,
+                    excluded_inventory_ids=reserved_used_inventory_ids,
+                )
+                for candidate in lpn_candidates:
+                    inventory_used_item = candidate.inventory_used_item
+                    reserved_used_inventory_ids.add(inventory_used_item.id)
+                    used_stock_allocations.append((order_item, candidate))
+                    picked_location_by_order_item.setdefault(
+                        order_item.id,
+                        inventory_used_item.location_id,
+                    )
+                    picked_quantity_by_book[order_item.book_id] = (
+                        picked_quantity_by_book.get(order_item.book_id, 0) + 1
+                    )
+                continue
+
             remaining_quantity = order_item.quantity
             inventory_rows = session.exec(
                 select(Inventory)
@@ -147,7 +188,7 @@ def pick_order(
                 picked_location = (
                     location.barcode if location else str(inventory.location_id)
                 )
-                allocations.append(
+                new_stock_allocations.append(
                     (order_item, inventory, picked_quantity, picked_location)
                 )
                 picked_location_by_order_item.setdefault(
@@ -177,7 +218,12 @@ def pick_order(
 
         picking_list: list[PickingListItem] = []
 
-        for order_item, inventory, picked_quantity, picked_location in allocations:
+        for (
+            order_item,
+            inventory,
+            picked_quantity,
+            picked_location,
+        ) in new_stock_allocations:
             inventory.quantity -= picked_quantity
             inventory.updated_at = datetime.utcnow()
 
@@ -198,6 +244,43 @@ def pick_order(
                     book_id=inventory.book_id,
                     location=picked_location,
                     quantity=picked_quantity,
+                    condition_grade=ConditionGrade.MINT,
+                )
+            )
+
+        for order_item, candidate in used_stock_allocations:
+            inventory_used_item: InventoryUsedItem = (
+                candidate.inventory_used_item
+            )
+            inventory_used_item.status = UsedInventoryStatus.SHIPPED
+            inventory_used_item.updated_at = datetime.utcnow()
+            session.add(inventory_used_item)
+
+            order_item.location_id = picked_location_by_order_item[order_item.id]
+            session.add(order_item)
+            session.add(
+                OrderItemLpnAllocation(
+                    order_item_id=order_item.id,
+                    inventory_used_item_id=inventory_used_item.id,
+                )
+            )
+            session.add(
+                InventoryLog(
+                    transaction_type=InventoryTransactionType.OUTBOUND,
+                    book_id=inventory_used_item.book_id,
+                    condition_grade=inventory_used_item.condition_grade,
+                    quantity_change=-1,
+                    target_lpn=inventory_used_item.lpn_barcode,
+                    picked_location=candidate.picked_location,
+                )
+            )
+            picking_list.append(
+                PickingListItem(
+                    book_id=inventory_used_item.book_id,
+                    location=candidate.picked_location,
+                    quantity=1,
+                    condition_grade=inventory_used_item.condition_grade,
+                    lpn_barcode=inventory_used_item.lpn_barcode,
                 )
             )
 
