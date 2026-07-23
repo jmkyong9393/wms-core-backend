@@ -62,6 +62,12 @@ class InventoryTransactionType(str, Enum):
     DISCARD = "DISCARD"
 
 
+class UsedInventoryStatus(str, Enum):
+    AVAILABLE = "AVAILABLE"
+    RESERVED = "RESERVED"
+    SHIPPED = "SHIPPED"
+
+
 class UserRole(str, Enum):
     MASTER = "MASTER"
     ADMIN = "ADMIN"
@@ -147,6 +153,7 @@ class InboundItem(SQLModel, table=True):
     inbound_job_id: uuid.UUID = Field(foreign_key="inbound_jobs.id")
     book_id: uuid.UUID = Field(foreign_key="books.id")
     quantity: int = Field(nullable=False)
+    lpn_barcode: Optional[str] = Field(default=None, unique=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -184,13 +191,23 @@ class InventoryUsedItem(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     book_id: uuid.UUID = Field(foreign_key="books.id")
     location_id: uuid.UUID = Field(foreign_key="locations.id")
+    return_job_id: Optional[uuid.UUID] = Field(
+        default=None,
+        foreign_key="return_jobs.id",
+        unique=True,
+    )
     lpn_barcode: str = Field(nullable=False, unique=True)
     ubci_score: Optional[Decimal] = Field(
         default=None,
         sa_column=Column(Numeric(5, 2)),
     )
     condition_grade: ConditionGrade = Field(nullable=False)
+    status: UsedInventoryStatus = Field(
+        default=UsedInventoryStatus.AVAILABLE,
+        nullable=False,
+    )
     certificate_url: Optional[str] = Field(default=None)
+    stocked_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -231,6 +248,10 @@ class ReturnJob(SQLModel, table=True):
 
     order_id: Optional[uuid.UUID] = Field(default=None, foreign_key="orders.id")
     book_id: uuid.UUID = Field(foreign_key="books.id")
+    inbound_item_id: Optional[uuid.UUID] = Field(
+        default=None,
+        foreign_key="inbound_items.id",
+    )
 
     task_id: Optional[str] = Field(default=None)
 
@@ -244,6 +265,7 @@ class ReturnJob(SQLModel, table=True):
         default=None,
         sa_column=Column(Numeric(5, 2)),
     )
+    condition_grade: Optional[ConditionGrade] = Field(default=None)
 
     agent_logs: Optional[dict] = Field(
         default_factory=dict,
