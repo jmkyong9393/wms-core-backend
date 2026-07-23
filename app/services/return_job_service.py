@@ -220,13 +220,13 @@ def save_inspection_failed(
 
         return job
 
-# ReturnJob 행을 잠근 상태에서 WMS API를 호출하고 최종 검수 결과를 저장한다.
+# ReturnJob 상태를 잠금으로 확인한 뒤, WMS 호출이 끝나면 다시 잠가 결과를 저장한다.
 def process_wms_result_with_lock(
     return_job_id: UUID,
     ai_result: dict[str, Any],
     execute_wms_action,
 ) -> tuple[ReturnJob, bool]:
-
+    target_location_id: UUID | None
     with Session(engine) as session:
         job = find_return_job_by_id_for_update(
             session=session,
@@ -269,18 +269,45 @@ def process_wms_result_with_lock(
                 f"지원하지 않는 AI 판정입니다: {decision}"
             )
 
-        # Lock을 보유한 상태에서 WMS API 호출
-        (
-            final_status,
-            wms_logs,
-            condition_grade,
-            normalized_ubci_score,
-        ) = execute_wms_action(
-            decision=decision,
-            return_job_id=job.id,
-            ai_result=ai_result,
-            target_location_id=job.target_location_id,
+        target_location_id = job.target_location_id
+
+    # 내부 WMS API도 ReturnJob을 조회하므로 HTTP 호출 중에는 행 잠금을 유지하지 않는다.
+    (
+        final_status,
+        wms_logs,
+        condition_grade,
+        normalized_ubci_score,
+    ) = execute_wms_action(
+        decision=decision,
+        return_job_id=return_job_id,
+        ai_result=ai_result,
+        target_location_id=target_location_id,
+    )
+
+    with Session(engine) as session:
+        job = find_return_job_by_id_for_update(
+            session=session,
+            job_id=return_job_id,
         )
+
+        if job is None:
+            raise ValueError(
+                "ReturnJob을 찾을 수 없습니다. "
+                f"job_id={return_job_id}"
+            )
+
+        if job.status in {
+            ReturnJobStatus.APPROVED,
+            ReturnJobStatus.REJECTED,
+        }:
+            return job, False
+
+        if job.status != ReturnJobStatus.PROCESSING:
+            raise ValueError(
+                "WMS 결과를 저장할 수 없는 상태입니다. "
+                f"job_id={return_job_id} "
+                f"status={job.status}"
+            )
 
         job.ubci_score = normalized_ubci_score
         job.condition_grade = ConditionGrade(condition_grade)
