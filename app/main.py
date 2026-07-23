@@ -11,6 +11,7 @@ from app.api.routes import (
     certificates,
     db,
     inbound,
+    inspection_inventory,
     inspections,
     inventory,
     mock,
@@ -97,6 +98,11 @@ app.include_router(stream.router, prefix="/api/v1/inspections", tags=["Inspectio
 app.include_router(books.router, prefix="/api/v1/books", tags=["Books"])
 app.include_router(inbound.router, prefix="/api/v1/inbound", tags=["Inbound"])
 app.include_router(used_inbound.router, prefix="/api/v1/inbound", tags=["Inbound"])
+app.include_router(
+    inspection_inventory.router,
+    prefix="/api/v1/internal/inventory",
+    tags=["Inventory"],
+)
 app.include_router(orders.router, prefix="/api/v1/orders", tags=["Orders"])
 app.include_router(inventory.v1_router, prefix="/api/v1/inventory", tags=["Inventory"])
 app.include_router(outbound.router, prefix="/api/v1/outbound", tags=["Outbound"])
