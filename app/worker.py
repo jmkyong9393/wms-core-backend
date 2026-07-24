@@ -1,6 +1,6 @@
 import logging
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 
 from app.core.celery_app import celery_app
@@ -8,6 +8,7 @@ from app.models.wms import ReturnJob, ReturnJobStatus
 from app.services.langgraph_wrapper import LangGraphInspectionWrapper
 from app.services.redis_pubsub import publish_return_job_event
 from app.services.return_job_service import (
+    WMSTaskMismatchError,
     prepare_processing_job,
     process_saved_wms_result_with_lock,
     save_ai_inspection_result,
@@ -15,6 +16,7 @@ from app.services.return_job_service import (
     save_inspection_hitl_required,
     save_wms_dispatch_failed,
     save_wms_processing_failed,
+    save_wms_task_id,
 )
 
 from app.services.wms_client import (
@@ -67,7 +69,10 @@ def publish_final_event(
 
     progress = (
         70
-        if status == ReturnJobStatus.HITL_REQUIRED.value
+        if status in {
+            ReturnJobStatus.HITL_REQUIRED.value,
+            ReturnJobStatus.RECHECK_REQUIRED.value,
+        }
         else 100
     )
 
@@ -113,8 +118,9 @@ def publish_wms_dispatch_failed_event(
         event={
             "job_id": str(job_id),
             "task_id": task_id,
-            "status": ReturnJobStatus.PROCESSING.value,
-            "progress": 50,
+            "status": ReturnJobStatus.FAILED.value,
+            "progress": 100,
+            "failure_stage": "WMS_TASK_DISPATCH",
             "wms_dispatch_failed": True,
             "error_message": str(error),
         },
@@ -126,6 +132,9 @@ def execute_wms_action(
     decision: str,
     book_id: UUID,
     return_job_id: UUID,
+    admin_decision_code: str | None = None,
+    final_grade: str | None = None,
+    rejection_disposition: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     idempotency_key = f"return-job:{return_job_id}"
 
@@ -138,10 +147,15 @@ def execute_wms_action(
         return ReturnJobStatus.APPROVED.value, {
             "wms_result": wms_result,
             "idempotency_key": idempotency_key,
+            "admin_decision_code": admin_decision_code,
+            "final_grade": final_grade,
         }
 
     if decision == "REJECT":
-        reject_reason = "AI_INSPECTION_REJECTED"
+        reject_reason = (
+            admin_decision_code
+            or "AI_INSPECTION_REJECTED"
+        )
 
         wms_result = call_wms_reject_api(
             book_id=str(book_id),
@@ -152,6 +166,8 @@ def execute_wms_action(
         return ReturnJobStatus.REJECTED.value, {
             "wms_result": wms_result,
             "reject_reason": reject_reason,
+            "rejection_disposition": rejection_disposition,
+            "admin_decision_code": admin_decision_code,
             "idempotency_key": idempotency_key,
         }
 
@@ -179,7 +195,8 @@ def publish_event_safely(
         return False  
 
 # WMS 후속 Task 등록 실패 정보를 DB에 저장한다.
-# 저장 중 오류가 발생해도 AI 검수 결과가 FAILED로 변경되지 않도록 예외를 막는다.
+# 저장 함수 자체에서 AI 결과는 유지하고 ReturnJob 상태를 FAILED로 변경한다.
+# 실패 정보 저장 과정에서 추가 예외가 발생해도 원래 예외 처리를 방해하지 않는다.
 def save_wms_dispatch_failed_safely(
     job_id: UUID,
     task_id: str,
@@ -327,6 +344,7 @@ def process_wms_action(
 
         job, wms_called = process_saved_wms_result_with_lock(
             return_job_id=job_id,
+            wms_task_id=task_id,
             execute_wms_action=execute_wms_action,
         )
 
@@ -362,6 +380,23 @@ def process_wms_action(
                 if hasattr(job.status, "value")
                 else str(job.status)
             ),
+        }
+
+    except WMSTaskMismatchError as error:
+        logger.warning(
+            "저장된 WMS Task ID와 일치하지 않는 작업을 차단했습니다. "
+            "ReturnJob 상태는 변경하지 않습니다. "
+            "task_id=%s job_id=%s error=%s",
+            task_id,
+            job_id,
+            error,
+        )
+
+        return {
+            "task_id": task_id,
+            "job_id": str(job_id),
+            "status": "SKIPPED",
+            "reason": "WMS_TASK_ID_MISMATCH",
         }
 
     except WMSRetryableError as error:
@@ -417,7 +452,7 @@ def process_wms_action(
             "task_id=%s job_id=%s",
             task_id,
             job_id,
-        )
+)
 
         handle_inspection_failure(
             job_id=job_id,
@@ -445,12 +480,16 @@ def process_inspection(
     LangGraph 기반 AI 검수 Celery 작업.
 
     처리 흐름:
-    1. ReturnJob 조회 및 PROCESSING 변경
-    2. Redis Pub/Sub PROCESSING 이벤트 발행
-    3. LangGraph 검수 실행
-    4. 판정 결과에 따라 WMS API 호출
-    5. AI 및 WMS 결과를 DB에 저장
-    6. 최종 상태를 Redis Pub/Sub로 전달
+    1. ReturnJob 조회 및 PROCESSING 상태 변경
+    2. Redis Pub/Sub로 PROCESSING 상태 전달
+    3. LangGraph 기반 AI 검수 실행
+    4. HITL 필요 여부 확인
+    5. AI 검수 결과를 DB에 저장
+    6. WMS 후속 Celery Task ID를 생성하고 DB 로그에 저장
+    7. WMS 승인·반려 처리를 별도 Celery Task로 등록
+
+    WMS 통신 실패 시 이 작업을 다시 실행하지 않고,
+    process_wms_action 작업에서 WMS 처리 단계만 재시도한다.
     """
 
     task_id = self.request.id
@@ -541,14 +580,29 @@ def process_inspection(
         )
 
         # 5. WMS 호출은 별도 Celery 작업으로 분리
+        wms_task_id = str(uuid4())
+
         try:
-            wms_task = process_wms_action.delay(str(job.id))
+            # Celery 발행 전에 WMS Task ID를 DB 로그에 저장한다.
+            save_wms_task_id(
+                return_job_id=job.id,
+                inspection_task_id=task_id,
+                wms_task_id=wms_task_id,
+            )
+
+            # DB에 저장한 ID와 동일한 Task ID로 Celery 작업을 등록한다.
+            celery_app.send_task(
+                WMS_TASK_NAME,
+                args=[str(job.id)],
+                task_id=wms_task_id,
+            )
 
         except Exception as error:
             logger.exception(
                 "WMS Celery Task 등록에 실패했습니다. "
-                "inspection_task_id=%s job_id=%s",
+                "inspection_task_id=%s wms_task_id=%s job_id=%s",
                 task_id,
+                wms_task_id,
                 job.id,
             )
 
@@ -583,7 +637,7 @@ def process_inspection(
             "WMS action task queued. "
             "inspection_task_id=%s wms_task_id=%s job_id=%s",
             task_id,
-            wms_task.id,
+            wms_task_id,
             job.id,
         )
 
@@ -597,7 +651,7 @@ def process_inspection(
 
         return {
             "task_id": task_id,
-            "wms_task_id": wms_task.id,
+            "wms_task_id": wms_task_id,
             "job_id": str(job.id),
             "tenant_id": str(job.tenant_id),
             "book_id": str(job.book_id),
@@ -612,7 +666,8 @@ def process_inspection(
 
     except WMSTaskDispatchError as error:
         logger.error(
-            "WMS 후속 Task 등록 실패로 AI 결과를 보존합니다. "
+            "WMS 후속 Task 등록에 실패했습니다. "
+            "AI 결과는 보존하고 ReturnJob은 FAILED로 처리했습니다. "
             "task_id=%s job_id=%s error=%s",
             task_id,
             job_id,

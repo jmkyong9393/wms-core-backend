@@ -3,6 +3,8 @@ from typing import Any
 
 from app.core.config import settings
 
+from fastapi import status
+
 import httpx
 
 class WMSRetryableError(Exception):
@@ -64,7 +66,25 @@ def post_wms_request(
 
     response.raise_for_status()
 
-    return response.json()
+    if response.status_code == status.HTTP_204_NO_CONTENT:
+        return {
+            "status_code": response.status_code,
+            "message": "WMS 요청이 정상 처리되었습니다.",
+        }
+
+    if not response.content:
+        return {
+            "status_code": response.status_code,
+            "message": "WMS 요청이 정상 처리되었습니다.",
+        }
+
+    try:
+        return response.json()
+    except ValueError:
+        return {
+            "status_code": response.status_code,
+            "raw_response": response.text,
+        }
 
 # 정상 판정된 도서를 WMS 입고 처리
 def call_wms_approve_api(

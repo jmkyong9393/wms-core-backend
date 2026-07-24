@@ -27,6 +27,10 @@ def enqueue_inspection(
     return_job.task_id = task_id
     return_job.updated_at = datetime.utcnow()
 
+    updated_logs = dict(return_job.agent_logs or {})
+    updated_logs["inspection_task_id"] = task_id
+    return_job.agent_logs = updated_logs
+
     session.add(return_job)
     session.commit()
     session.refresh(return_job)
@@ -49,14 +53,18 @@ def enqueue_inspection(
         )
 
         # 큐 등록 실패 원인을 추적할 수 있도록 작업 로그에 저장
-        return_job.agent_logs = {
-            **(return_job.agent_logs or {}),
-            "inspection_dispatch_error": {
-                "type": type(error).__name__,
-                "message": str(error),
-                "failed_at": datetime.utcnow().isoformat(),
-            },
+        updated_logs = dict(return_job.agent_logs or {})
+
+        if updated_logs.get("inspection_task_id") == task_id:
+            updated_logs.pop("inspection_task_id", None)
+
+        updated_logs["inspection_dispatch_error"] = {
+            "type": type(error).__name__,
+            "message": str(error),
+            "failed_at": datetime.utcnow().isoformat(),
         }
+
+        return_job.agent_logs = updated_logs
 
         return_job.updated_at = datetime.utcnow()
 

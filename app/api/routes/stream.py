@@ -22,6 +22,7 @@ STATUS_PROGRESS = {
     ReturnJobStatus.PENDING.value: 20,
     ReturnJobStatus.PROCESSING.value: 50,
     ReturnJobStatus.HITL_REQUIRED.value: 70,
+    ReturnJobStatus.RECHECK_REQUIRED.value: 70,
     ReturnJobStatus.APPROVED.value: 100,
     ReturnJobStatus.REJECTED.value: 100,
     ReturnJobStatus.FAILED.value: 100,
@@ -102,43 +103,77 @@ def build_job_event_data(
     status = normalize_status(job.status)
     agent_logs = job.agent_logs or {}
 
+    wms_task_id = agent_logs.get("wms_task_id")
+
+    current_task_id = (
+        str(wms_task_id)
+        if wms_task_id
+        else job.task_id
+    )
+
     event_data: dict[str, object] = {
         "job_id": str(job.id),
-        "task_id": job.task_id,
+        "task_id": current_task_id,
         "status": status,
         "progress": get_progress_by_status(status),
         "ubci_score": job.ubci_score,
     }
 
-    # WMS 후속 Task 등록에 실패한 작업은 SSE 재접속 시에도 실패 정보를 전달
+    if status == ReturnJobStatus.RECHECK_REQUIRED.value:
+        hitl_logs = (
+            agent_logs.get("hitl")
+            if isinstance(agent_logs.get("hitl"), dict)
+            else {}
+        )
+
+        event_data.update(
+            {
+                "message": "재촬영이 필요한 검수 작업입니다.",
+                "waiting_for_new_images": hitl_logs.get(
+                    "waiting_for_new_images",
+                    True,
+                ),
+            }
+        )
+
+    # WMS 후속 Celery Task 등록 실패
     if agent_logs.get("wms_dispatch_failed") is True:
-        event_data.update({
-            "wms_dispatch_failed": True,
-            "error_message": agent_logs.get(
-                "wms_dispatch_error"
-            ),
-            "wms_dispatch_failed_at": agent_logs.get(
-                "wms_dispatch_failed_at"
-            ),
-        })
-    
-    # 실패 이벤트를 놓친 뒤 재접속해도 실패 단계를 구분할 수 있도록 전달
-    if status == ReturnJobStatus.FAILED.value:
+        event_data.update(
+            {
+                "failure_stage": "WMS_TASK_DISPATCH",
+                "wms_dispatch_failed": True,
+                "error_message": agent_logs.get(
+                    "wms_dispatch_error"
+                ),
+                "failed_at": agent_logs.get(
+                    "wms_dispatch_failed_at"
+                ),
+            }
+        )
+
+    # 최종 FAILED 상태일 때 실패 단계 구분
+    elif status == ReturnJobStatus.FAILED.value:
         if isinstance(agent_logs.get("wms_error"), dict):
             wms_error = agent_logs["wms_error"]
 
-            event_data.update({
-                "failure_stage": "WMS_PROCESSING",
-                "error_message": wms_error.get("message"),
-            })
+            event_data.update(
+                {
+                    "failure_stage": "WMS_PROCESSING",
+                    "error_message": wms_error.get("message"),
+                    "failed_at": wms_error.get("failed_at"),
+                }
+            )
 
         elif isinstance(agent_logs.get("error"), dict):
             inspection_error = agent_logs["error"]
 
-            event_data.update({
-                "failure_stage": "AI_INSPECTION",
-                "error_message": inspection_error.get("message"),
-            })
+            event_data.update(
+                {
+                    "failure_stage": "AI_INSPECTION",
+                    "error_message": inspection_error.get("message"),
+                    "failed_at": inspection_error.get("failed_at"),
+                }
+            )
 
     return event_data
 

@@ -11,6 +11,9 @@ from app.models.wms import ReturnJob, ReturnJobStatus
 
 logger = logging.getLogger(__name__)
 
+class WMSTaskMismatchError(RuntimeError):
+    """실행 중인 WMS Task ID가 DB에 저장된 Task ID와 다른 경우."""
+
 
 # job_id로 ReturnJob을 조회하는 공통 함수
 def find_return_job_by_id(
@@ -80,7 +83,7 @@ def update_return_job_status(
 
 
 # AI 검수 완료 후 WMS Celery Task 등록 실패 정보를 저장한다.
-# FAILED로 상태를 바꾸지 않고, 기존 AI 결과 그대로 보존.
+# AI 결과는 보존하고 상태는 FAILED로 변경한다.
 def save_wms_dispatch_failed(
     return_job_id: UUID,
     inspection_task_id: str,
@@ -114,15 +117,24 @@ def save_wms_dispatch_failed(
                 f"status={job.status}"
             )
 
-        existing_logs = job.agent_logs or {}
+        existing_logs = dict(job.agent_logs or {})
+
+        failed_wms_task_id = existing_logs.pop(
+            "wms_task_id",
+            None,
+        )
+
+        job.status = ReturnJobStatus.FAILED
 
         job.agent_logs = {
             **existing_logs,
             "wms_dispatch_failed": True,
+            "failed_wms_task_id": failed_wms_task_id,
             "wms_dispatch_error": str(error),
             "wms_dispatch_failed_at": datetime.now(
                 timezone.utc
             ).isoformat(),
+            "failure_stage": "WMS_TASK_DISPATCH",
         }
 
         session.add(job)
@@ -263,6 +275,9 @@ def save_inspection_failed(
                 "type": type(error).__name__,
                 "message": str(error),
                 "task_id": celery_task_id,
+                "failed_at": datetime.now(
+                    timezone.utc
+                ).isoformat(),
             },
         }
 
@@ -380,6 +395,7 @@ def save_inspection_hitl_required(
         job.agent_logs = {
             **(job.agent_logs or {}),
             **(ai_result.get("agent_logs") or {}),
+            "inspection_task_id": celery_task_id,
             "hitl": {
                 "required": True,
                 "task_id": celery_task_id,
@@ -438,6 +454,7 @@ def save_ai_inspection_result(
         job.agent_logs = {
             **(job.agent_logs or {}),
             **(ai_result.get("agent_logs") or {}),
+            "inspection_task_id": celery_task_id,
             "ai_decision": decision,
             "ai_completed": True,
         }
@@ -453,6 +470,7 @@ def save_ai_inspection_result(
 # DB에 저장된 AI 판정 결과를 이용해 WMS만 호출하고 최종 상태를 저장
 def process_saved_wms_result_with_lock(
     return_job_id: UUID,
+    wms_task_id: str,
     execute_wms_action,
 ) -> tuple[ReturnJob, bool]:
     with Session(engine) as session:
@@ -489,18 +507,57 @@ def process_saved_wms_result_with_lock(
             )
 
         agent_logs = job.agent_logs or {}
+
+        hitl_logs = (
+            agent_logs.get("hitl")
+            if isinstance(agent_logs.get("hitl"), dict)
+            else {}
+        )
+
+        expected_wms_task_id = (
+            agent_logs.get("wms_task_id")
+            or hitl_logs.get("wms_task_id")
+        )
+
+        if expected_wms_task_id is None:
+            raise WMSTaskMismatchError(
+                "ReturnJob에 저장된 WMS Task ID가 없어 "
+                "WMS 처리를 실행할 수 없습니다. "
+                f"job_id={return_job_id} "
+                f"current_wms_task_id={wms_task_id}"
+            )
+
+        if str(expected_wms_task_id) != str(wms_task_id):
+            raise WMSTaskMismatchError(
+                "현재 실행 중인 WMS Task ID가 "
+                "ReturnJob에 저장된 Task ID와 일치하지 않습니다. "
+                f"job_id={return_job_id} "
+                f"expected_wms_task_id={expected_wms_task_id} "
+                f"current_wms_task_id={wms_task_id}"
+            )
+
+        # Task ID가 일치하는 동일 작업의 재실행일 때만 중복 호출 차단
+        if job.status in {
+            ReturnJobStatus.APPROVED,
+            ReturnJobStatus.REJECTED,
+        }:
+            logger.warning(
+                "이미 완료된 검수 작업입니다. "
+                "WMS 재호출을 생략합니다. "
+                "job_id=%s status=%s",
+                return_job_id,
+                job.status,
+            )
+            return job, False
+
+        if job.status != ReturnJobStatus.PROCESSING:
+            raise ValueError(
+                "WMS 처리가 가능한 상태가 아닙니다. "
+                f"job_id={return_job_id} "
+                f"status={job.status}"
+            )
+
         decision = agent_logs.get("ai_decision")
-
-        if agent_logs.get("ai_completed") is not True:
-            raise ValueError(
-                "AI 검수 결과가 완료되지 않았습니다. "
-                f"job_id={return_job_id}"
-            )
-
-        if decision not in {"APPROVE", "REJECT"}:
-            raise ValueError(
-                f"저장된 AI 판정값이 올바르지 않습니다: {decision}"
-            )
 
 
         # 동일 ReturnJob에 대한 WMS 중복 호출을 막기 위해
@@ -515,6 +572,15 @@ def process_saved_wms_result_with_lock(
             decision=decision,
             book_id=job.book_id,
             return_job_id=job.id,
+            admin_decision_code=agent_logs.get(
+                "admin_decision_code"
+            ),
+            final_grade=agent_logs.get(
+                "final_grade"
+            ),
+            rejection_disposition=agent_logs.get(
+                "rejection_disposition"
+            ),
         )
 
         job.agent_logs = {
@@ -529,4 +595,52 @@ def process_saved_wms_result_with_lock(
         session.refresh(job)
 
         return job, True
+
+# AI Task ID와 WMS Task id 따로 저장하기 위한 함수 추가.
+def save_wms_task_id(
+    return_job_id: UUID,
+    inspection_task_id: str,
+    wms_task_id: str,
+) -> ReturnJob:
+    with Session(engine) as session:
+        job = find_return_job_by_id_for_update(
+            session=session,
+            job_id=return_job_id,
+        )
+
+        if job is None:
+            raise ValueError(
+                "ReturnJob을 찾을 수 없습니다. "
+                f"job_id={return_job_id}"
+            )
+
+        if job.task_id != inspection_task_id:
+            raise ValueError(
+                "현재 AI Celery Task와 ReturnJob의 task_id가 일치하지 않습니다. "
+                f"job_id={return_job_id} "
+                f"existing_task_id={job.task_id} "
+                f"inspection_task_id={inspection_task_id}"
+            )
+
+        if job.status != ReturnJobStatus.PROCESSING:
+            raise ValueError(
+                "WMS Task ID를 저장할 수 있는 상태가 아닙니다. "
+                f"job_id={return_job_id} "
+                f"status={job.status}"
+            )
+
+        existing_logs = dict(job.agent_logs or {})
+
+        job.agent_logs = {
+            **existing_logs,
+            "inspection_task_id": inspection_task_id,
+            "wms_task_id": wms_task_id,
+        }
+
+        save_return_job(
+            session=session,
+            job=job,
+        )
+
+        return job
 

@@ -8,6 +8,17 @@ class Settings(BaseSettings):
     CHROMA_SERVER_PORT: int = 8001
 
     OPENAI_API_KEY: str = ""
+
+    # 자동 발주 추천 Agent에서 사용할 임시 OpenAI 모델 설정
+    # TODO:
+    # 팀에서 사용할 모델과 비용 정책이 확정되면 모델명을 변경한다.
+    RESTOCK_AGENT_MODEL: str = "gpt-4o-mini"
+
+    # TODO:
+    # 발주 추천 결과의 일관성을 위해 낮게 설정한 임시값이다.
+    # 실제 Agent 품질 테스트 후 조정한다.
+    RESTOCK_AGENT_TEMPERATURE: float = 0.1
+    
     # AWS, Supabase or other config can be added here
     
     # JWT 설정
@@ -29,7 +40,6 @@ class Settings(BaseSettings):
 
     # WMS API 요청 제한 시간
     WMS_REQUEST_TIMEOUT_SECONDS: float = 10.0
-
     class Config:
         env_file = ".env"
 

@@ -9,7 +9,11 @@ from app.core.exceptions import (
     InvalidHITLStateException,
 )
 from app.models.wms import ReturnJob, ReturnJobStatus, User
-from app.schemas.hitl import HITLAction
+from app.schemas.hitl import (
+    HITLAction,
+    HITLReasonCode,
+    HITLTargetGrade,
+)
 
 
 
@@ -67,15 +71,17 @@ def build_hitl_decision_log(
     action: str,
     reviewer_id: UUID,
     reviewer_employee_id: str,
-    reviewer_reason_code: str | None,
+    reviewer_reason_code: str,
+    target_grade: str | None,
     comment: str | None,
-    task_id: str,
+    task_id: str | None,
 ) -> dict[str, Any]:
     return {
         "action": action,
         "reviewer_id": str(reviewer_id),
         "reviewer_employee_id": reviewer_employee_id,
         "reviewer_reason_code": reviewer_reason_code,
+        "target_grade": target_grade,
         "comment": comment,
         "task_id": task_id,
         "reviewed_at": datetime.utcnow().isoformat(),
@@ -104,74 +110,124 @@ def append_hitl_history(
 def apply_hitl_final_decision(
     *,
     return_job: ReturnJob,
-    action: str,
+    action: HITLAction,
+    target_grade: HITLTargetGrade | None,
     updated_logs: dict[str, Any],
     task_id: str,
 ) -> ReturnJob:
-    if action not in {"APPROVE", "REJECT"}:
+    approval_actions = {
+        HITLAction.APPROVE_NORMAL,
+        HITLAction.APPROVE_DOWNGRADE,
+    }
+
+    rejection_actions = {
+        HITLAction.REJECT_RETURN,
+        HITLAction.REJECT_DISCARD,
+    }
+
+    if action in approval_actions:
+        wms_decision = "APPROVE"
+
+    elif action in rejection_actions:
+        wms_decision = "REJECT"
+
+    else:
         raise ValueError(
             f"최종 HITL 판단으로 처리할 수 없는 action입니다: {action}"
         )
 
-    # 기존 WMS 처리 함수가 읽는 관리자 최종 판단값
-    updated_logs["ai_decision"] = action
-    updated_logs["ai_completed"] = True
+    if action == HITLAction.APPROVE_NORMAL:
+        # TODO:
+        # AI 검수 결과에 final_grade가 포함되면 해당 값을 그대로 승인한다.
+        # 현재 AI Agent에서 final_grade를 생성하지 않으므로 None일 수 있다.
+        final_grade = updated_logs.get("final_grade")
 
-    # 최종 판단이 AI가 아닌 ADMIN의 HITL 판단임을 기록
+    elif action == HITLAction.APPROVE_DOWNGRADE:
+        final_grade = (
+            target_grade.value
+            if target_grade is not None
+            else None
+        )
+
+    elif action in rejection_actions:
+        final_grade = "REJECT"
+
+    else:
+        final_grade = None
+
+    rejection_disposition = None
+
+    if action == HITLAction.REJECT_RETURN:
+        rejection_disposition = "RETURN"
+    elif action == HITLAction.REJECT_DISCARD:
+        rejection_disposition = "DISCARD"
+
+    # 기존 WMS 처리 함수와 호환되는 값
+    updated_logs["ai_decision"] = wms_decision
+    updated_logs["ai_completed"] = True
+    updated_logs["wms_task_id"] = task_id
+
+    # 관리자 세부 결정 정보
+    updated_logs["admin_decision_code"] = action.value
+    updated_logs["final_grade"] = final_grade
+    updated_logs["rejection_disposition"] = rejection_disposition
     updated_logs["decision_source"] = "ADMIN_HITL"
 
-    # 현재 HITL 검토가 완료되었음을 별도 로그로 표시
     updated_logs["hitl"] = {
         "required": False,
         "resolved": True,
-        "action": action,
+        "action": action.value,
         "wms_task_id": task_id,
     }
 
     return_job.agent_logs = updated_logs
-
-    # 관리자 판단은 끝났지만 실제 WMS 호출은 아직 실행 전이므로 PROCESSING
     return_job.status = ReturnJobStatus.PROCESSING
-
-    # 실제로 실행될 WMS 후속 Celery Task ID로 교체
     return_job.task_id = task_id
-
     return_job.updated_at = datetime.utcnow()
 
     return return_job
 
 
 # 관리자 재검수 요청을 저장하고 새로운 AI 검수 작업을 받을 수 있는 상태로 초기화
-def apply_hitl_recalculate_decision(
-        *,
-        return_job: ReturnJob,
-        updated_logs: dict[str, Any],
-        task_id: str,
+def apply_hitl_recheck_decision(
+    *,
+    return_job: ReturnJob,
+    updated_logs: dict[str, Any],
 ) -> ReturnJob:
-    # 이전 ai 최종 판값이 새 검수에 사용되지 않도록 제거
     updated_logs.pop("ai_decision", None)
     updated_logs.pop("ai_completed", None)
-
-    # 이전 최종 판단 출처가 새 AI 재검수 결과와 섞이지 않도록 제거
+    updated_logs.pop("inspection_task_id", None)
+    updated_logs.pop("wms_task_id", None)
     updated_logs.pop("decision_source", None)
+    updated_logs.pop("admin_decision_code", None)
+    updated_logs.pop("final_grade", None)
+    updated_logs.pop("rejection_disposition", None)
 
-    # HITL 검토는 완료됐으며 새 AI 검수 작업이 등록될 예정임을 기록
+    # 이전 검수의 실패 정보가 새 재검수 결과로 노출되지 않도록 제거
+    updated_logs.pop("error", None)
+    updated_logs.pop("wms_error", None)
+    updated_logs.pop("wms_dispatch_failed", None)
+    updated_logs.pop("wms_dispatch_error", None)
+    updated_logs.pop("wms_dispatch_failed_at", None)
+    updated_logs.pop("failure_stage", None)
+    updated_logs.pop("inspection_dispatch_error", None)
+
     updated_logs["hitl"] = {
         "required": False,
         "resolved": True,
-        "action": "RECALCULATE",
-        "recalculation_task_id": task_id,
+        "action": HITLAction.RE_CHECK.value,
+        "waiting_for_new_images": True,
     }
 
     return_job.agent_logs = updated_logs
 
-    # 새로운 AI 검수를 처음부터 실행하므로 대기 상태로 변경
-    return_job.status = ReturnJobStatus.PENDING
+    # 새 이미지 등록 전까지 대기
+    return_job.status = ReturnJobStatus.RECHECK_REQUIRED
 
-    # 새로 등록할 process_inspection Celelry Task의 ID로 교체
-    return_job.task_id = task_id
+    # 아직 실행할 Celery 작업이 없으므로 초기화
+    return_job.task_id = None
 
-    # 이전 AI 검수 결과가 조회 API에 노출되지 않도록 초기화
+    # 기존 결과가 새 검수 결과처럼 노출되지 않도록 초기화
     return_job.ubci_score = None
     return_job.final_report = None
 
@@ -187,9 +243,10 @@ def save_hitl_decision(
     job_id: UUID,
     current_admin: User,
     action: HITLAction,
-    reviewer_reason_code: str | None,
+    reviewer_reason_code: HITLReasonCode,
+    target_grade: HITLTargetGrade | None,
     comment: str | None,
-    task_id: str,
+    task_id: str | None,
 ) -> ReturnJob:
     # 1. 현재 관리자의 Tenant에 속한 검수 작업을 조회하고 행 잠금
     return_job = get_hitl_job_for_update(
@@ -230,7 +287,12 @@ def save_hitl_decision(
         action=action.value,
         reviewer_id=current_admin.id,
         reviewer_employee_id=current_admin.employee_id,
-        reviewer_reason_code=reviewer_reason_code,
+        reviewer_reason_code=reviewer_reason_code.value,
+        target_grade=(
+            target_grade.value
+            if target_grade is not None
+            else None
+        ),
         comment=comment,
         task_id=task_id,
     )
@@ -242,25 +304,33 @@ def save_hitl_decision(
     )
 
     # 후속 Celery 작업 등록 실패 시 사용할 복구 데이터
-    updated_logs["hitl_dispatch_backup"] = previous_job_data
+    if task_id is not None:
+        updated_logs["hitl_dispatch_backup"] = previous_job_data
 
     # 6. 판단 종류에 따라 WMS 처리 또는 AI 재검수 상태로 변경
     if action in {
-        HITLAction.APPROVE,
-        HITLAction.REJECT,
+        HITLAction.APPROVE_NORMAL,
+        HITLAction.APPROVE_DOWNGRADE,
+        HITLAction.REJECT_RETURN,
+        HITLAction.REJECT_DISCARD,
     }:
+        if task_id is None:
+            raise ValueError(
+                "WMS 후속 처리에는 task_id가 필요합니다."
+            )
+
         apply_hitl_final_decision(
             return_job=return_job,
-            action=action.value,
+            action=action,
+            target_grade=target_grade,
             updated_logs=updated_logs,
             task_id=task_id,
         )
 
-    elif action == HITLAction.RECALCULATE:
-        apply_hitl_recalculate_decision(
+    elif action == HITLAction.RE_CHECK:
+        apply_hitl_recheck_decision(
             return_job=return_job,
             updated_logs=updated_logs,
-            task_id=task_id,
         )
 
     else:
@@ -299,6 +369,22 @@ def restore_hitl_after_dispatch_failure(
     if not isinstance(backup, dict):
         raise ValueError(
             "HITL 작업 복구에 필요한 백업 데이터를 찾을 수 없습니다."
+        )
+
+    if return_job.status != ReturnJobStatus.PROCESSING:
+        raise ValueError(
+            "HITL 후속 Task 실패 상태를 복구할 수 없는 상태입니다. "
+            f"job_id={job_id} "
+            f"current_status={return_job.status}"
+        )
+
+    if return_job.task_id != failed_task_id:
+        raise ValueError(
+            "복구 대상 HITL Task ID가 현재 ReturnJob의 Task ID와 "
+            "일치하지 않습니다. "
+            f"job_id={job_id} "
+            f"current_task_id={return_job.task_id} "
+            f"failed_task_id={failed_task_id}"
         )
 
     # 관리자 판단 전 HITL 상태의 데이터를 복구
