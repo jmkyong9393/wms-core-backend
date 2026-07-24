@@ -243,6 +243,13 @@ class OrderItem(SQLModel, table=True):
 
 class OrderItemLpnAllocation(SQLModel, table=True):
     __tablename__ = "order_item_lpn_allocations"
+    __table_args__ = (
+        UniqueConstraint(
+            "order_item_id",
+            "inventory_used_item_id",
+            name="uq_order_item_lpn_allocation",
+        ),
+    )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     order_item_id: uuid.UUID = Field(
@@ -253,7 +260,6 @@ class OrderItemLpnAllocation(SQLModel, table=True):
     inventory_used_item_id: uuid.UUID = Field(
         foreign_key="inventory_used_items.id",
         nullable=False,
-        unique=True,
     )
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
