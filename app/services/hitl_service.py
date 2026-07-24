@@ -277,7 +277,11 @@ def save_hitl_decision(
             if hasattr(return_job.status, "value")
             else str(return_job.status)
         ),
-        "ubci_score": return_job.ubci_score,
+        "ubci_score": (
+            float(return_job.ubci_score)
+            if return_job.ubci_score is not None
+            else None
+        ),
         "final_report": return_job.final_report,
         "agent_logs": previous_agent_logs,
     }
