@@ -15,8 +15,9 @@ from .agents import (
 
 
 MAX_REVISIONS = 2
-VISION_RETRY_CODES = {"QUALITY_ERROR","BBOX_MISMATCH","VISION_LOW_CONFIDENCE"}
+VISION_RETRY_CODES = {"QUALITY_ERROR","VISION_RESULT_CONFLICT","VISION_LOW_CONFIDENCE"}
 POLICY_RETRY_CODES = {"UBCI_POLICY_VIOLATION","POLICY_LOW_CONFIDENCE"}
+HITL_REASON_CODES = {"VISION_LOW_CONFIDENCE","VISION_UNCLASSIFIED_DEFECT","POLICY_REQUIRES_HITL"}
 
 # LangSmith Tracing 활성화 (LLMOps)
 #os.environ["LANGSMITH_TRACING"] = "true"
@@ -36,62 +37,225 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
     #    - 검증 실패 시 policy_agent 재처리 또는 human_node 에스컬레이션 구현
     # 6. Critic 검증 완벽히 통과 시 report_agent 반환
     
-    revision_count = state.get("revision_count", 0)
+    raw_revision_count = state.get("revision_count", 0)
 
-    if type(revision_count) is not int or revision_count < 0:
-        return _route("human_node", "잘못된 revision_count")
+    if (
+        type(raw_revision_count) is not int
+        or raw_revision_count < 0
+    ):
+        return _route(
+            "human_node",
+            "잘못된 revision_count",
+        )
 
-    if revision_count >= MAX_REVISIONS:
-        return _route("human_node", "최대 재시도 횟수 도달")
-
+    revision_count = raw_revision_count
     reason_code = state.get("reason_code")
     human_feedback = state.get("human_feedback")
 
-    # 관리자 입력은 반드시 human_node에서 한 번 처리된 뒤 결과에 반영합니다.
-    if human_feedback is not None:
-        if human_feedback == "APPROVE" and reason_code == "OK":
-            return _route("report_agent", "관리자 승인")
-        if human_feedback == "REJECT" and reason_code is not None:
-            return _route("report_agent", "관리자 반려")
-        return _route("human_node", "관리자 입력 처리 필요")
+    # 관리자가 개입할 수 있는 상태인지 확인
+    hitl_pending = (
+        revision_count >= MAX_REVISIONS
+        or reason_code in HITL_REASON_CODES
+    )
 
+    # 관리자 입력은 최대 재시도 검사보다 먼저 처리
+    if human_feedback is not None:
+        if not hitl_pending:
+            return _route(
+                "human_node",
+                "HITL 대기 상태가 아닌 관리자 입력",
+            )
+
+        if human_feedback == "RE_CHECK":
+            # Backend가 새 이미지를 messages에 추가한 후 재개
+            return _route(
+                "vision_agent",
+                "관리자 재검수·재촬영 요청",
+            )
+
+        if human_feedback == "APPROVE_NORMAL":
+            return _route(
+                "report_agent",
+                "관리자 정상 승인",
+            )
+
+        if human_feedback == "APPROVE_DOWNGRADE":
+            target_grade = state.get("target_grade")
+            primary_reason_code = state.get(
+                "primary_reason_code"
+            )
+
+            if target_grade not in {"A", "B"}:
+                return _route(
+                    "human_node",
+                    "등급 하향 승인에는 A/B target_grade가 필요함",
+                )
+
+            if (
+                type(primary_reason_code) is not str
+                or not primary_reason_code.strip()
+            ):
+                return _route(
+                    "human_node",
+                    "등급 하향 승인에는 primary_reason_code가 필요함",
+                )
+
+            return _route(
+                "report_agent",
+                "관리자 등급 하향 승인",
+            )
+
+        if human_feedback in {
+            "REJECT_RETURN",
+            "REJECT_DISCARD",
+        }:
+            primary_reason_code = state.get(
+                "primary_reason_code"
+            )
+
+            if (
+                type(primary_reason_code) is not str
+                or not primary_reason_code.strip()
+            ):
+                return _route(
+                    "human_node",
+                    "반려에는 primary_reason_code가 필요함",
+                )
+
+            return _route(
+                "report_agent",
+                f"관리자 반려: {human_feedback}",
+            )
+
+        return _route(
+            "human_node",
+            "허용되지 않은 관리자 입력",
+        )
+
+    # 관리자 입력이 없는 일반 실행에서만 최대 재시도를 검사
+    if revision_count >= MAX_REVISIONS:
+        return _route(
+            "human_node",
+            "최대 재시도 횟수 도달",
+        )
+
+    # Vision 출력이 없으면 Vision부터 실행
     if (
         state.get("is_mint") is None
         or state.get("defects") is None
+        or state.get("image_quality_ok") is None
         or state.get("vision_confidence") is None
     ):
-        return _route("vision_agent", "Vision 출력 없음")
+        return _route(
+            "vision_agent",
+            "Vision 출력 없음",
+        )
+
+    # 재촬영이나 즉시 관리자 확인이 필요한 결과
+    if reason_code in HITL_REASON_CODES:
+        return _route(
+            "human_node",
+            reason_code,
+        )
 
     if reason_code in VISION_RETRY_CODES:
-        return _route("vision_agent", reason_code)
+        return _route(
+            "vision_agent",
+            reason_code,
+        )
 
     if reason_code in POLICY_RETRY_CODES:
-        return _route("policy_agent", reason_code)
+        return _route(
+            "policy_agent",
+            reason_code,
+        )
 
+    # Critic이 통과시킨 결과라도 필수 Policy 값이 있는지 확인
     if reason_code == "OK":
-        return _route("report_agent", "Critic 검증 통과")
+        ubci_score = state.get("ubci_score")
+        predicted_grade = state.get("predicted_grade")
+        score_breakdown = state.get("score_breakdown")
+        fatal_defect_detected = state.get(
+            "fatal_defect_detected"
+        )
+        rule_reference = state.get("rule_reference")
+        policy_confidence = state.get(
+            "policy_confidence"
+        )
+
+        policy_output_valid = (
+            type(ubci_score) in (int,float)
+            and 0 <= ubci_score <= 100
+            and predicted_grade
+            in {"S", "A", "B", "REJECT"}
+            and type(score_breakdown) is list
+            and type(fatal_defect_detected) is bool
+            and type(rule_reference) is str
+            and bool(rule_reference.strip())
+            and type(policy_confidence)
+            in (int, float)
+            and 0 <= policy_confidence <= 1
+        )
+
+        if not policy_output_valid:
+            return _route(
+                "human_node",
+                "OK 상태지만 Policy 필수 출력이 불완전함",
+            )
+
+        return _route(
+            "report_agent",
+            "Critic 검증 통과",
+        )
 
     if reason_code is not None:
-        return _route("human_node", f"처리할 수 없는 Reason Code: {reason_code}")
+        return _route(
+            "human_node",
+            f"처리할 수 없는 Reason Code: {reason_code}",
+        )
 
-    if state.get("is_mint") is True and not state.get("defects"):
-        vision_confidence = state.get("vision_confidence")
+    # 정상 도서 Fast-track
+    if (
+        state.get("is_mint") is True
+        and not state.get("defects")
+    ):
+        vision_confidence = state.get(
+            "vision_confidence"
+        )
+
         if (
-            type(vision_confidence) not in (int, float)
+            state.get("image_quality_ok") is not True
+            or type(vision_confidence)
+            not in (int, float)
             or not 0 <= vision_confidence <= 1
-            or vision_confidence < MIN_VISION_CONFIDENCE
+            or vision_confidence
+            < MIN_VISION_CONFIDENCE
         ):
-            return _route("vision_agent", "Fast-track 신뢰도 미달")
-        return _route("auto_refund_agent", "MINT Fast-track")
+            return _route(
+                "human_node",
+                "Fast-track Vision 품질 미달",
+            )
 
+        return _route(
+            "auto_refund_agent",
+            "MINT Fast-track",
+        )
+
+    # 결함은 있으나 Policy 결과가 아직 없음
     if (
         state.get("ubci_score") is None
         or not state.get("rule_reference")
         or state.get("policy_confidence") is None
     ):
-        return _route("policy_agent", "Policy 출력 없음")
+        return _route(
+            "policy_agent",
+            "Policy 출력 없음",
+        )
 
-    return _route("critic_agent", "교차 검증 필요")
+    return _route(
+        "critic_agent",
+        "교차 검증 필요",
+    )
 
 
 def _route(node: str, reason: str) -> str:
