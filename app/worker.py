@@ -20,10 +20,9 @@ from app.services.return_job_service import (
 )
 
 from app.services.wms_client import (
-    WMSNonRetryableError,
     WMSRetryableError,
-    call_wms_approve_api,
-    call_wms_reject_api,
+    WMSNonRetryableError,
+    call_wms_inspection_result_api,
 )
 
 from app.services.dlq_service import push_inspection_failure_to_dlq
@@ -76,6 +75,8 @@ def publish_final_event(
         else 100
     )
 
+    wms_result = (job.agent_logs or {}).get("wms_result", {})
+
     publish_return_job_event(
         job_id=str(job.id),
         event={
@@ -83,7 +84,18 @@ def publish_final_event(
             "task_id": task_id,
             "status": status,
             "progress": progress,
-            "ubci_score": job.ubci_score,
+            "ubci_score": (
+                float(job.ubci_score)
+                if job.ubci_score is not None
+                else None
+            ),
+            "condition_grade": (
+                job.condition_grade.value
+                if job.condition_grade is not None
+                else None
+            ),
+            "lpn_barcode": wms_result.get("lpn_barcode"),
+            "inventory_changed": wms_result.get("inventory_changed", False),
         },
     )
 
@@ -130,50 +142,53 @@ def publish_wms_dispatch_failed_event(
 # AI 판정에 따라 WMS 승인 또는 반려 API 호출
 def execute_wms_action(
     decision: str,
-    book_id: UUID,
     return_job_id: UUID,
-    admin_decision_code: str | None = None,
-    final_grade: str | None = None,
-    rejection_disposition: str | None = None,
-) -> tuple[str, dict[str, Any]]:
+    ai_result: dict[str, Any],
+    target_location_id: UUID | None,
+) -> tuple[str, dict[str, Any], str, int | float | None]:
+    
     idempotency_key = f"return-job:{return_job_id}"
 
-    if decision == "APPROVE":
-        wms_result = call_wms_approve_api(
-            book_id=str(book_id),
-            idempotency_key=idempotency_key,
-        )
+    agent_logs = ai_result.get("agent_logs") or {}
+    defects = agent_logs.get("defects") or []
+    ubci_score = ai_result.get("ubci_score")
 
-        return ReturnJobStatus.APPROVED.value, {
-            "wms_result": wms_result,
-            "idempotency_key": idempotency_key,
-            "admin_decision_code": admin_decision_code,
-            "final_grade": final_grade,
-        }
+    # 결함 없는 Fast-track MINT는 Policy Agent를 생략하므로 100점으로 정규화한다.
+    if (
+        decision == "APPROVE"
+        and ubci_score is None
+        and agent_logs.get("is_mint") is True
+        and not defects
+    ):
+        ubci_score = 100.0
 
-    if decision == "REJECT":
-        reject_reason = (
-            admin_decision_code
-            or "AI_INSPECTION_REJECTED"
-        )
-
-        wms_result = call_wms_reject_api(
-            book_id=str(book_id),
-            reason=reject_reason,
-            idempotency_key=idempotency_key,
-        )
-
-        return ReturnJobStatus.REJECTED.value, {
-            "wms_result": wms_result,
-            "reject_reason": reject_reason,
-            "rejection_disposition": rejection_disposition,
-            "admin_decision_code": admin_decision_code,
-            "idempotency_key": idempotency_key,
-        }
-
-    raise ValueError(
-        f"지원하지 않는 AI 판정값입니다: {decision}"
+    wms_result = call_wms_inspection_result_api(
+        return_job_id=str(return_job_id),
+        decision=decision,
+        ubci_score=ubci_score,
+        defects=defects,
+        location_id=(
+            str(target_location_id)
+            if target_location_id is not None
+            else None
+        ),
+        idempotency_key=idempotency_key,
     )
+
+    condition_grade = wms_result.get("condition_grade")
+
+    if condition_grade is None:
+        raise ValueError("WMS response does not include condition_grade")
+
+    final_status = (
+        ReturnJobStatus.APPROVED.value
+        if decision == "APPROVE"
+        else ReturnJobStatus.REJECTED.value
+    )
+    return final_status, {
+        "wms_result": wms_result,
+        "idempotency_key": idempotency_key,
+    }, condition_grade, ubci_score
 
 
 # Redis 알림은 상태 전달용, 실패해도 핵심 검수 트랜잭션까지 실패 시키지 않음.
@@ -452,7 +467,7 @@ def process_wms_action(
             "task_id=%s job_id=%s",
             task_id,
             job_id,
-)
+        )
 
         handle_inspection_failure(
             job_id=job_id,
@@ -660,7 +675,11 @@ def process_inspection(
                 if hasattr(job.status, "value")
                 else str(job.status)
             ),
-            "ubci_score": job.ubci_score,
+            "ubci_score": (
+                float(job.ubci_score)
+                if job.ubci_score is not None
+                else None
+            ),
         }
 
 
@@ -694,5 +713,3 @@ def process_inspection(
             error=error,
             retry_count=self.request.retries,
         )
-
-        raise

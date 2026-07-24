@@ -1,12 +1,16 @@
 from uuid import UUID
 import logging
 
+<<<<<<< HEAD
 from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
     status,
 )
+=======
+from fastapi import APIRouter, Depends, HTTPException, status
+>>>>>>> origin/main
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
@@ -16,7 +20,13 @@ from app.api.dependencies.auth import (
 )
 from app.core.database import get_session
 from app.models.wms import (
+    ConditionGrade,
+    InboundItem,
+    InboundJob,
+    InboundStatus,
+    InboundType,
     InspectionMode,
+    Location,
     ReturnJob,
     ReturnJobStatus,
     User,
@@ -51,8 +61,10 @@ logger = logging.getLogger(__name__)
 
 
 class CreateInspectionRequest(BaseModel):
+    inbound_item_id: UUID
     book_id: UUID
     mode: InspectionMode
+    location_barcode: str = Field(min_length=1)
     image_paths: list[str] = Field(min_length=1)
 
 
@@ -69,6 +81,10 @@ class InspectionStatusResponse(BaseModel):
     status: ReturnJobStatus
     progress: int
     ubci_score: float | None
+<<<<<<< HEAD
+=======
+    condition_grade: ConditionGrade | None
+>>>>>>> origin/main
     final_report: str | None
 
 class StreamTicketResponse(BaseModel):
@@ -118,6 +134,7 @@ def create_inspection(
     request: CreateInspectionRequest,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
+<<<<<<< HEAD
 ) -> CreateInspectionResponse: 
     #1. 검수 요청을 ReturnJob으로 저장
     return_job = ReturnJob(
@@ -138,6 +155,94 @@ def create_inspection(
             session=session,
             return_job=return_job,
         )
+=======
+) -> CreateInspectionResponse:
+    inbound_item = session.exec(
+        select(InboundItem)
+        .where(InboundItem.id == request.inbound_item_id)
+        .with_for_update()
+    ).first()
+    if inbound_item is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Inbound item not found",
+        )
+    if inbound_item.book_id != request.book_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Inbound item and inspection reference different books",
+        )
+    if inbound_item.lpn_barcode is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Inbound item does not have an LPN barcode",
+        )
+
+    inbound_job = session.get(InboundJob, inbound_item.inbound_job_id)
+    if inbound_job is None or inbound_job.status != InboundStatus.CHECKING:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Inbound job is not waiting for inspection",
+        )
+
+    expected_inbound_type = {
+        InspectionMode.RETURN: InboundType.CUSTOMER_RETURN,
+        InspectionMode.USED_PURCHASE: InboundType.USED_PURCHASE,
+    }[request.mode]
+    if inbound_job.inbound_type != expected_inbound_type:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Inspection mode does not match inbound type",
+        )
+
+    existing_return_job = session.exec(
+        select(ReturnJob)
+        .where(ReturnJob.inbound_item_id == inbound_item.id)
+        .order_by(ReturnJob.created_at.desc())
+    ).first()
+    if (
+        existing_return_job is not None
+        and existing_return_job.status != ReturnJobStatus.FAILED
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Inbound item already has an inspection job",
+        )
+
+    location = session.exec(
+        select(Location).where(Location.barcode == request.location_barcode)
+    ).first()
+    if location is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Location barcode not found",
+        )
+    if not location.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Location is inactive",
+        )
+
+    return_job = ReturnJob(
+        tenant_id=current_user.tenant_id,
+        book_id=request.book_id,
+        inbound_item_id=inbound_item.id,
+        target_location_id=location.id,
+        mode=request.mode,
+        image_paths=request.image_paths,
+        status=ReturnJobStatus.PENDING,
+    )
+
+    session.add(return_job)
+    session.commit()
+    session.refresh(return_job)
+
+    try:
+        task_id = enqueue_inspection(
+            session=session,
+            return_job=return_job,
+        )
+>>>>>>> origin/main
     except Exception as error:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -147,9 +252,13 @@ def create_inspection(
             ),
             headers={"Retry-After": "5"},
         ) from error
+<<<<<<< HEAD
         
     
     # 3. Worker 완료를 기다리지 않고 즉시 응답
+=======
+
+>>>>>>> origin/main
     return CreateInspectionResponse(
         job_id=return_job.id,
         task_id=task_id,
@@ -160,8 +269,11 @@ def create_inspection(
             f"{return_job.id}/stream-ticket"
         ),
     )
+<<<<<<< HEAD
 
 
+=======
+>>>>>>> origin/main
 # 개별 작업 조회 API 추가
 @router.get(
     "/{job_id}",
@@ -199,6 +311,7 @@ def get_inspection_status(
         status=return_job.status,
         progress=get_inspection_progress(return_job.status),
         ubci_score=return_job.ubci_score,
+        condition_grade=return_job.condition_grade,
         final_report=return_job.final_report,
     )
 

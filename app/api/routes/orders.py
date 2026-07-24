@@ -7,13 +7,26 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import Session, select
 
 from app.core.database import get_session
-from app.models.wms import Book, Order, OrderItem, OrderStatus, OrderType
+from app.models.wms import (
+    Book,
+    ConditionGrade,
+    Order,
+    OrderItem,
+    OrderStatus,
+    OrderType,
+)
 
 router = APIRouter()
 
 
 class OrderItemRequest(BaseModel):
     book_id: UUID = Field(description="주문할 도서 마스터 ID")
+    condition_grade: Optional[ConditionGrade] = Field(
+        default=None,
+        description=(
+            "중고 단품 주문 등급. 값이 없으면 신간 묶음 재고 주문으로 처리"
+        ),
+    )
     quantity: int = Field(gt=0, description="주문 수량")
 
 
@@ -27,6 +40,7 @@ class CreateOrderRequest(BaseModel):
                 "items": [
                     {
                         "book_id": "00000000-0000-4000-8000-000000000001",
+                        "condition_grade": "EXCELLENT",
                         "quantity": 10,
                     }
                 ],
@@ -45,7 +59,7 @@ class CreateOrderRequest(BaseModel):
     )
     items: List[OrderItemRequest] = Field(
         min_length=1,
-        description="정상 신간 주문 품목 목록",
+        description="신간 묶음 또는 등급별 중고 단품 주문 품목 목록",
     )
 
 
@@ -59,26 +73,48 @@ class CreateOrderResponse(BaseModel):
 @router.post(
     "",
     response_model=CreateOrderResponse,
-    operation_id="createNewStockOrder",
-    summary="정상 신간 B2B 주문 생성",
+    operation_id="createWmsOrder",
+    summary="신간 및 등급별 중고 B2B 주문 생성",
     description=(
-        "book_id와 수량을 기준으로 정상 신간 주문을 생성합니다. 현재 구현은 "
-        "LPN 기반 중고 단품 주문이나 UBCI 동적 가격을 포함하지 않습니다."
+        "book_id, 수량과 선택적 condition_grade를 기준으로 주문을 생성합니다. "
+        "등급이 없으면 신간 묶음 재고, 등급이 있으면 해당 등급의 중고 단품 "
+        "재고 주문입니다. LPN 선택은 출고 피킹 시 수행하며, 현재 가격은 "
+        "도서 기준가를 사용하고 UBCI 동적 가격은 적용하지 않습니다."
     ),
     responses={
         404: {"description": "주문 품목의 도서 마스터를 찾을 수 없음"},
         409: {"description": "주문 품목에 유효한 기준 가격이 없음"},
+        422: {"description": "REJECT 등급 또는 유효하지 않은 요청"},
     },
 )
 def create_order(
     request: CreateOrderRequest,
     session: Session = Depends(get_session),
 ):
-    requested_items: dict[UUID, int] = {}
-    for item in request.items:
-        requested_items[item.book_id] = requested_items.get(item.book_id, 0) + item.quantity
+    rejected_book_ids = [
+        item.book_id
+        for item in request.items
+        if item.condition_grade == ConditionGrade.REJECT
+    ]
+    if rejected_book_ids:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "message": "REJECT grade inventory cannot be ordered",
+                "book_ids": [str(book_id) for book_id in rejected_book_ids],
+            },
+        )
 
-    requested_book_ids = set(requested_items)
+    requested_items: dict[tuple[UUID, Optional[ConditionGrade]], int] = {}
+    for item in request.items:
+        item_key = (item.book_id, item.condition_grade)
+        requested_items[item_key] = (
+            requested_items.get(item_key, 0) + item.quantity
+        )
+
+    requested_book_ids = {
+        book_id for book_id, _condition_grade in requested_items
+    }
     books = session.exec(select(Book).where(Book.id.in_(requested_book_ids))).all()
     books_by_id = {book.id: book for book in books}
     missing_book_ids = requested_book_ids - set(books_by_id)
@@ -106,7 +142,7 @@ def create_order(
 
     total_price = sum(
         books_by_id[book_id].base_price * quantity
-        for book_id, quantity in requested_items.items()
+        for (book_id, _condition_grade), quantity in requested_items.items()
     )
 
     order = Order(
@@ -120,12 +156,13 @@ def create_order(
     session.add(order)
     session.flush()
 
-    for book_id, quantity in requested_items.items():
+    for (book_id, condition_grade), quantity in requested_items.items():
         book = books_by_id[book_id]
         session.add(
             OrderItem(
                 order_id=order.id,
                 book_id=book.id,
+                condition_grade=condition_grade,
                 quantity=quantity,
                 unit_price=book.base_price,
                 final_price=book.base_price * quantity,

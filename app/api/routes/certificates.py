@@ -8,7 +8,7 @@ router = APIRouter()
 
 class CertificateResponse(BaseModel):
     book_id: UUID
-    ubci_score: int
+    ubci_score: float
     report_summary: str
     qr_code_url: str
 
