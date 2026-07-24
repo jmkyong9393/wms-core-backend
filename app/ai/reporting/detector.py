@@ -3,22 +3,31 @@ from typing import List, Dict, Any
 
 logger = logging.getLogger(__name__)
 
-def fetch_fds_policies() -> Dict[str, float]:
+from sqlmodel import Session, text
+
+def fetch_fds_policies(session: Session) -> Dict[str, float]:
     """
     DB(fds_policies 테이블)에서 실시간으로 룰 엔진 임계값 설정을 가져오는 함수
     - 관리자 API를 통해 값이 변경되면 배치 스크립트 실행 시 즉각 반영됩니다.
-    
-    [실제 적용될 SQL 쿼리 예시]
-    SELECT policy_key, policy_value FROM fds_policies;
     """
     logger.info("DB에서 FDS 정책(Config) 임계값을 불러옵니다...")
-    # TO-DO: 위 쿼리를 활용한 SQLModel / SQLAlchemy 로직 구현
-    return {
-        "MAX_RETURN_30D": 3,
+    
+    # 기본값 Fallback
+    config = {
+        "MAX_RETURN_30D": 3.0,
         "MIN_UBCI_SCORE": 30.0,
-        "MAX_RETURN_90D": 5,
-        "MAX_REFUND_AMT": 500000
+        "MAX_RETURN_90D": 5.0,
+        "MAX_REFUND_AMT": 500000.0
     }
+    
+    try:
+        result = session.execute(text("SELECT policy_key, policy_value FROM fds_policies"))
+        for row in result:
+            config[row[0]] = float(row[1])
+    except Exception as e:
+        logger.error(f"FDS 정책을 DB에서 불러오는 중 에러 발생, 기본값을 사용합니다: {e}")
+
+    return config
 
 def detect_black_consumers(raw_data: List[Dict[str, Any]], config: Dict[str, float]) -> List[Dict[str, Any]]:
     """
