@@ -10,7 +10,7 @@ from app.schemas.used_inbound import (
     UsedBookInboundRequest,
     UsedBookInboundResponse,
 )
-from app.services.lpn_service import generate_lpn_barcode
+from app.services.lpn_service import build_certificate_url, generate_lpn_barcode
 
 
 router = APIRouter()
@@ -40,6 +40,7 @@ def _build_response(
         status=inbound_job.status,
         book_id=inbound_item.book_id,
         lpn_barcode=inbound_item.lpn_barcode,
+        certificate_url=build_certificate_url(inbound_item.lpn_barcode),
     )
 
 
@@ -53,7 +54,8 @@ def _build_response(
         "중고 매입 또는 고객 반품 도서 1권을 검수 대기 상태로 접수하고 "
         "물리적 단품 추적용 LPN을 발급합니다. 이 단계에서는 판매 가능 "
         "재고에 편입하지 않습니다. 동일 Idempotency-Key 재요청은 기존 "
-        "입고 품목과 LPN을 반환합니다."
+        "입고 품목과 LPN을 반환합니다. 응답의 certificate_url은 라벨 QR에 "
+        "사용할 품질보증서 조회 경로입니다."
     ),
     responses={
         404: {"description": "도서 마스터를 찾을 수 없음"},
