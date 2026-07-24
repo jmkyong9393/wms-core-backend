@@ -1,16 +1,12 @@
 from uuid import UUID
 import logging
 
-<<<<<<< HEAD
 from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
     status,
 )
-=======
-from fastapi import APIRouter, Depends, HTTPException, status
->>>>>>> origin/main
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
@@ -81,10 +77,7 @@ class InspectionStatusResponse(BaseModel):
     status: ReturnJobStatus
     progress: int
     ubci_score: float | None
-<<<<<<< HEAD
-=======
     condition_grade: ConditionGrade | None
->>>>>>> origin/main
     final_report: str | None
 
 class StreamTicketResponse(BaseModel):
@@ -134,28 +127,6 @@ def create_inspection(
     request: CreateInspectionRequest,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
-<<<<<<< HEAD
-) -> CreateInspectionResponse: 
-    #1. 검수 요청을 ReturnJob으로 저장
-    return_job = ReturnJob(
-        tenant_id=current_user.tenant_id,
-        book_id=request.book_id,
-        mode=request.mode,
-        image_paths=request.image_paths,
-        status=ReturnJobStatus.PENDING,
-    )
-
-    session.add(return_job)
-    session.commit()
-    session.refresh(return_job)
-
-    #2. 생성된 ReturnJob을 Celery Queue에 등록
-    try:
-        task_id = enqueue_inspection(
-            session=session,
-            return_job=return_job,
-        )
-=======
 ) -> CreateInspectionResponse:
     inbound_item = session.exec(
         select(InboundItem)
@@ -242,7 +213,6 @@ def create_inspection(
             session=session,
             return_job=return_job,
         )
->>>>>>> origin/main
     except Exception as error:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -252,13 +222,7 @@ def create_inspection(
             ),
             headers={"Retry-After": "5"},
         ) from error
-<<<<<<< HEAD
-        
-    
-    # 3. Worker 완료를 기다리지 않고 즉시 응답
-=======
 
->>>>>>> origin/main
     return CreateInspectionResponse(
         job_id=return_job.id,
         task_id=task_id,
@@ -269,11 +233,7 @@ def create_inspection(
             f"{return_job.id}/stream-ticket"
         ),
     )
-<<<<<<< HEAD
 
-
-=======
->>>>>>> origin/main
 # 개별 작업 조회 API 추가
 @router.get(
     "/{job_id}",
