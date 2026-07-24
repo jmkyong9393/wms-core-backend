@@ -34,3 +34,7 @@ archive/
 # Downloaded Binaries
 *.exe
 kind-windows-amd64*
+
+# Kubernetes Secrets
+k8s/*-secret.yaml
+k8s/fds-secret.yaml
