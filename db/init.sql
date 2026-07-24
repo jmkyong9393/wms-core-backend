@@ -1,12 +1,13 @@
 CREATE TYPE standard_size AS ENUM ('A5', 'B5');
 CREATE TYPE inbound_type AS ENUM ('NEW_STOCK', 'USED_PURCHASE', 'CUSTOMER_RETURN');
 CREATE TYPE inbound_status AS ENUM ('RECEIVED', 'CHECKING', 'COMPLETED');
-CREATE TYPE condition_grade AS ENUM ('MINT', 'EXCELLENT', 'GOOD', 'NORMAL', 'REJECT');
+CREATE TYPE condition_grade AS ENUM ('MINT', 'EXCELLENT', 'NORMAL', 'REJECT');
 CREATE TYPE order_type AS ENUM ('B2B_ORDER', 'AUTO_PO');
 CREATE TYPE order_status AS ENUM ('PENDING', 'PICKING', 'SHIPPED', 'RETURN_REQUESTED');
 CREATE TYPE return_job_status AS ENUM ('PENDING', 'PROCESSING', 'APPROVED', 'REJECTED', 'HITL_REQUIRED', 'FAILED');
 CREATE TYPE inspection_mode AS ENUM ('RETURN', 'USED_PURCHASE');
 CREATE TYPE inventory_transaction_type AS ENUM ('INBOUND', 'OUTBOUND', 'RETURN_RESTOCK', 'DISCARD');
+CREATE TYPE used_inventory_status AS ENUM ('AVAILABLE', 'RESERVED', 'SHIPPED');
 CREATE TYPE user_role AS ENUM ('MASTER', 'ADMIN', 'WORKER', 'GUEST', 'PENDING');
 CREATE TYPE user_status AS ENUM ('ACTIVE', 'INACTIVE');
 CREATE TYPE ticket_status AS ENUM ('TODO', 'IN_PROGRESS', 'RESOLVED');
@@ -57,6 +58,7 @@ CREATE TABLE inbound_items (
     inbound_job_id UUID NOT NULL REFERENCES inbound_jobs(id),
     book_id UUID NOT NULL REFERENCES books(id),
     quantity INTEGER NOT NULL,
+    lpn_barcode VARCHAR UNIQUE,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -86,10 +88,13 @@ CREATE TABLE inventory_used_items (
     id UUID PRIMARY KEY,
     book_id UUID NOT NULL REFERENCES books(id),
     location_id UUID NOT NULL REFERENCES locations(id),
+    return_job_id UUID UNIQUE,
     lpn_barcode VARCHAR NOT NULL UNIQUE,
-    ubci_score INTEGER,
+    ubci_score NUMERIC(5, 2),
     condition_grade condition_grade NOT NULL,
+    status used_inventory_status NOT NULL DEFAULT 'AVAILABLE',
     certificate_url VARCHAR,
+    stocked_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -111,6 +116,7 @@ CREATE TABLE order_items (
     order_id UUID NOT NULL REFERENCES orders(id),
     book_id UUID NOT NULL REFERENCES books(id),
     location_id UUID REFERENCES locations(id),
+    condition_grade condition_grade,
     quantity INTEGER NOT NULL,
     unit_price DECIMAL(12, 2) NOT NULL,
     final_price DECIMAL(12, 2) NOT NULL,
@@ -118,16 +124,30 @@ CREATE TABLE order_items (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE order_item_lpn_allocations (
+    id UUID PRIMARY KEY,
+    order_item_id UUID NOT NULL REFERENCES order_items(id),
+    inventory_used_item_id UUID NOT NULL UNIQUE REFERENCES inventory_used_items(id),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX ix_order_item_lpn_allocations_order_item_id
+    ON order_item_lpn_allocations(order_item_id);
+
 CREATE TABLE return_jobs (
     id UUID PRIMARY KEY,
     tenant_id UUID NOT NULL REFERENCES tenants(id),
     order_id UUID REFERENCES orders(id),
     book_id UUID NOT NULL REFERENCES books(id),
+    inbound_item_id UUID REFERENCES inbound_items(id),
+    target_location_id UUID REFERENCES locations(id),
     task_id VARCHAR,
     mode inspection_mode NOT NULL,
     status return_job_status NOT NULL,
     image_paths JSONB,
-    ubci_score INTEGER,
+    ubci_score NUMERIC(5, 2),
+    condition_grade condition_grade,
     agent_logs JSONB,
     final_report VARCHAR,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -135,6 +155,10 @@ CREATE TABLE return_jobs (
 );
 
 CREATE INDEX ix_return_jobs_tenant_id ON return_jobs(tenant_id);
+
+ALTER TABLE inventory_used_items
+    ADD CONSTRAINT fk_inventory_used_items_return_job
+    FOREIGN KEY (return_job_id) REFERENCES return_jobs(id);
 
 CREATE TABLE inventory_logs (
     id UUID PRIMARY KEY,

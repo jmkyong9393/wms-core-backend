@@ -11,12 +11,14 @@ from app.api.routes import (
     certificates,
     db,
     inbound,
+    inspection_inventory,
     inspections,
     inventory,
     mock,
     orders,
     outbound,
     stream,
+    used_inbound,
 )
 from app.core.config import settings
 from app.core.database import init_db
@@ -95,6 +97,12 @@ app.include_router(stream.router, prefix="/api/v1/inspections", tags=["Inspectio
 # WMS 업무 API
 app.include_router(books.router, prefix="/api/v1/books", tags=["Books"])
 app.include_router(inbound.router, prefix="/api/v1/inbound", tags=["Inbound"])
+app.include_router(used_inbound.router, prefix="/api/v1/inbound", tags=["Inbound"])
+app.include_router(
+    inspection_inventory.router,
+    prefix="/api/v1/internal/inventory",
+    tags=["Inventory"],
+)
 app.include_router(orders.router, prefix="/api/v1/orders", tags=["Orders"])
 app.include_router(inventory.v1_router, prefix="/api/v1/inventory", tags=["Inventory"])
 app.include_router(outbound.router, prefix="/api/v1/outbound", tags=["Outbound"])
