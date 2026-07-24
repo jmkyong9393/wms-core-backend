@@ -30,3 +30,7 @@ logs/
 
 # Archive Backups
 archive/
+
+# Downloaded Binaries
+*.exe
+kind-windows-amd64*
