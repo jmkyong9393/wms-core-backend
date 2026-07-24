@@ -153,6 +153,10 @@ def execute_wms_action(
     defects = agent_logs.get("defects") or []
     ubci_score = ai_result.get("ubci_score")
 
+    admin_decision_code = agent_logs.get("admin_decision_code")
+    final_grade = agent_logs.get("final_grade")
+    rejection_disposition = agent_logs.get("rejection_disposition")
+
     # 결함 없는 Fast-track MINT는 Policy Agent를 생략하므로 100점으로 정규화한다.
     if (
         decision == "APPROVE"
@@ -173,6 +177,9 @@ def execute_wms_action(
             else None
         ),
         idempotency_key=idempotency_key,
+        admin_decision_code=admin_decision_code,
+        final_grade=final_grade,
+        rejection_disposition=rejection_disposition,
     )
 
     condition_grade = wms_result.get("condition_grade")

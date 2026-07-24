@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     INITIAL_MASTER_EMAIL: str | None = None
     INITIAL_MASTER_PASSWORD: str
 
+    # 기본 정책 : 최대 1000건, 마지막 실패 적재 후 14일 보관.
+    INSPECTION_DLQ_MAX_ENTRIES: int = 1000
+    INSPECTION_DLQ_TTL_SECONDS: int = 60 * 60 * 24 * 14
+
     # WMS API 요청 제한 시간
     WMS_REQUEST_TIMEOUT_SECONDS: float = 10.0
     class Config:

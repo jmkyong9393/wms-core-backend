@@ -91,6 +91,9 @@ def call_wms_inspection_result_api(
     defects: list[dict[str, Any]],
     location_id: str | None,
     idempotency_key: str,
+    admin_decision_code: str | None = None,
+    final_grade: str | None = None,
+    rejection_disposition: str | None = None,
 ) -> dict[str, Any]:
     return post_wms_request(
         path=WMS_INSPECTION_RESULT_PATH,
@@ -100,6 +103,9 @@ def call_wms_inspection_result_api(
             "ubci_score": ubci_score,
             "defects": defects,
             "location_id": location_id,
+            "admin_decision_code": admin_decision_code,
+            "final_grade": final_grade,
+            "rejection_disposition": rejection_disposition,
         },
         idempotency_key=idempotency_key,
     )

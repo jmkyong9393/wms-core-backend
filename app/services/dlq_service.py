@@ -1,15 +1,11 @@
 import json
-import os
 from datetime import datetime, timezone
 from typing import Any
 
 import redis
 
+from app.core.config import settings
 
-REDIS_URL = os.getenv(
-    "REDIS_URL",
-    "redis://localhost:6379/0",
-)
 
 INSPECTION_DLQ_KEY = "wms:dlq:inspection"
 
@@ -22,7 +18,7 @@ def push_inspection_failure_to_dlq(
     retry_count: int,
 ) -> None:
     redis_client = redis.Redis.from_url(
-        REDIS_URL,
+        settings.REDIS_URL,
         decode_responses=True,
     )
 
@@ -37,12 +33,23 @@ def push_inspection_failure_to_dlq(
     }
 
     try:
-        redis_client.rpush(
-            INSPECTION_DLQ_KEY,
-            json.dumps(
-                dlq_message,
-                ensure_ascii=False,
-            ),
-        )
+        with redis_client.pipeline(transaction=True) as pipeline:
+            pipeline.rpush(
+                INSPECTION_DLQ_KEY,
+                json.dumps(
+                    dlq_message,
+                    ensure_ascii=False,
+                ),
+            )
+            pipeline.ltrim(
+                INSPECTION_DLQ_KEY,
+                -settings.INSPECTION_DLQ_MAX_ENTRIES,
+                -1,
+            )
+            pipeline.expire(
+                INSPECTION_DLQ_KEY,
+                settings.INSPECTION_DLQ_TTL_SECONDS,
+            )
+            pipeline.execute()
     finally:
         redis_client.close()
