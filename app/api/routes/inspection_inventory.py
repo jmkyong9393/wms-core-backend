@@ -40,6 +40,9 @@ def apply_inspection_inventory_result(
             ubci_score=request.ubci_score,
             defects=request.defects,
             location_id=request.location_id,
+            admin_decision_code=request.admin_decision_code,
+            final_grade=request.final_grade,
+            rejection_disposition=request.rejection_disposition,
         )
         session.commit()
     except Exception:

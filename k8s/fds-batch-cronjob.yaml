@@ -1,0 +1,33 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: fds-report-batch
+  namespace: default
+spec:
+  schedule: "0 0 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: fds-report-batch
+            image: wms-ai:latest
+            imagePullPolicy: IfNotPresent
+            command: ["python", "-m", "app.ai.reporting.report_batch"]
+            env:
+            # 로컬(Kind) 테스트 환경을 위해 호스트의 포트로 접속하도록 host.docker.internal 사용
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: fds-db-secret
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              value: "redis://host.docker.internal:6379/0"
+            - name: CHROMA_SERVER_HOST
+              value: "host.docker.internal"
+            - name: CHROMA_SERVER_PORT
+              value: "8001"
+          restartPolicy: OnFailure
