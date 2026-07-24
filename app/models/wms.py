@@ -30,7 +30,6 @@ class InboundStatus(str, Enum):
 class ConditionGrade(str, Enum):
     MINT = "MINT"
     EXCELLENT = "EXCELLENT"
-    GOOD = "GOOD"
     NORMAL = "NORMAL"
     REJECT = "REJECT"
 
@@ -53,6 +52,7 @@ class ReturnJobStatus(str, Enum):
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
     HITL_REQUIRED = "HITL_REQUIRED"
+    RECHECK_REQUIRED = "RECHECK_REQUIRED"
     FAILED = "FAILED"
 
 
@@ -61,6 +61,12 @@ class InventoryTransactionType(str, Enum):
     OUTBOUND = "OUTBOUND"
     RETURN_RESTOCK = "RETURN_RESTOCK"
     DISCARD = "DISCARD"
+
+
+class UsedInventoryStatus(str, Enum):
+    AVAILABLE = "AVAILABLE"
+    RESERVED = "RESERVED"
+    SHIPPED = "SHIPPED"
 
 
 class UserRole(str, Enum):
@@ -148,6 +154,7 @@ class InboundItem(SQLModel, table=True):
     inbound_job_id: uuid.UUID = Field(foreign_key="inbound_jobs.id")
     book_id: uuid.UUID = Field(foreign_key="books.id")
     quantity: int = Field(nullable=False)
+    lpn_barcode: Optional[str] = Field(default=None, unique=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -185,10 +192,23 @@ class InventoryUsedItem(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     book_id: uuid.UUID = Field(foreign_key="books.id")
     location_id: uuid.UUID = Field(foreign_key="locations.id")
+    return_job_id: Optional[uuid.UUID] = Field(
+        default=None,
+        foreign_key="return_jobs.id",
+        unique=True,
+    )
     lpn_barcode: str = Field(nullable=False, unique=True)
-    ubci_score: Optional[int] = Field(default=None)
+    ubci_score: Optional[Decimal] = Field(
+        default=None,
+        sa_column=Column(Numeric(5, 2)),
+    )
     condition_grade: ConditionGrade = Field(nullable=False)
+    status: UsedInventoryStatus = Field(
+        default=UsedInventoryStatus.AVAILABLE,
+        nullable=False,
+    )
     certificate_url: Optional[str] = Field(default=None)
+    stocked_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -214,9 +234,28 @@ class OrderItem(SQLModel, table=True):
     order_id: uuid.UUID = Field(foreign_key="orders.id")
     book_id: uuid.UUID = Field(foreign_key="books.id")
     location_id: Optional[uuid.UUID] = Field(default=None, foreign_key="locations.id")
+    condition_grade: Optional[ConditionGrade] = Field(default=None)
     quantity: int = Field(nullable=False)
     unit_price: Decimal = Field(sa_column=Column(Numeric(12, 2), nullable=False))
     final_price: Decimal = Field(sa_column=Column(Numeric(12, 2), nullable=False))
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class OrderItemLpnAllocation(SQLModel, table=True):
+    __tablename__ = "order_item_lpn_allocations"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    order_item_id: uuid.UUID = Field(
+        foreign_key="order_items.id",
+        nullable=False,
+        index=True,
+    )
+    inventory_used_item_id: uuid.UUID = Field(
+        foreign_key="inventory_used_items.id",
+        nullable=False,
+        unique=True,
+    )
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -229,6 +268,14 @@ class ReturnJob(SQLModel, table=True):
 
     order_id: Optional[uuid.UUID] = Field(default=None, foreign_key="orders.id")
     book_id: uuid.UUID = Field(foreign_key="books.id")
+    inbound_item_id: Optional[uuid.UUID] = Field(
+        default=None,
+        foreign_key="inbound_items.id",
+    )
+    target_location_id: Optional[uuid.UUID] = Field(
+        default=None,
+        foreign_key="locations.id",
+    )
 
     task_id: Optional[str] = Field(default=None)
 
@@ -238,7 +285,11 @@ class ReturnJob(SQLModel, table=True):
 
     image_paths: Optional[list] = Field(default=None, sa_column=Column(JSONB))
 
-    ubci_score: Optional[int] = Field(default=None)
+    ubci_score: Optional[Decimal] = Field(
+        default=None,
+        sa_column=Column(Numeric(5, 2)),
+    )
+    condition_grade: Optional[ConditionGrade] = Field(default=None)
 
     agent_logs: Optional[dict] = Field(
         default_factory=dict,

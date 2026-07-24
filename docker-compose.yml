@@ -68,7 +68,7 @@ services:
       CHROMA_SERVER_HOST: chroma-server
       CHROMA_SERVER_PORT: 8000
       REDIS_URL: redis://redis:6379/0
-      SSE_TICKET_EXPIRE_SECONDS: 60
+      SSE_TICKET_EXPIRE_SECONDS: 300
     # Hot-reload mapping for local dev (overrides CMD to use reload)
     volumes:
       - ./app:/app/app

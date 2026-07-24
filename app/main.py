@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 
+
 from app.api.routes import (
     admin,
     admin_users,
@@ -11,12 +12,15 @@ from app.api.routes import (
     certificates,
     db,
     inbound,
+    inspection_inventory,
     inspections,
+    restock,
     inventory,
     mock,
     orders,
     outbound,
     stream,
+    used_inbound,
 )
 from app.core.config import settings
 from app.core.database import init_db
@@ -66,6 +70,7 @@ async def app_exception_handler(
             "detail": exc.detail,
             "error_code": exc.error_code,
         },
+        headers=exc.headers,
     )
 
 app.add_middleware(
@@ -95,6 +100,12 @@ app.include_router(stream.router, prefix="/api/v1/inspections", tags=["Inspectio
 # WMS 업무 API
 app.include_router(books.router, prefix="/api/v1/books", tags=["Books"])
 app.include_router(inbound.router, prefix="/api/v1/inbound", tags=["Inbound"])
+app.include_router(used_inbound.router, prefix="/api/v1/inbound", tags=["Inbound"])
+app.include_router(
+    inspection_inventory.router,
+    prefix="/api/v1/internal/inventory",
+    tags=["Inventory"],
+)
 app.include_router(orders.router, prefix="/api/v1/orders", tags=["Orders"])
 app.include_router(inventory.v1_router, prefix="/api/v1/inventory", tags=["Inventory"])
 app.include_router(outbound.router, prefix="/api/v1/outbound", tags=["Outbound"])
@@ -107,6 +118,9 @@ app.include_router(inventory.router, prefix="/api/inventory", tags=["Inventory"]
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["Admin"])
 app.include_router(db.router, prefix="/api/db", tags=["Database"])
 app.include_router(mock.router, prefix="/api/mock", tags=["Mock"])
+
+# 자동 발추 추천 Agent 임시 호출 api
+app.include_router(restock.router, prefix="/api/v1/admin/restock", tags=["Admin Restock"],)
 
 
 
