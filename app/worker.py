@@ -151,7 +151,13 @@ def execute_wms_action(
 
     agent_logs = ai_result.get("agent_logs") or {}
     defects = agent_logs.get("defects") or []
-    ubci_score = ai_result.get("ubci_score")
+    raw_ubci_score = ai_result.get("ubci_score")
+
+    ubci_score = (
+        float(raw_ubci_score)
+        if raw_ubci_score is not None
+        else None
+    )
 
     admin_decision_code = agent_logs.get("admin_decision_code")
     final_grade = agent_logs.get("final_grade")

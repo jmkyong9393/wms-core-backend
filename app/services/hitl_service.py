@@ -111,6 +111,7 @@ def apply_hitl_final_decision(
     *,
     return_job: ReturnJob,
     action: HITLAction,
+    reviewer_reason_code: HITLReasonCode,
     target_grade: HITLTargetGrade | None,
     updated_logs: dict[str, Any],
     task_id: str,
@@ -158,9 +159,9 @@ def apply_hitl_final_decision(
     rejection_disposition = None
 
     if action == HITLAction.REJECT_RETURN:
-        rejection_disposition = "RETURN"
+        rejection_disposition = "REJECT_RETURN"
     elif action == HITLAction.REJECT_DISCARD:
-        rejection_disposition = "DISCARD"
+        rejection_disposition = "REJECT_DISCARD"
 
     # 기존 WMS 처리 함수와 호환되는 값
     updated_logs["ai_decision"] = wms_decision
@@ -168,7 +169,7 @@ def apply_hitl_final_decision(
     updated_logs["wms_task_id"] = task_id
 
     # 관리자 세부 결정 정보
-    updated_logs["admin_decision_code"] = action.value
+    updated_logs["admin_decision_code"] = reviewer_reason_code.value
     updated_logs["final_grade"] = final_grade
     updated_logs["rejection_disposition"] = rejection_disposition
     updated_logs["decision_source"] = "ADMIN_HITL"
@@ -326,6 +327,7 @@ def save_hitl_decision(
         apply_hitl_final_decision(
             return_job=return_job,
             action=action,
+            reviewer_reason_code=reviewer_reason_code,
             target_grade=target_grade,
             updated_logs=updated_logs,
             task_id=task_id,

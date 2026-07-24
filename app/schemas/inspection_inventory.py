@@ -5,9 +5,14 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.wms import ConditionGrade, UsedInventoryStatus
-
+from app.schemas.hitl import HITLReasonCode
 
 InspectionDecision = Literal["APPROVE", "REJECT"]
+
+RejectionDisposition = Literal[
+    "REJECT_RETURN",
+    "REJECT_DISCARD",
+]
 
 
 class InspectionInventoryRequest(BaseModel):
@@ -24,6 +29,9 @@ class InspectionInventoryRequest(BaseModel):
                     }
                 ],
                 "location_id": "00000000-0000-4000-8000-000000000002",
+                "admin_decision_code": "FP_SHADOW",
+                "final_grade": "NORMAL",
+                "rejection_disposition": None,
             }
         }
     )
@@ -47,10 +55,28 @@ class InspectionInventoryRequest(BaseModel):
         description="승인된 LPN을 적재할 활성 로케이션 ID",
     )
 
+    admin_decision_code: HITLReasonCode | None = Field(
+        default=None,
+        description="관리자 HITL 판정 사유 코드",
+    )
+    final_grade: ConditionGrade | None = Field(
+        default=None,
+        description="관리자가 확정한 최종 도서 등급",
+    )
+    rejection_disposition: RejectionDisposition | None = Field(
+        default=None,
+        description="반려 도서 처리 방식",
+    )
     @model_validator(mode="after")
     def validate_approved_location(self):
-        if self.decision == "APPROVE" and self.ubci_score is None:
-            raise ValueError("ubci_score is required for approval")
+        if (
+            self.decision == "APPROVE"
+            and self.ubci_score is None
+            and self.final_grade is None
+        ):
+            raise ValueError(
+                "ubci_score or final_grade is required for approval"
+            )
         if self.decision == "APPROVE" and self.location_id is None:
             raise ValueError("location_id is required for approval")
         return self
