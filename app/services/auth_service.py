@@ -156,7 +156,7 @@ def create_employee(
         email=email,
         name=request.name,
         password_hash=hash_password(temporary_password),
-        role=UserRole.WORKER,
+        role=request.role,
         status=UserStatus.ACTIVE,
         must_change_password=True,
     )
