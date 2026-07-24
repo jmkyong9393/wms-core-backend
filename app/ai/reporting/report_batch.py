@@ -116,14 +116,47 @@ def fetch_defective_publishers(session: Session) -> Dict[str, int]:
 def save_fds_report(session: Session, results: List[Dict[str, Any]]):
     logger.info(f"총 {len(results)}건의 이상거래 의심 내역이 보고되었습니다.")
     for res in results:
-        logger.warning(f"🚨 이상거래 탐지: {res}")
-        report = FdsReport(
-            id=uuid.uuid4(),
-            customer_id=res["customer_id"],
-            fraud_score=res["fraud_score"],
-            fraud_reason=res["fraud_reason"]
-        )
-        session.add(report)
+        cid = res["customer_id"]
+        new_score = res["fraud_score"]
+        new_reason = res["fraud_reason"]
+        
+        # 1. 기존 적발 이력 조회
+        existing = session.execute(
+            text("SELECT id, fraud_score FROM fds_reports WHERE customer_id = :cid"),
+            {"cid": cid}
+        ).fetchone()
+        
+        if not existing:
+            # 최초 적발: 신규 INSERT
+            logger.warning(f"🚨 신규 이상거래 탐지: {res}")
+            report = FdsReport(
+                id=uuid.uuid4(),
+                customer_id=cid,
+                fraud_score=new_score,
+                fraud_reason=new_reason
+            )
+            session.add(report)
+        else:
+            old_id = existing[0]
+            old_score = existing[1]
+            
+            if new_score > old_score:
+                # 2. 이미 적발되었으나 위험도가 더 상향(악화)된 경우: UPDATE 및 detected_at 갱신
+                logger.warning(f"🚨 이상거래 위험도 상향 갱신 (점수: {old_score} -> {new_score}): {res}")
+                session.execute(
+                    text("""
+                        UPDATE fds_reports 
+                        SET fraud_score = :score, 
+                            fraud_reason = :reason, 
+                            detected_at = CURRENT_TIMESTAMP, 
+                            updated_at = CURRENT_TIMESTAMP 
+                        WHERE id = :id
+                    """),
+                    {"score": new_score, "reason": new_reason, "id": old_id}
+                )
+            else:
+                # 3. 동일 점수이거나 점수가 낮아진 경우 무시 (최초 적발일 detected_at 보존)
+                logger.info(f"✅ 기존 탐지 이력 유지 (점수 악화 없음) - {cid}")
 
 def generate_weekly_insights(
     session: Session,
