@@ -24,7 +24,7 @@ from app.models.wms import (
 )
 from app.services.fifo_lpn_service import (
     FifoLpnCandidate,
-    select_fifo_lpn_candidates,
+    select_fifo_lpn_candidate,
 )
 
 router = APIRouter()
@@ -143,22 +143,20 @@ def pick_order(
 
         for order_item in order_items:
             if order_item.condition_grade is not None:
-                lpn_candidates = select_fifo_lpn_candidates(
+                candidate = select_fifo_lpn_candidate(
                     session=session,
                     order_item=order_item,
                     excluded_inventory_ids=reserved_used_inventory_ids,
                 )
-                for candidate in lpn_candidates:
-                    inventory_used_item = candidate.inventory_used_item
-                    reserved_used_inventory_ids.add(inventory_used_item.id)
-                    used_stock_allocations.append((order_item, candidate))
-                    picked_location_by_order_item.setdefault(
-                        order_item.id,
-                        inventory_used_item.location_id,
-                    )
-                    picked_quantity_by_book[order_item.book_id] = (
-                        picked_quantity_by_book.get(order_item.book_id, 0) + 1
-                    )
+                inventory_used_item = candidate.inventory_used_item
+                reserved_used_inventory_ids.add(inventory_used_item.id)
+                used_stock_allocations.append((order_item, candidate))
+                picked_location_by_order_item[order_item.id] = (
+                    inventory_used_item.location_id
+                )
+                picked_quantity_by_book[order_item.book_id] = (
+                    picked_quantity_by_book.get(order_item.book_id, 0) + 1
+                )
                 continue
 
             remaining_quantity = order_item.quantity
