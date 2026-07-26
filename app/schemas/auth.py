@@ -1,5 +1,6 @@
 from datetime import date
 from uuid import UUID
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -29,7 +30,7 @@ class TokenResponse(BaseModel):
     must_change_password: bool
 
 
-# 관리자용 직원 계정 생성 요청
+# 관리자, 직원 계정 생성 요청
 class EmployeeCreateRequest(AuthSchema):
     name: str = Field(
         min_length=2,
@@ -37,6 +38,11 @@ class EmployeeCreateRequest(AuthSchema):
     )
     email: EmailStr | None = None
     hire_date: date
+    role: Literal[
+        UserRole.ADMIN,
+        UserRole.WORKER,
+    ] = UserRole.WORKER
+
 
 # 현재 사용자 정보 응답
 class UserResponse(AuthSchema):
@@ -66,7 +72,10 @@ class PasswordChangeRequest(BaseModel):
 
 # 사용자 권한 변경 요청
 class UserRoleUpdateRequest(BaseModel):
-    role: UserRole
+    role: Literal[
+        UserRole.ADMIN,
+        UserRole.WORKER,
+    ]
 
 # 사용자 계정 상태 변경 요청
 class UserStatusUpdateRequest(BaseModel):

@@ -15,7 +15,7 @@ def get_sse_ticket_key(ticket: str) -> str:
     return f"{SSE_TICKET_KEY_PREFIX}:{ticket}"
 
 
-# JWT 인증을 통과한 사용자에게 1회성 SSE 티켓 발급
+# JWT 인증을 통과한 사용자에게 TTL 동안 재접속 가능한 단기 SSE 티켓 발급
 async def issue_sse_ticket(
     job_id: UUID,
     user_id: UUID,
@@ -47,9 +47,9 @@ async def issue_sse_ticket(
     return ticket, expires_in
 
 
-# 티켓을 조회함과 동시에 삭제
-# 같은 티켓은 두 번 사용할 수 없음
-async def consume_sse_ticket(
+# 티켓을 삭제하지 않고 유효성만 확인
+# TTL이 유지되는 동안 동일 티켓으로 SSE 재접속 가능
+async def validate_sse_ticket(
     ticket: str,
     job_id: UUID,
 ) -> dict[str, Any] | None:
@@ -59,7 +59,7 @@ async def consume_sse_ticket(
     )
 
     try:
-        raw_payload = await redis_client.getdel(
+        raw_payload = await redis_client.get(
             get_sse_ticket_key(ticket)
         )
     finally:

@@ -49,6 +49,9 @@ def seed_mock_data(
     current_master: User = Depends(require_master),
     session: Session = Depends(get_session),
 ):
+    seed_suffix = str(uuid4().int)[-10:]
+    customer_id = uuid4()
+    
     book = Book(
         title="Mock WMS Book",
         isbn=f"978{seed_suffix}",
@@ -202,7 +205,10 @@ def seed_mock_data(
 
 
 @router.post("/seed/order-outbound")
-def seed_order_outbound_data(session: Session = Depends(get_session)):
+def seed_order_outbound_data(
+    _master: User = Depends(require_master),
+    session: Session = Depends(get_session),
+):
     seed_suffix = str(uuid4().int)[-10:]
     book = Book(
         title="Order Outbound Seed Book",
@@ -253,7 +259,10 @@ def seed_order_outbound_data(session: Session = Depends(get_session)):
 
 
 @router.get("/summary")
-def get_mock_summary(session: Session = Depends(get_session)):
+def get_mock_summary(
+    _master: User = Depends(require_master),
+    session: Session = Depends(get_session),
+):
     return {
         "books": _count(session, Book),
         "inbound_jobs": _count(session, InboundJob),

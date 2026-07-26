@@ -26,6 +26,8 @@ from app.models.wms import (
     UsedInventoryStatus,
 )
 
+from app.schemas.hitl import HITLReasonCode
+from app.schemas.inspection_inventory import RejectionDisposition
 
 AdmissionDecision = Literal["APPROVE", "REJECT"]
 
@@ -49,6 +51,9 @@ def admit_inspected_item(
     ubci_score: Decimal | None,
     defects: list[dict[str, Any]],
     location_id: UUID | None,
+    admin_decision_code: HITLReasonCode | None = None,
+    final_grade: ConditionGrade | None = None,
+    rejection_disposition: RejectionDisposition | None = None,
 ) -> InventoryAdmissionResult:
     return_job = session.get(ReturnJob, return_job_id)
     if return_job is None:
@@ -56,6 +61,34 @@ def admit_inspected_item(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Return job not found",
         )
+
+    if any(
+        value is not None
+        for value in (
+            admin_decision_code,
+            final_grade,
+            rejection_disposition,
+        )
+    ):
+        updated_logs = dict(return_job.agent_logs or {})
+
+        updated_logs["admin_decision_code"] = (
+            admin_decision_code.value
+            if admin_decision_code is not None
+            else None
+        )
+        updated_logs["final_grade"] = (
+            final_grade.value
+            if final_grade is not None
+            else None
+        )
+        updated_logs["rejection_disposition"] = (
+            rejection_disposition
+        )
+
+        return_job.agent_logs = updated_logs
+        session.add(return_job)
+    
     if return_job.inbound_item_id is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -111,6 +144,7 @@ def admit_inspected_item(
             requested_score=ubci_score,
             requested_defects=defects,
             requested_location_id=location_id,
+            requested_final_grade=final_grade,
         )
 
     if inbound_job.status != InboundStatus.CHECKING:
@@ -139,13 +173,41 @@ def admit_inspected_item(
             inventory_changed=False,
         )
 
-    if ubci_score is None or location_id is None:
+    if location_id is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Approved inspection requires UBCI score and location",
+            detail="Approved inspection requires location",
         )
 
-    condition_grade = determine_condition_grade(ubci_score, defects)
+    if final_grade == ConditionGrade.REJECT:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Approved inspection cannot use REJECT final grade",
+        )
+
+    if rejection_disposition is not None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Approved inspection cannot use rejection disposition",
+        )
+
+    if final_grade is not None:
+        condition_grade = final_grade
+    else:
+        if ubci_score is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "Approved inspection requires "
+                    "UBCI score or final grade"
+                ),
+            )
+
+        condition_grade = determine_condition_grade(
+            ubci_score,
+            defects,
+        )
+
     if condition_grade == ConditionGrade.REJECT:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -244,10 +306,12 @@ def _replay_completed_admission(
     requested_score: Decimal | None,
     requested_defects: list[dict[str, Any]],
     requested_location_id: UUID | None,
+    requested_final_grade: ConditionGrade | None,
 ) -> InventoryAdmissionResult:
     completed_decision: AdmissionDecision = (
         "APPROVE" if existing_inventory is not None else "REJECT"
     )
+
     if requested_decision != completed_decision:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -266,16 +330,22 @@ def _replay_completed_admission(
             inventory_changed=False,
         )
 
-    if requested_score is None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Completed approval cannot be replayed without UBCI score",
-        )
+    if requested_final_grade is not None:
+        requested_grade = requested_final_grade
+    else:
+        if requested_score is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Completed approval cannot be replayed "
+                    "without UBCI score or final grade"
+                ),
+            )
 
-    requested_grade = determine_condition_grade(
-        requested_score,
-        requested_defects,
-    )
+        requested_grade = determine_condition_grade(
+            requested_score,
+            requested_defects,
+        )
     if (
         requested_grade != existing_inventory.condition_grade
         or requested_score != existing_inventory.ubci_score
