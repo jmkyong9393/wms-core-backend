@@ -1,12 +1,17 @@
-import json
+import json, base64
 import os
 from typing import Annotated, Literal
 
 from dotenv import load_dotenv
-from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .state import Grade, WMSInspectionState
+from functools import lru_cache
+from io import BytesIO
+from pathlib import Path
+from PIL import Image, ImageDraw
+from langchain_core.messages import AIMessage, HumanMessage
+from ultralytics import YOLO
 
 POLICY_VERSION = "UBCI_SPEC_V2.0.0.0"
 
@@ -49,7 +54,8 @@ DefectLocation = Literal[
     "OTHER",
 ]
 
-
+# VLM이 승인한 최종 결함의 데이터 계약
+# 정규화 BBox가 0~1 범위인지 검증하고 좌표가 뒤집힌 결과를 차단
 class DefectOutput(BaseModel):
     model_config = ConfigDict(strict=True)
     type: DefectCode
@@ -72,37 +78,210 @@ class DefectOutput(BaseModel):
 
         return self
 
-class VisionOutput(BaseModel):
-    #State에 저장하기 전 Vision 출력을 검증합니다.
+
+RejectReason = Literal[
+    "BACKGROUND_OBJECT",
+    "COVER_DESIGN",
+    "LIGHT_OR_SHADOW",
+    "INSUFFICIENT_EVIDENCE",
+]
+
+# YOLO 후보 하나에 대한 VLM의 승인 또는 거절 결과
+# 승인된 후보와 거절된 후보의 필수 필드가 섞이지 않도록 검증
+class CandidateReview(BaseModel):
     model_config = ConfigDict(strict=True)
-    is_mint: bool
-    defects: list[DefectOutput]
-    image_quality_ok: bool
-    vision_confidence: float = Field(ge=0, le=1)
+
+    candidate_id: int = Field(ge=0)
+    is_defect: bool
+    type: DefectCode | None = None
+    location: DefectLocation | None = None
+    ratio: float = Field(ge=0, le=100)
+    confidence: float = Field(ge=0, le=1)
+    reject_reason: RejectReason | None = None
+    text_overlap: bool = False
+    morphology_severe: bool = False
 
     @model_validator(mode="after")
-    def validate_result(self):
-        if not self.image_quality_ok:
-            if self.is_mint or self.defects:
+    def validate_review(self):
+        if self.is_defect:
+            if self.type is None or self.location is None:
                 raise ValueError(
-                    "판독 불가 사진은 is_mint=False, defects=[]여야 합니다."
+                    "실제 결함은 type과 location이 필요합니다."
                 )
 
-            if self.vision_confidence >= MIN_VISION_CONFIDENCE:
+            if self.reject_reason is not None:
                 raise ValueError(
-                    "판독 불가 사진의 신뢰도는 기준값보다 낮아야 합니다."
+                    "실제 결함에 reject_reason을 사용할 수 없습니다."
                 )
 
-            return self
+            if self.ratio <= 0:
+                raise ValueError(
+                    "실제 결함의 ratio는 0보다 커야 합니다."
+                )
 
-        if self.is_mint == bool(self.defects):
-            raise ValueError("is_mint와 defects가 서로 모순됩니다.")
+        else:
+            if self.type is not None or self.location is not None:
+                raise ValueError(
+                    "거절 후보에는 결함 유형과 위치를 지정하지 않습니다."
+                )
+
+            if self.ratio != 0:
+                raise ValueError(
+                    "거절 후보의 ratio는 0이어야 합니다."
+                )
+
+            if self.reject_reason is None:
+                raise ValueError(
+                    "거절 후보에는 reject_reason이 필요합니다."
+                )
 
         return self
 
-    
+# 사진 한 장에 포함된 모든 YOLO 후보의 VLM 검증 결과
+# YOLO가 놓친 결함 의심 여부와 사진 전체 신뢰도도 함께 전달
+class HybridVisionReview(BaseModel):
+    model_config = ConfigDict(strict=True)
 
-    
+    image_quality_ok: bool
+    reviews: list[CandidateReview]
+    missed_defect_suspected: bool
+    vision_confidence: float = Field(ge=0, le=1)
+YOLO_IMAGE_SIZE = 960
+YOLO_MAX_CANDIDATES = 10
+
+# YOLO 모델은 로딩 비용이 크므로 프로세스에서 한 번만 로드해 재사용
+# 상대 경로는 프로젝트 루트를 기준으로 변환하고 모델이 없으면 즉시 실패시킴
+@lru_cache(maxsize=1)
+def get_yolo_model() -> YOLO:
+    repo_root = Path(__file__).resolve().parents[2]
+    configured_path = Path(
+        os.getenv(
+            "YOLO_MODEL_PATH",
+            "models/defect_region_best.pt",
+        )
+    )
+
+    model_path = (
+        configured_path
+        if configured_path.is_absolute()
+        else repo_root / configured_path
+    )
+
+    if not model_path.exists():
+        raise FileNotFoundError(
+            f"YOLO 모델이 없습니다: {model_path}"
+        )
+
+    return YOLO(str(model_path))
+
+# PIL 이미지를 임시 파일 없이 Base64 Data URL로 변환해 OpenAI API에 전달
+def image_to_data_url(image: Image.Image) -> str:
+    buffer = BytesIO()
+    image.convert("RGB").save(
+        buffer,
+        format="JPEG",
+        quality=90,
+    )
+
+    encoded = base64.b64encode(
+        buffer.getvalue()
+    ).decode("utf-8")
+
+    return f"data:image/jpeg;base64,{encoded}"
+
+# YOLO는 결함 종류를 판정하지 않고 의심 영역만 찾음
+# 좌표를 이미지 경계 안으로 제한하고 후보 수를 10개로 제한해 오탐과 API 비용을 방어
+# VLM 검증용 Crop에는 주변 문맥을 15% 포함
+def detect_yolo_candidates(
+    image: Image.Image,
+) -> list[dict]:
+    model = get_yolo_model()
+
+    result = model.predict(
+        source=image,
+        conf=float(
+            os.getenv("YOLO_CONFIDENCE", "0.25")
+        ),
+        iou=float(
+            os.getenv("YOLO_IOU", "0.50")
+        ),
+        imgsz=YOLO_IMAGE_SIZE,
+        max_det=YOLO_MAX_CANDIDATES,
+        device=os.getenv("YOLO_DEVICE", "cpu"),
+        verbose=False,
+    )[0]
+
+    if result.boxes is None:
+        return []
+
+    width, height = image.size
+    boxes = result.boxes.xyxy.cpu().tolist()
+    confidences = result.boxes.conf.cpu().tolist()
+
+    candidates = []
+
+    for candidate_id, (box, confidence) in enumerate(
+        zip(boxes, confidences)
+    ):
+        x1, y1, x2, y2 = box
+
+        x1 = max(0, min(int(x1), width - 1))
+        y1 = max(0, min(int(y1), height - 1))
+        x2 = max(x1 + 1, min(int(x2), width))
+        y2 = max(y1 + 1, min(int(y2), height))
+
+        # Crop에 주변 문맥을 조금 포함한다.
+        padding_x = int((x2 - x1) * 0.15)
+        padding_y = int((y2 - y1) * 0.15)
+
+        crop = image.crop((
+            max(0, x1 - padding_x),
+            max(0, y1 - padding_y),
+            min(width, x2 + padding_x),
+            min(height, y2 + padding_y),
+        ))
+
+        candidates.append({
+            "candidate_id": candidate_id,
+            "bbox": [
+                x1 / width,
+                y1 / height,
+                x2 / width,
+                y2 / height,
+            ],
+            "pixel_bbox": [x1, y1, x2, y2],
+            "yolo_confidence": float(confidence),
+            "crop": crop,
+        })
+
+    return candidates
+
+# 전체 사진에 candidate_id를 표시
+# VLM이 전체 위치와 개별 Crop을 같은 후보로 연결할 수 있게 하는 용도
+def draw_candidates(
+    image: Image.Image,
+    candidates: list[dict],
+) -> Image.Image:
+    annotated = image.copy()
+    draw = ImageDraw.Draw(annotated)
+
+    for candidate in candidates:
+        x1, y1, x2, y2 = candidate["pixel_bbox"]
+        candidate_id = candidate["candidate_id"]
+
+        draw.rectangle(
+            [x1, y1, x2, y2],
+            outline="red",
+            width=5,
+        )
+        draw.text(
+            (x1 + 5, y1 + 5),
+            f"candidate #{candidate_id}",
+            fill="red",
+            stroke_width=2,
+            stroke_fill="white",
+        )
+    return annotated
 
 def vision_agent(state: WMSInspectionState) -> WMSInspectionState:
     """
@@ -112,236 +291,35 @@ def vision_agent(state: WMSInspectionState) -> WMSInspectionState:
     - 입력: state["messages"] 내의 이미지 URL
     - 출력: is_mint (bool), defects (list of relative ratios)
     """
+        # 구현 흐름:
+    # 1. YOLO가 결함 의심 영역의 BBox를 생성한
+    # 2. 전체 사진과 후보별 Crop을 VLM에 전달
+    # 3. VLM은 새 좌표를 만들지 않고 YOLO 후보를 승인하거나 거절
+    # 4. 승인된 후보만 결함 종류·위치·면적 비율과 함께 State에 저장
+    #
+    # 방어 로직:
+    # - VLM 구조화 출력으로 허용되지 않은 결함 코드를 차단
+    # - candidate_id 누락·중복·추가 결과를 오류 처리
+    # - 낮은 신뢰도와 YOLO 미탐 의심 결과를 HITL로 보냄
+    # - Vision 재실행 시 이전 UBCI와 최종 보고서 값을 초기화
+
     print("[Agent] Vision Agent 실행...")
 
-    prompt = """
-    # 역할
+    image_paths = state.get("image_paths") or []
 
-    당신은 중고 도서 외관검수 전문 Vision Agent입니다.
+    raw_revision_count = state.get("revision_count", 0)
+    revision_count = (
+        raw_revision_count
+        if type(raw_revision_count) is int
+        and raw_revision_count >= 0
+        else 0
+    )
 
-    목표는 다음 두 가지입니다.
+    # 관리자가 새 사진으로 재검수를 요청하면 재시도 횟수를 초기화
+    # 초기화하지 않으면 최대 재시도 이후 다시 Vision을 통과해도 HITL로 돌아감
+    if state.get("human_feedback") == "RE_CHECK":
+        revision_count = 0
 
-    1. 사진에서 직접 확인되는 물리적 결함만 판정합니다.
-    2. 결함이 실제로 차지하는 영역을 원본 이미지 기준의
-    정규화 BBox로 최대한 정확하게 기록합니다.
-
-    정책·환불·등급·고객 귀책은 판단하지 않습니다.
-    출력 스키마 이외의 설명은 반환하지 않습니다.
-
-    # 판단 우선순위
-
-    다음 순서를 반드시 지킵니다.
-
-    1. 사진 품질을 확인합니다.
-    2. 원본 이미지에서 실제 책 영역을 찾습니다.
-    3. 책 영역을 순서대로 탐색합니다.
-    4. 물리적 결함의 시각적 증거를 확인합니다.
-    5. 결함 종류를 분류합니다.
-    6. 결함 경계를 기준으로 BBox를 계산합니다.
-    7. BBox를 다시 검증합니다.
-
-    결함이 있다는 가정부터 시작하지 않습니다.
-    BBox를 채우기 위해 결함이나 좌표를 추측하지 않습니다.
-
-    # 사진 품질
-
-    다음 이유로 결함 판독이나 위치 특정이 어렵다면:
-
-    - 심한 초점 흐림
-    - 모션 블러
-    - 과도한 역광
-    - 결함 후보 영역의 심한 반사
-    - 책의 대부분이 가려짐
-    - 지나치게 낮은 해상도
-
-    다음과 같이 반환합니다.
-
-    - image_quality_ok=false
-    - is_mint=false
-    - defects=[]
-    - vision_confidence < 0.80
-
-    사진 일부에 반사가 있더라도 다른 영역을 충분히 검사할 수 있다면
-    전체 사진을 무조건 판독 불가로 처리하지 않습니다.
-
-    # 결함 탐색 순서
-
-    책 영역을 다음 순서로 빠짐없이 확인합니다.
-
-    1. 앞표지 또는 뒷표지의 표면
-    2. 위·아래·좌·우 가장자리
-    3. 네 모서리
-    4. 책등과 제본 경계
-    5. 노출된 페이지와 페이지 단면
-    6. 바코드·ISBN 식별 영역
-
-    # 결함으로 인정할 수 있는 증거
-
-    다음과 같은 물리적 변화가 눈으로 확인될 때만 결함으로 기록합니다.
-
-    - 재질의 찢어짐, 갈라짐 또는 손실
-    - 눌림, 접힘, 구겨짐 또는 비정상적인 휨
-    - 표면의 실제 긁힘이나 마모
-    - 인쇄물과 구별되는 얼룩, 필기 또는 도장
-    - 제본부의 벌어짐이나 분리
-    - 물에 젖어 발생한 변색 또는 변형
-
-    다음은 결함으로 기록하지 않습니다.
-
-    - 표지의 인쇄 글자, 그림, 로고, 테두리
-    - 디자인상 음영, 그라데이션 또는 질감
-    - 조명 반사, 그림자, 유광 광택
-    - 비닐 커버의 정상적인 반사
-    - 책상, 케이블, 다른 책 등 배경 물체
-    - 카메라 원근으로 인한 정상적인 기울어짐
-    - 실제 재질 변화가 확인되지 않는 단순한 색상 차이
-
-    그림자나 반사만으로 휨·찢김을 추론하지 않습니다.
-
-    # 결함 코드
-
-    type은 허용된 표준 코드만 사용합니다.
-
-    - COVER_SCRATCH: 표지의 실제 긁힘
-    - COVER_TEAR: 표지 재질의 찢어짐
-    - STICKER_MARK: 스티커 또는 라벨 제거 자국
-    - CORNER_CRUSH: 모서리의 눌림, 찍힘 또는 구겨짐
-    - EDGE_WEAR: 책 가장자리의 실제 마모
-    - SPINE_CRACKING: 책등의 갈라짐
-    - LOOSE_BINDING: 제본 벌어짐 또는 페이지 분리
-    - GENERAL_STAIN: 일반적인 오염이나 얼룩
-    - FADING: 빛바램 또는 변색
-    - SIGNATURE: 서명 또는 이름
-    - LIBRARY_STAMP: 도서관·장서인 도장
-    - WATER_DAMAGE: 액체 흔적 또는 수침 손상
-    - PAGE_WARPING: 페이지의 실제 뒤틀림
-    - WRITING: 펜·연필 필기
-    - HIGHLIGHTING: 형광펜 표시
-    - BARCODE_DAMAGE: 바코드·ISBN 영역 훼손
-    - OTHER_VISIBLE_DAMAGE: 물리적 훼손은 명확하지만 분류 불가
-
-    # BBox 좌표 계약
-
-    bbox는 반드시 다음 형식입니다.
-
-    [x_min, y_min, x_max, y_max]
-
-    좌표 기준은 책 crop이 아니라 배경을 포함한 원본 이미지 전체입니다.
-
-    - 원본 이미지 왼쪽 위: (0.0, 0.0)
-    - 원본 이미지 오른쪽 아래: (1.0, 1.0)
-    - x는 왼쪽에서 오른쪽으로 증가
-    - y는 위에서 아래로 증가
-
-    BBox를 계산할 때 원본 이미지 위에 가상의
-    1000 × 1000 좌표 격자가 있다고 생각합니다.
-
-    1. 결함 증거의 가장 왼쪽 경계를 찾습니다.
-    2. 가장 위쪽 경계를 찾습니다.
-    3. 가장 오른쪽 경계를 찾습니다.
-    4. 가장 아래쪽 경계를 찾습니다.
-    5. 각 좌표를 1000으로 나누어 0~1로 정규화합니다.
-    6. 좌표는 가능한 경우 소수점 셋째 자리까지 작성합니다.
-
-    네 좌표를 각각 사진에서 독립적으로 계산합니다.
-    미리 정해진 위치별 BBox를 재사용하지 않습니다.
-
-    다음과 같은 고정형 좌표를 결함 위치 확인 없이 사용하지 않습니다.
-
-    - [0.0, 0.0, 0.15, 0.15]
-    - [0.75, 0.75, 0.95, 0.95]
-    - [0.1, 0.1, 0.9, 0.9]
-
-    실제 결함이 해당 위치와 정확히 일치할 때만 비슷한 값이
-    나올 수 있습니다.
-
-    # BBox 경계 규칙
-
-    - BBox는 눈으로 확인되는 결함 전체를 포함해야 합니다.
-    - 결함 주변의 정상 영역은 가능한 한 적게 포함합니다.
-    - 책 전체를 감싸지 않습니다.
-    - 배경을 감싸지 않습니다.
-    - 모서리 눌림은 변형된 모서리와 연결된 주름까지만 감쌉니다.
-    - 가장자리 마모는 마모가 확인되는 연속 구간만 감쌉니다.
-    - 페이지 휨은 실제로 들리거나 굽은 페이지 영역만 감쌉니다.
-    - 제본 벌어짐은 실제 간격이나 분리선이 보이는 영역만 감쌉니다.
-    - 서로 떨어진 결함은 하나의 큰 BBox로 합치지 않습니다.
-    - 결함이 이미지 경계에 실제로 닿을 때만 0 또는 1을 사용합니다.
-
-    형태상 가능한 경우 BBox 중심 또는 주요 영역이 실제 결함 위에
-    놓여야 합니다.
-
-    결함 존재는 확인되지만 정확한 경계를 특정하기 어렵다면
-    임의의 BBox를 만들지 말고 해당 defect의 confidence를 0.80 미만으로
-    반환합니다.
-
-    # Ratio
-
-    ratio는 BBox 사각형 면적이 아닙니다.
-
-    원본 사진에서 보이는 책 면적 대비 실제 결함 면적의 비율을
-    0~100 float으로 추정합니다.
-
-    정확히 판단하기 어렵다면 과장하지 않고 confidence를 낮춥니다.
-
-    # 여러 이미지
-
-    image_index는 입력된 이미지 순서이며 0부터 시작합니다.
-
-    여러 사진에서 같은 물리적 결함이 반복되면 가장 선명하고
-    경계가 명확한 사진의 결함 한 건만 반환합니다.
-
-    다른 위치의 서로 다른 결함은 각각 반환합니다.
-
-    # 출력 일관성
-
-    - 명확한 결함이 없으면 is_mint=true, defects=[]
-    - 결함이 하나 이상이면 is_mint=false
-    - 판독 불가 사진은 is_mint=false, defects=[]
-    - confidence와 vision_confidence는 0~1
-    - text_overlap은 결함이 인쇄 글자를 실제로 가릴 때만 true
-    - morphology_severe는 구조적 단절이나 심한 변형이 명확할 때만 true
-
-    # 반환 전 내부 검증
-
-    응답을 반환하기 전 다음을 확인합니다.
-
-    - 결함을 인쇄 디자인이나 반사와 혼동하지 않았는가?
-    - BBox 기준이 원본 이미지 전체인가?
-    - x_min < x_max이고 y_min < y_max인가?
-    - 모든 좌표가 0~1 범위인가?
-    - BBox가 실제 결함 전체를 포함하는가?
-    - 정상 영역과 배경을 과도하게 포함하지 않는가?
-    - 위치별 고정 BBox를 추측해서 사용하지 않았는가?
-    - 경계가 불확실한데 높은 confidence를 주지 않았는가?
-
-    최종 출력은 지정된 구조화 스키마만 반환합니다.
-    """
-
-    messages = state.get("messages") or []
-    image_message = None 
-    image_count = 0
-    
-    #재검증 시 마지막 메시지는 critic의 AIMessage 일 수 있음
-    for message in reversed(messages):
-        content = getattr(message, "content", None)
-
-        if not isinstance(content, list):
-            continue
-
-        image_items = [
-            item
-            for item in content
-            if isinstance(item, dict)
-            and item.get("type") == "image_url"
-        ]
-
-        if image_items:
-            image_message = message
-            image_count = len(image_items)
-            break
-
-    #vision을 재실행하면 이전 policy, Critic, HITL 결과를 제거
     downstream_reset = {
         "ubci_score": None,
         "predicted_grade": None,
@@ -356,20 +334,9 @@ def vision_agent(state: WMSInspectionState) -> WMSInspectionState:
         "target_grade": None,
         "final_grade": None,
         "final_report": None,
-        }
+    }
 
-    # 관리자 재촬영은 새로운 검사이므로 이전 실패 횟수를 초기화
-    revision_count = (
-        0
-        if state.get("human_feedback") == "RE_CHECK"
-        else state.get("revision_count", 0)
-    )
-
-    if type(revision_count) is not int or revision_count < 0:
-        revision_count = 0
-
-    def failure_result(message: str) -> WMSInspectionState:
-        """Vision 실패 결과의 중복 작성을 줄이기 위한 내부 함수입니다."""
+    def failure_result(message: str):
         return {
             **downstream_reset,
             "is_mint": None,
@@ -380,95 +347,283 @@ def vision_agent(state: WMSInspectionState) -> WMSInspectionState:
             "repair_directive": message,
             "revision_count": revision_count + 1,
             "messages": [
-                AIMessage(content=f"[Vision Agent] 실패 - {message}")
+                AIMessage(
+                    content=f"[Vision Agent] 실패 - {message}"
+                )
             ],
         }
 
-    if image_message is None:
-        return failure_result("검수할 이미지 URL이 없습니다.")
+    if not image_paths:
+        return failure_result(
+            "검수할 image_paths가 없습니다."
+        )
+
+    prompt = """
+당신은 중고 도서 결함 후보 검증 Agent입니다.
+
+YOLO가 만든 후보 BBox만 검증합니다.
+새로운 BBox나 좌표를 만들지 마세요.
+
+첫 번째 이미지는 후보 번호가 표시된 전체 사진입니다.
+그다음 이미지들은 각 candidate의 확대 Crop입니다.
+
+각 candidate_id를 정확히 한 번씩 판정하세요.
+
+실제 결함으로 인정:
+- 찢어짐, 눌림, 구겨짐
+- 실제 긁힘이나 마모
+- 얼룩, 필기, 도장
+- 제본 벌어짐
+- 수침 변색이나 뒤틀림
+
+반드시 거절:
+- 책상, 케이블, 다른 책 등 배경 물체
+- 표지의 인쇄 글자, 그림, 로고, 스티커 디자인
+- 조명 반사, 그림자, 유광 광택
+- 물리적 손상이 명확하지 않은 색상 차이
+
+is_defect=false이면:
+- type=null
+- location=null
+- ratio=0.0
+- reject_reason을 반드시 지정
+
+is_defect=true이면:
+- type과 location 지정
+- reject_reason=null
+- ratio는 보이는 책 면적 대비 실제 결함 면적 비율
+- YOLO BBox 전체 면적을 그대로 ratio로 사용하지 않음
+
+missed_defect_suspected는 전체 사진에서 명확한 결함이 보이지만
+어떤 YOLO 후보에도 포함되지 않은 경우에만 true입니다.
+"""
 
     try:
-        vision_model = ChatOpenAI(
-            model=os.getenv("VISION_MODEL", "gpt-4o"),
+        review_model = ChatOpenAI(
+            model=os.getenv(
+                "OPENAI_MODEL",
+                "gpt-4o-mini",
+            ),
             temperature=0,
-            timeout=30,
+            timeout=60,
             max_retries=1,
         ).with_structured_output(
-            VisionOutput,
+            HybridVisionReview,
             method="json_schema",
         )
 
-        result = vision_model.invoke([
-            ("system", prompt),
-            image_message,
-        ])
+        final_defects = []
+        confidence_values = []
+        missed_defect_suspected = False
 
-        if result is None:
-            raise ValueError("Vision 모델 응답이 없습니다.")
+        repo_root = Path(__file__).resolve().parents[2]
 
-        # 입력이 두 장인데 image_index=5 같은 값이 나오는 것을 방어
-        if any(
-            defect.image_index >= image_count
-            for defect in result.defects
-        ):
-            raise ValueError(
-                "존재하지 않는 image_index가 반환되었습니다."
+        for image_index, raw_path in enumerate(image_paths):
+            image_path = Path(raw_path)
+
+            if not image_path.is_absolute():
+                image_path = repo_root / image_path
+
+            if not image_path.exists():
+                raise FileNotFoundError(
+                    f"이미지가 없습니다: {image_path}"
+                )
+
+            image = Image.open(
+                image_path
+            ).convert("RGB")
+
+            candidates = detect_yolo_candidates(image)
+            annotated = draw_candidates(
+                image,
+                candidates,
             )
+
+            # VLM이 전체 이미지의 후보 번호와 Crop을 연결할 수 있도록
+            # candidate_id와 정규화된 BBox 정보를 함께 전달
+            candidate_metadata = [
+                {
+                    "candidate_id": candidate["candidate_id"],
+                    "bbox": candidate["bbox"],
+                }
+                for candidate in candidates
+            ]
+
+            content = [
+                {
+                    "type": "text",
+                    "text": (
+                        "다음 YOLO 후보를 검증하세요.\n"
+                        + json.dumps(
+                            candidate_metadata,
+                            ensure_ascii=False,
+                        )
+                    ),
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": image_to_data_url(annotated),
+                        "detail": "high",
+                    },
+                },
+            ]
+
+            for candidate in candidates:
+                content.extend([
+                    {
+                        "type": "text",
+                        "text": (
+                            "다음 Crop의 candidate_id는 "
+                            f"{candidate['candidate_id']}입니다."
+                        ),
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": image_to_data_url(
+                                candidate["crop"]
+                            ),
+                            "detail": "high",
+                        },
+                    },
+                ])
+
+            review = review_model.invoke([
+                ("system", prompt),
+                HumanMessage(content=content),
+            ])
+
+            expected_ids = {
+                candidate["candidate_id"]
+                for candidate in candidates
+            }
+            returned_ids = [
+                item.candidate_id
+                for item in review.reviews
+            ]
+
+            if (
+                len(returned_ids) != len(set(returned_ids))
+                or set(returned_ids) != expected_ids
+            ):
+                raise ValueError(
+                    "VLM이 후보 ID를 누락하거나 추가했습니다."
+                )
+
+            if not review.image_quality_ok:
+                return failure_result(
+                    f"{image_index}번 이미지 판독 불가"
+                )
+
+            confidence_values.append(
+                review.vision_confidence
+            )
+
+            missed_defect_suspected = (
+                missed_defect_suspected
+                or review.missed_defect_suspected
+            )
+
+            candidates_by_id = {
+                candidate["candidate_id"]: candidate
+                for candidate in candidates
+            }
+
+            for item in review.reviews:
+                if not item.is_defect:
+                    continue
+
+                if item.type is None or item.location is None:
+                    raise ValueError(
+                        "승인된 결함 정보가 불완전합니다."
+                    )
+
+                candidate = candidates_by_id[
+                    item.candidate_id
+                ]
+
+                defect = DefectOutput(
+                    type=item.type,
+                    location=item.location,
+                    bbox=candidate["bbox"],
+                    ratio=item.ratio,
+                    confidence=item.confidence,
+                    image_index=image_index,
+                    text_overlap=item.text_overlap,
+                    morphology_severe=(
+                        item.morphology_severe
+                    ),
+                ).model_dump()
+
+                # 테스트와 로그 확인을 위한 값
+                defect["candidate_id"] = (
+                    item.candidate_id
+                )
+                defect["yolo_confidence"] = (
+                    candidate["yolo_confidence"]
+                )
+
+                final_defects.append(defect)
+                confidence_values.append(
+                    item.confidence
+                )
+        # 전체 평균이 아니라 가장 낮은 신뢰도를 대표값으로 사용
+        # 확실한 후보 여러 개가 불확실한 후보 하나를 평균으로 감추는 것을 방지
+        vision_confidence = (
+            min(confidence_values)
+            if confidence_values
+            else 0.0
+        )
 
     except Exception as error:
         print(
-            "[Agent] Vision Agent 호출 실패:",
+            "[Agent] Hybrid Vision 실패:",
             type(error).__name__,
+            str(error),
         )
         return failure_result(
-            "Vision 모델 호출 또는 출력 검증에 실패했습니다."
+            "YOLO 탐지 또는 VLM 검증에 실패했습니다."
         )
 
     reason_code = None
     repair_directive = None
 
-    # 전체 또는 개별 신뢰도가 낮으면 재촬영/HITL 대상으로 표시
     if (
-        not result.image_quality_ok
-        or result.vision_confidence < MIN_VISION_CONFIDENCE
-        or any(
-            defect.confidence < MIN_VISION_CONFIDENCE
-            for defect in result.defects
-        )
+        missed_defect_suspected
+        or vision_confidence < MIN_VISION_CONFIDENCE
     ):
         reason_code = "VISION_LOW_CONFIDENCE"
         repair_directive = (
-            "사진 품질 또는 결함 판정 신뢰도가 기준보다 낮습니다."
+            "YOLO 미탐 가능성 또는 낮은 VLM 신뢰도를 "
+            "관리자가 확인해야 합니다."
         )
         revision_count += 1
 
-    # 분류할 수 없는 결함은 반복 실행보다 관리자 확인이 적절
-    elif any(
-        defect.type == "OTHER_VISIBLE_DAMAGE"
-        for defect in result.defects
-    ):
-        reason_code = "VISION_UNCLASSIFIED_DEFECT"
-        repair_directive = (
-            "표준 코드로 분류할 수 없는 결함을 관리자가 확인해야 합니다."
-        )
+    is_mint = (
+        not final_defects
+        and not missed_defect_suspected
+    )
+
+    print(
+        "[Agent] YOLO 후보 검증 완료:",
+        f"승인 결함 {len(final_defects)}개",
+    )
 
     return {
         **downstream_reset,
-        "is_mint": result.is_mint,
-        "defects": [
-            defect.model_dump()
-            for defect in result.defects
-        ],
-        "image_quality_ok": result.image_quality_ok,
-        "vision_confidence": result.vision_confidence,
+        "is_mint": is_mint,
+        "defects": final_defects,
+        "image_quality_ok": True,
+        "vision_confidence": vision_confidence,
         "reason_code": reason_code,
         "repair_directive": repair_directive,
         "revision_count": revision_count,
         "messages": [
             AIMessage(
                 content=(
-                    f"[Vision Agent] 판독 결과 - "
-                    f"{reason_code or '정상'}"
+                    "[Vision Agent] YOLO→VLM 검증 완료 - "
+                    f"승인 결함 {len(final_defects)}개"
                 )
             )
         ],
@@ -520,7 +675,8 @@ def get_severity(ratio: float) -> tuple[int, str]:
 
 
 def calculate_ubci_score(
-   defects: list[dict],) -> tuple[float, list[dict], bool]:
+    defects: list[dict],
+) -> tuple[float, list[dict], bool]:
     """
     동일 결함의 면적을 합산하여 다음 값을 반환합니다.
 
@@ -528,6 +684,7 @@ def calculate_ubci_score(
     2. 결함별 감점 내역
     3. 치명 결함 존재 여부
     """
+    # Python의 짝수 반올림을 피하고 일반적인 0.5 올림을 사용
     grouped_defects: dict[str, dict] = {}
 
     for defect in defects:
@@ -630,7 +787,7 @@ def calculate_ubci_score(
             else 1.0
         )
 
-        # Python의 짝수 반올림을 피하고 일반적인 0.5 올림을 사용
+        # 감점 결과는 소수점 첫째 자리까지 기록
         applied_penalty = round(
             base_penalty * multiplier,1
         )
