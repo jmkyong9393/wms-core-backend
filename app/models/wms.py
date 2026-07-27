@@ -155,6 +155,7 @@ class InboundItem(SQLModel, table=True):
     book_id: uuid.UUID = Field(foreign_key="books.id")
     quantity: int = Field(nullable=False)
     lpn_barcode: Optional[str] = Field(default=None, unique=True)
+    certificate_token: Optional[str] = Field(default=None, unique=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 

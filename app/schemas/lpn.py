@@ -46,7 +46,7 @@ class LpnDetailResponse(BaseModel):
                 "stocked_at": "2026-07-27T10:00:00",
                 "certificate_url": (
                     "https://wms.example.com/certificate/"
-                    "LPN-12345678123456781234567812345678"
+                    "m7sX0zYV2wF6U3pG8nR4cQ1aK9tB5eHjL0dSxWvNqPo"
                 ),
             }
         }

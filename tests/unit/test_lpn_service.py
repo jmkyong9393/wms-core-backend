@@ -7,6 +7,7 @@ from app.schemas.used_inbound import UsedBookInboundRequest
 from app.services.lpn_service import (
     build_certificate_api_path,
     build_public_qr_url,
+    generate_certificate_token,
     generate_lpn_barcode,
 )
 
@@ -20,22 +21,31 @@ def test_generate_lpn_barcode_from_inbound_item_id():
     )
 
 
-def test_build_certificate_api_path_from_lpn_barcode():
-    lpn_barcode = "LPN-12345678123456781234567812345678"
+def test_generate_certificate_token_is_url_safe_and_unique():
+    first_token = generate_certificate_token()
+    second_token = generate_certificate_token()
+
+    assert first_token != second_token
+    assert len(first_token) >= 43
+    assert all(character.isalnum() or character in "-_" for character in first_token)
+
+
+def test_build_certificate_api_path_from_public_token():
+    certificate_token = "public-certificate-token"
 
     assert (
-        build_certificate_api_path(lpn_barcode)
-        == f"/api/v1/certificate/{lpn_barcode}"
+        build_certificate_api_path(certificate_token)
+        == f"/api/v1/certificate/{certificate_token}"
     )
 
 
-def test_build_public_qr_url_from_lpn_barcode():
-    lpn_barcode = "LPN-12345678123456781234567812345678"
+def test_build_public_qr_url_from_public_token():
+    certificate_token = "public-certificate-token"
 
     assert build_public_qr_url(
-        lpn_barcode,
+        certificate_token,
         public_web_base_url="https://wms.example.com/",
-    ) == f"https://wms.example.com/certificate/{lpn_barcode}"
+    ) == f"https://wms.example.com/certificate/{certificate_token}"
 
 
 @pytest.mark.parametrize("inbound_type", ["USED_PURCHASE", "CUSTOMER_RETURN"])

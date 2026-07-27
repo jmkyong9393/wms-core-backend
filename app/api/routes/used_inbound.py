@@ -10,7 +10,11 @@ from app.schemas.used_inbound import (
     UsedBookInboundRequest,
     UsedBookInboundResponse,
 )
-from app.services.lpn_service import build_public_qr_url, generate_lpn_barcode
+from app.services.lpn_service import (
+    build_public_qr_url,
+    generate_certificate_token,
+    generate_lpn_barcode,
+)
 
 
 router = APIRouter()
@@ -32,6 +36,8 @@ def _build_response(
 ) -> UsedBookInboundResponse:
     if inbound_item.lpn_barcode is None:
         raise RuntimeError("Used inbound item does not have an LPN barcode")
+    if inbound_item.certificate_token is None:
+        raise RuntimeError("Used inbound item does not have a certificate token")
 
     return UsedBookInboundResponse(
         inbound_id=inbound_job.id,
@@ -40,7 +46,7 @@ def _build_response(
         status=inbound_job.status,
         book_id=inbound_item.book_id,
         lpn_barcode=inbound_item.lpn_barcode,
-        certificate_url=build_public_qr_url(inbound_item.lpn_barcode),
+        certificate_url=build_public_qr_url(inbound_item.certificate_token),
     )
 
 
@@ -118,6 +124,7 @@ def create_used_book_inbound(
             book_id=book.id,
             quantity=1,
             lpn_barcode=generate_lpn_barcode(request_id),
+            certificate_token=generate_certificate_token(),
         )
         session.add(inbound_item)
         session.commit()

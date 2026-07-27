@@ -59,6 +59,7 @@ CREATE TABLE inbound_items (
     book_id UUID NOT NULL REFERENCES books(id),
     quantity INTEGER NOT NULL,
     lpn_barcode VARCHAR UNIQUE,
+    certificate_token VARCHAR UNIQUE,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

@@ -1,9 +1,12 @@
 from app.api.routes.certificates import get_certificate
 
 
-def test_certificate_lookup_accepts_lpn_barcode():
-    lpn_barcode = "LPN-12345678123456781234567812345678"
+def test_certificate_lookup_accepts_public_token():
+    certificate_token = "public-certificate-token"
 
-    response = get_certificate(lpn_barcode)
+    response = get_certificate(certificate_token)
 
-    assert response.qr_code_url == f"/api/v1/certificate/{lpn_barcode}"
+    assert (
+        response.qr_code_url
+        == f"/api/v1/certificate/{certificate_token}"
+    )

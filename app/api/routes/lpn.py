@@ -3,7 +3,13 @@ from sqlmodel import Session, select
 
 from app.api.dependencies.auth import require_wms_operator
 from app.core.database import get_session
-from app.models.wms import Book, InventoryUsedItem, Location, User
+from app.models.wms import (
+    Book,
+    InboundItem,
+    InventoryUsedItem,
+    Location,
+    User,
+)
 from app.schemas.lpn import (
     LpnBookDetail,
     LpnDetailResponse,
@@ -61,6 +67,17 @@ def get_lpn_detail(
             detail="LPN inventory references missing master data",
         )
 
+    inbound_item = session.exec(
+        select(InboundItem).where(
+            InboundItem.lpn_barcode == inventory_item.lpn_barcode,
+        )
+    ).first()
+    if inbound_item is None or inbound_item.certificate_token is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="LPN inventory does not have a certificate token",
+        )
+
     return LpnDetailResponse(
         lpn_barcode=inventory_item.lpn_barcode,
         book=LpnBookDetail(
@@ -80,5 +97,5 @@ def get_lpn_detail(
             shelf=location.shelf,
         ),
         stocked_at=inventory_item.stocked_at,
-        certificate_url=build_public_qr_url(inventory_item.lpn_barcode),
+        certificate_url=build_public_qr_url(inbound_item.certificate_token),
     )
