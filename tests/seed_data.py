@@ -37,9 +37,10 @@ def seed_db():
         session.add_all([loc1, loc2])
         session.commit()
         
-        # 5. Inventory (for fetch_inventory_stats)
-        inv1 = Inventory(id=uuid.uuid4(), book_id=book1.id, location_id=loc1.id, quantity=100000)
-        inv2 = Inventory(id=uuid.uuid4(), book_id=book2.id, location_id=loc2.id, quantity=45000)
+        # 5. Inventory (for fetch_inventory_stats & auto_po_batch)
+        # Auto-PO 테스트를 위해 재고 수량을 안전재고(10권) 미만으로 설정합니다.
+        inv1 = Inventory(id=uuid.uuid4(), book_id=book1.id, location_id=loc1.id, quantity=3)
+        inv2 = Inventory(id=uuid.uuid4(), book_id=book2.id, location_id=loc2.id, quantity=2)
         session.add_all([inv1, inv2])
         
         # 6. InboundJobs (for fetch_order_stats)
