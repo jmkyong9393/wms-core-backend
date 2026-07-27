@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Path
 from pydantic import BaseModel, Field
 
-from app.services.lpn_service import build_certificate_url
+from app.services.lpn_service import build_certificate_api_path
 
 router = APIRouter()
 
@@ -36,5 +36,5 @@ def get_certificate(
         book_id=UUID("00000000-0000-0000-0000-000000000001"),
         ubci_score=95,
         report_summary="낙서 없음, 상태 우수",
-        qr_code_url=build_certificate_url(lpn_barcode),
+        qr_code_url=build_certificate_api_path(lpn_barcode),
     )

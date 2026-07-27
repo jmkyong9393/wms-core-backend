@@ -10,7 +10,7 @@ from app.schemas.used_inbound import (
     UsedBookInboundRequest,
     UsedBookInboundResponse,
 )
-from app.services.lpn_service import build_certificate_url, generate_lpn_barcode
+from app.services.lpn_service import build_certificate_api_path, generate_lpn_barcode
 
 
 router = APIRouter()
@@ -40,7 +40,7 @@ def _build_response(
         status=inbound_job.status,
         book_id=inbound_item.book_id,
         lpn_barcode=inbound_item.lpn_barcode,
-        certificate_url=build_certificate_url(inbound_item.lpn_barcode),
+        certificate_url=build_certificate_api_path(inbound_item.lpn_barcode),
     )
 
 

@@ -4,7 +4,11 @@ import pytest
 from pydantic import ValidationError
 
 from app.schemas.used_inbound import UsedBookInboundRequest
-from app.services.lpn_service import build_certificate_url, generate_lpn_barcode
+from app.services.lpn_service import (
+    build_certificate_api_path,
+    build_public_qr_url,
+    generate_lpn_barcode,
+)
 
 
 def test_generate_lpn_barcode_from_inbound_item_id():
@@ -16,13 +20,22 @@ def test_generate_lpn_barcode_from_inbound_item_id():
     )
 
 
-def test_build_certificate_url_from_lpn_barcode():
+def test_build_certificate_api_path_from_lpn_barcode():
     lpn_barcode = "LPN-12345678123456781234567812345678"
 
     assert (
-        build_certificate_url(lpn_barcode)
+        build_certificate_api_path(lpn_barcode)
         == f"/api/v1/certificate/{lpn_barcode}"
     )
+
+
+def test_build_public_qr_url_from_lpn_barcode():
+    lpn_barcode = "LPN-12345678123456781234567812345678"
+
+    assert build_public_qr_url(
+        lpn_barcode,
+        public_web_base_url="https://wms.example.com/",
+    ) == f"https://wms.example.com/certificate/{lpn_barcode}"
 
 
 @pytest.mark.parametrize("inbound_type", ["USED_PURCHASE", "CUSTOMER_RETURN"])
