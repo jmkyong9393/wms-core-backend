@@ -45,6 +45,10 @@ WMS_OPENAPI_TAGS = [
         "description": "중고·반품 단품 재고의 LPN 상세 조회 API",
     },
     {
+        "name": "Certificate",
+        "description": "공개 토큰 기반 UBCI 품질보증서 조회 API",
+    },
+    {
         "name": "Orders",
         "description": "신간 묶음 재고와 중고 LPN 단품 재고의 주문 생성 API",
     },
