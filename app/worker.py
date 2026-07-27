@@ -719,6 +719,21 @@ def process_inspection(
             error,
         )
 
+        if self.request.retries < self.max_retries:
+            logger.warning(
+                "Retrying AI inspection. "
+                "task_id=%s job_id=%s retry=%s/%s",
+                task_id,
+                job_id,
+                self.request.retries,
+                self.max_retries,
+            )
+
+            raise self.retry(
+                exc=error,
+                countdown=RETRY_DELAY_SECONDS,
+            )
+
         handle_inspection_failure(
             job_id=job_id,
             task_id=task_id,

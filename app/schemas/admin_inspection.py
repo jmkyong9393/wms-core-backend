@@ -10,7 +10,6 @@ from app.models.wms import ReturnJobStatus
 FinalGrade = Literal[
     "MINT",
     "EXCELLENT",
-    "GOOD",
     "NORMAL",
     "REJECT",
 ]
