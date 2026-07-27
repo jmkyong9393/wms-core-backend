@@ -127,9 +127,11 @@ CREATE TABLE order_items (
 CREATE TABLE order_item_lpn_allocations (
     id UUID PRIMARY KEY,
     order_item_id UUID NOT NULL REFERENCES order_items(id),
-    inventory_used_item_id UUID NOT NULL UNIQUE REFERENCES inventory_used_items(id),
+    inventory_used_item_id UUID NOT NULL REFERENCES inventory_used_items(id),
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_order_item_lpn_allocation
+        UNIQUE (order_item_id, inventory_used_item_id)
 );
 
 CREATE INDEX ix_order_item_lpn_allocations_order_item_id

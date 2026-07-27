@@ -78,8 +78,10 @@ class CreateOrderResponse(BaseModel):
     description=(
         "book_id, 수량과 선택적 condition_grade를 기준으로 주문을 생성합니다. "
         "등급이 없으면 신간 묶음 재고, 등급이 있으면 해당 등급의 중고 단품 "
-        "재고 주문입니다. LPN 선택은 출고 피킹 시 수행하며, 현재 가격은 "
-        "도서 기준가를 사용하고 UBCI 동적 가격은 적용하지 않습니다."
+        "재고 주문입니다. 신간은 수량을 묶어서 저장하고, 중고는 물리적 책 "
+        "한 권당 quantity=1인 주문 품목으로 분리합니다. LPN 선택은 출고 "
+        "피킹 시 수행하며, 현재 가격은 도서 기준가를 사용하고 UBCI 동적 "
+        "가격은 적용하지 않습니다."
     ),
     responses={
         404: {"description": "주문 품목의 도서 마스터를 찾을 수 없음"},
@@ -105,16 +107,14 @@ def create_order(
             },
         )
 
-    requested_items: dict[tuple[UUID, Optional[ConditionGrade]], int] = {}
+    new_stock_quantities: dict[UUID, int] = {}
     for item in request.items:
-        item_key = (item.book_id, item.condition_grade)
-        requested_items[item_key] = (
-            requested_items.get(item_key, 0) + item.quantity
-        )
+        if item.condition_grade is None:
+            new_stock_quantities[item.book_id] = (
+                new_stock_quantities.get(item.book_id, 0) + item.quantity
+            )
 
-    requested_book_ids = {
-        book_id for book_id, _condition_grade in requested_items
-    }
+    requested_book_ids = {item.book_id for item in request.items}
     books = session.exec(select(Book).where(Book.id.in_(requested_book_ids))).all()
     books_by_id = {book.id: book for book in books}
     missing_book_ids = requested_book_ids - set(books_by_id)
@@ -141,8 +141,8 @@ def create_order(
         )
 
     total_price = sum(
-        books_by_id[book_id].base_price * quantity
-        for (book_id, _condition_grade), quantity in requested_items.items()
+        books_by_id[item.book_id].base_price * item.quantity
+        for item in request.items
     )
 
     order = Order(
@@ -156,18 +156,34 @@ def create_order(
     session.add(order)
     session.flush()
 
-    for (book_id, condition_grade), quantity in requested_items.items():
+    for book_id, quantity in new_stock_quantities.items():
         book = books_by_id[book_id]
         session.add(
             OrderItem(
                 order_id=order.id,
                 book_id=book.id,
-                condition_grade=condition_grade,
                 quantity=quantity,
                 unit_price=book.base_price,
                 final_price=book.base_price * quantity,
             )
         )
+
+    for item in request.items:
+        if item.condition_grade is None:
+            continue
+
+        book = books_by_id[item.book_id]
+        for _ in range(item.quantity):
+            session.add(
+                OrderItem(
+                    order_id=order.id,
+                    book_id=book.id,
+                    condition_grade=item.condition_grade,
+                    quantity=1,
+                    unit_price=book.base_price,
+                    final_price=book.base_price,
+                )
+            )
 
     session.commit()
     session.refresh(order)
