@@ -119,7 +119,7 @@ app.include_router(admin.router, prefix="/api/v1/admin", tags=["Admin"])
 app.include_router(db.router, prefix="/api/db", tags=["Database"])
 app.include_router(mock.router, prefix="/api/mock", tags=["Mock"])
 
-# 자동 발추 추천 Agent 임시 호출 api
+# 자동 발주 추천 Agent 임시 호출 api
 app.include_router(restock.router, prefix="/api/v1/admin/restock", tags=["Admin Restock"],)
 
 
