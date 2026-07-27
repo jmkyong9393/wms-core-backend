@@ -139,3 +139,19 @@ def require_admin_or_master(
     return current_user
 
 
+# WMS 내부 재고 및 로케이션 업무를 수행할 수 있는 사용자 확인
+def require_wms_operator(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    if current_user.role not in {
+        UserRole.MASTER,
+        UserRole.ADMIN,
+        UserRole.WORKER,
+    }:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="WMS 작업자 권한이 필요합니다.",
+        )
+
+    return current_user
+
