@@ -798,8 +798,5 @@ def process_inspection(
             error=error,
             retry_count=self.request.retries,
         )
-<<<<<<< HEAD
-=======
 
         raise
->>>>>>> origin/main
