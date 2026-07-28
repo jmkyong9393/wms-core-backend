@@ -4,7 +4,7 @@ CREATE TYPE inbound_status AS ENUM ('RECEIVED', 'CHECKING', 'COMPLETED');
 CREATE TYPE condition_grade AS ENUM ('MINT', 'EXCELLENT', 'NORMAL', 'REJECT');
 CREATE TYPE order_type AS ENUM ('B2B_ORDER', 'AUTO_PO');
 CREATE TYPE order_status AS ENUM ('PENDING', 'PICKING', 'SHIPPED', 'RETURN_REQUESTED');
-CREATE TYPE return_job_status AS ENUM ('PENDING', 'PROCESSING', 'APPROVED', 'REJECTED', 'HITL_REQUIRED', 'FAILED');
+CREATE TYPE return_job_status AS ENUM ('PENDING', 'PROCESSING', 'APPROVED', 'REJECTED', 'HITL_REQUIRED', 'RECHECK_REQUIRED', 'FAILED');
 CREATE TYPE inspection_mode AS ENUM ('RETURN', 'USED_PURCHASE');
 CREATE TYPE inventory_transaction_type AS ENUM ('INBOUND', 'OUTBOUND', 'RETURN_RESTOCK', 'DISCARD');
 CREATE TYPE used_inventory_status AS ENUM ('AVAILABLE', 'RESERVED', 'SHIPPED');
@@ -12,6 +12,8 @@ CREATE TYPE user_role AS ENUM ('MASTER', 'ADMIN', 'WORKER', 'GUEST', 'PENDING');
 CREATE TYPE user_status AS ENUM ('ACTIVE', 'INACTIVE');
 CREATE TYPE ticket_status AS ENUM ('TODO', 'IN_PROGRESS', 'RESOLVED');
 CREATE TYPE post_category AS ENUM ('NOTICE', 'MANUAL', 'GENERAL');
+CREATE TYPE notification_category AS ENUM ('FDS_ALERT', 'AGENT_ALERT', 'RESTOCK_ALERT');
+CREATE TYPE notification_severity AS ENUM ('HIGH', 'MEDIUM', 'LOW');
 
 CREATE TABLE tenants (
     id UUID PRIMARY KEY,
@@ -34,12 +36,12 @@ CREATE TABLE fds_policies (
 CREATE TABLE books (
     id UUID PRIMARY KEY,
     title VARCHAR NOT NULL,
-    isbn VARCHAR(13) UNIQUE,
+    isbn VARCHAR UNIQUE,
     publisher VARCHAR,
     standard_size standard_size,
     thickness_mm INTEGER,
     base_price DECIMAL(12, 2) NOT NULL DEFAULT 0,
-    virtual_stock INTEGER DEFAULT 0,
+    virtual_stock INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -70,7 +72,7 @@ CREATE TABLE locations (
     rack VARCHAR NOT NULL,
     shelf VARCHAR NOT NULL,
     barcode VARCHAR UNIQUE,
-    is_active BOOLEAN DEFAULT TRUE,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -79,7 +81,7 @@ CREATE TABLE inventory (
     id UUID PRIMARY KEY,
     book_id UUID NOT NULL REFERENCES books(id),
     location_id UUID NOT NULL REFERENCES locations(id),
-    quantity INTEGER DEFAULT 0,
+    quantity INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uq_inventory_book_location UNIQUE (book_id, location_id)
@@ -177,6 +179,7 @@ CREATE TABLE inventory_logs (
 
 CREATE TABLE fds_reports (
     id UUID PRIMARY KEY,
+    tenant_id UUID NOT NULL REFERENCES tenants(id),
     customer_id UUID NOT NULL,
     fraud_score INTEGER NOT NULL,
     fraud_reason VARCHAR,
@@ -185,14 +188,16 @@ CREATE TABLE fds_reports (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE INDEX ix_fds_reports_tenant_id ON fds_reports(tenant_id);
+
 CREATE TABLE weekly_insights (
     id UUID PRIMARY KEY,
     report_week VARCHAR NOT NULL UNIQUE,
-    saved_labor_cost_krw INTEGER DEFAULT 0,
+    saved_labor_cost_krw INTEGER NOT NULL DEFAULT 0,
     top_defective_publishers JSONB,
     location_hotspots JSONB,
     logistics_hotspots JSONB,
-    predicted_returns INTEGER DEFAULT 0,
+    predicted_returns INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -216,6 +221,37 @@ CREATE INDEX ix_users_tenant_id ON users(tenant_id);
 CREATE UNIQUE INDEX ix_users_employee_id ON users(employee_id);
 CREATE UNIQUE INDEX ix_users_email ON users(email);
 
+CREATE TABLE notifications (
+    id UUID PRIMARY KEY,
+    tenant_id UUID NOT NULL REFERENCES tenants(id),
+    category notification_category NOT NULL,
+    severity notification_severity NOT NULL,
+    title VARCHAR(200) NOT NULL,
+    message VARCHAR NOT NULL,
+    payload JSONB NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX ix_notifications_tenant_id ON notifications(tenant_id);
+
+CREATE TABLE notification_recipients (
+    id UUID PRIMARY KEY,
+    notification_id UUID NOT NULL REFERENCES notifications(id),
+    user_id UUID NOT NULL REFERENCES users(id),
+    read_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_notification_recipient UNIQUE (notification_id, user_id)
+);
+
+CREATE INDEX ix_notification_recipients_notification_id
+    ON notification_recipients(notification_id);
+CREATE INDEX ix_notification_recipients_user_id
+    ON notification_recipients(user_id);
+CREATE INDEX ix_notification_recipients_read_at
+    ON notification_recipients(read_at);
+
 CREATE TABLE boards (
     id UUID PRIMARY KEY,
     job_id UUID NOT NULL REFERENCES return_jobs(id),
@@ -229,7 +265,7 @@ CREATE TABLE board_posts (
     author_id UUID NOT NULL REFERENCES users(id),
     category post_category NOT NULL,
     title VARCHAR NOT NULL,
-    content TEXT NOT NULL,
+    content VARCHAR NOT NULL,
     attachment_paths JSONB,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
