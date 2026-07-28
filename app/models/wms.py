@@ -240,6 +240,16 @@ class Order(SQLModel, table=True):
     total_price: Decimal = Field(sa_column=Column(Numeric(12, 2), nullable=False))
     status: OrderStatus = Field(nullable=False)
     logistics_center: Optional[str] = Field(default=None)
+
+    # 출고 확정 시 자동 발급되는 택배 송장 번호
+    waybill_number: Optional[str] = Field(default=None,max_length=100,unique=True,index=True,)
+
+    # 현재는 내부 발급용 기본 택배사 코드,
+    # 실제 택배사 API 연동 시 해당 응답값을 저장
+    shipping_carrier: Optional[str] = Field(default=None,max_length=50,)
+
+    # 주문이 실제 출고 확정된 시각
+    shipped_at: Optional[datetime] = Field(default=None,)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
