@@ -14,6 +14,7 @@ from app.api.routes import (
     inbound,
     inspection_inventory,
     inspections,
+    lpn,
     restock,
     inventory,
     mock,
@@ -39,6 +40,14 @@ WMS_OPENAPI_TAGS = [
     {
         "name": "Inventory",
         "description": "신간 묶음 재고와 중고 단품 재고 통합 조회 API",
+    },
+    {
+        "name": "LPN",
+        "description": "중고·반품 단품 재고의 LPN 상세 조회 API",
+    },
+    {
+        "name": "Certificate",
+        "description": "공개 토큰 기반 UBCI 품질보증서 조회 API",
     },
     {
         "name": "Orders",
@@ -109,6 +118,7 @@ app.include_router(
 )
 app.include_router(orders.router, prefix="/api/v1/orders", tags=["Orders"])
 app.include_router(inventory.v1_router, prefix="/api/v1/inventory", tags=["Inventory"])
+app.include_router(lpn.router, prefix="/api/v1/lpn", tags=["LPN"])
 app.include_router(outbound.router, prefix="/api/v1/outbound", tags=["Outbound"])
 app.include_router(certificates.router, prefix="/api/v1/certificate", tags=["Certificate"])
 
