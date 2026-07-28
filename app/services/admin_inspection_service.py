@@ -22,6 +22,24 @@ from app.schemas.admin_inspection import (
     InspectionHistoryRow,
 )
 
+VALID_FINAL_GRADES = {
+    "MINT",
+    "EXCELLENT",
+    "NORMAL",
+    "REJECT",
+}
+
+
+def _extract_final_grade(
+    agent_logs: dict | None,
+) -> str | None:
+    value = (agent_logs or {}).get("final_grade")
+
+    if value in VALID_FINAL_GRADES:
+        return value
+
+    return None
+
 
 def _extract_final_report_summary(
     final_report: str | None,
@@ -236,8 +254,7 @@ def get_inspection_history(
                 book_id=return_job.book_id,
                 book_title=book_title,
 
-                # UBCI 등급 산정 로직 연동 전까지 null
-                final_grade=None,
+                final_grade=_extract_final_grade(logs),
 
                 # AutoRefund Agent 실행 여부
                 is_fast_track=(
@@ -392,7 +409,7 @@ def get_inspection_detail(
         ),
         status=return_job.status,
         mode=return_job.mode.value,
-        final_grade=None,
+        final_grade=_extract_final_grade(logs),
         is_fast_track=(
             (return_job.agent_logs or {}).get(
                 "is_fast_track"
