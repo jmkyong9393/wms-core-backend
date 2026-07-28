@@ -42,7 +42,7 @@ class UsedBookInboundResponse(BaseModel):
     lpn_barcode: str = Field(description="검수 전 발급된 단품 추적 LPN")
     certificate_url: str = Field(
         description=(
-            "라벨 QR에 인코딩할 LPN 기반 품질보증서 조회 경로. "
-            "보증서 내용은 검수 완료 후 제공"
+            "라벨 QR에 인코딩할 공개 토큰 기반 품질보증서 URL. "
+            "URL은 입고 시 고정되며 보증서 내용은 검수 완료 후 제공"
         )
     )
