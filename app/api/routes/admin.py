@@ -19,8 +19,7 @@ from app.services.admin_inspection_service import (
 
 router = APIRouter()
 
-
-# 관리자용 전체 검수 이력 그리드 조회 API
+# 관리자용 검수 현황 통계 API
 @router.get("/inspection-metrics")
 def get_inspection_metrics(
     current_admin: User = Depends(require_admin_or_master),
@@ -96,7 +95,7 @@ def get_inspection_metrics(
         "average_processing_time_seconds": average_processing_time,
     }
 
-# 관리자용 검수 현황 통계 API
+# 관리자용 전체 검수 이력 그리드 조회 API
 @router.get(
     "/inspections",
     response_model=list[InspectionHistoryRow],
