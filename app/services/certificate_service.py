@@ -84,7 +84,6 @@ def get_certificate_by_token(
             publisher=book.publisher,
         ),
         condition_grade=return_job.condition_grade,
-        ubci_score=return_job.ubci_score,
         report_summary=report_summary,
         inspected_at=return_job.updated_at,
     )

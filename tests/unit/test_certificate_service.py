@@ -108,9 +108,9 @@ def test_get_certificate_by_token_returns_public_certificate():
     assert response.book.isbn == "9781234567890"
     assert response.book.publisher == "김영사"
     assert response.condition_grade == ConditionGrade.EXCELLENT
-    assert response.ubci_score == Decimal("91.50")
     assert response.report_summary == "경미한 모서리 찍힘이 있습니다."
     assert response.inspected_at == inspected_at
+    assert "ubci_score" not in response.model_dump()
 
 
 @pytest.mark.parametrize(
