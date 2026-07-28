@@ -4,9 +4,20 @@ from uuid import UUID, uuid4
 
 
 from app.core.celery_app import celery_app
-from app.models.wms import ReturnJob, ReturnJobStatus
+from app.models.wms import (
+    NotificationCategory,
+    NotificationSeverity,
+    ReturnJob,
+    ReturnJobStatus,
+)
+from app.services.notification_service import (
+    create_committed_notification_for_tenant,
+)
 from app.services.langgraph_wrapper import LangGraphInspectionWrapper
-from app.services.redis_pubsub import publish_return_job_event
+from app.services.redis_pubsub import (
+    publish_return_job_event,
+    publish_tenant_notification_event,
+)
 from app.services.return_job_service import (
     WMSTaskMismatchError,
     prepare_processing_job,
@@ -221,6 +232,46 @@ def publish_event_safely(
             kwargs,
         )
         return False  
+
+def create_agent_hitl_alert_safely(
+    job: ReturnJob,
+    ai_result: dict[str, Any],
+    task_id: str,
+) -> None:
+    """HITL_REQUIRED 검수 건에 대한 관리자 알림을 저장·발행한다."""
+    reason_code = ai_result.get("reason_code") or "UNKNOWN"
+
+    try:
+        tenant_id, event = create_committed_notification_for_tenant(
+            tenant_id=job.tenant_id,
+            category=NotificationCategory.AGENT_ALERT,
+            severity=NotificationSeverity.MEDIUM,
+            title="AI 검수 결과 관리자 확인 필요",
+            message=(
+                "AI 검수가 자동 확정되지 않아 관리자 검수가 필요합니다. "
+                f"사유 코드: {reason_code}"
+            ),
+            payload={
+                "return_job_id": str(job.id),
+                "inspection_task_id": task_id,
+                "reason_code": reason_code,
+            },
+        )
+    except Exception:
+        logger.exception(
+            "Agent HITL 알림 DB 저장에 실패했습니다. "
+            "job_id=%s task_id=%s",
+            job.id,
+            task_id,
+        )
+        return
+
+    publish_event_safely(
+        event_name="AGENT_ALERT",
+        publish_function=publish_tenant_notification_event,
+        tenant_id=tenant_id,
+        event=event,
+    )
 
 # WMS 후속 Task 등록 실패 정보를 DB에 저장한다.
 # 저장 함수 자체에서 AI 결과는 유지하고 ReturnJob 상태를 FAILED로 변경한다.
@@ -570,6 +621,12 @@ def process_inspection(
                 celery_task_id=task_id,
                 ai_result=ai_result,
             )
+            
+            create_agent_hitl_alert_safely(
+                job=job,
+                ai_result=ai_result,
+                task_id=task_id,
+            )
 
             publish_event_safely(
                 event_name="HITL_REQUIRED",
@@ -741,3 +798,5 @@ def process_inspection(
             error=error,
             retry_count=self.request.retries,
         )
+
+        raise
