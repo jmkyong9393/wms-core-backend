@@ -98,6 +98,18 @@ class InspectionMode(str, Enum):
     USED_PURCHASE = "USED_PURCHASE"
 
 
+class NotificationCategory(str, Enum):
+    FDS_ALERT = "FDS_ALERT"
+    AGENT_ALERT = "AGENT_ALERT"
+    RESTOCK_ALERT = "RESTOCK_ALERT"
+
+
+class NotificationSeverity(str, Enum):
+    HIGH = "HIGH"
+    MEDIUM = "MEDIUM"
+    LOW = "LOW"
+
+
 class Tenant(SQLModel, table=True):
     __tablename__ = "tenants"
 
@@ -326,6 +338,7 @@ class FdsReport(SQLModel, table=True):
     __tablename__ = "fds_reports"
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    tenant_id: uuid.UUID = Field(foreign_key="tenants.id",nullable=False,index=True,)
     customer_id: uuid.UUID = Field(nullable=False)
     fraud_score: int = Field(nullable=False)
     fraud_reason: Optional[str] = Field(default=None)
@@ -383,6 +396,31 @@ class User(SQLModel, table=True):
     last_login: Optional[datetime] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class Notification(SQLModel, table=True):
+    __tablename__ = "notifications"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True,)
+    tenant_id: UUID = Field(foreign_key="tenants.id",nullable=False,index=True,)
+    category: NotificationCategory = Field(nullable=False,)
+    severity: NotificationSeverity = Field(nullable=False,)
+    title: str = Field(max_length=200,nullable=False,)
+    message: str = Field(nullable=False,)
+    payload: dict = Field(default_factory=dict,sa_column=Column(JSONB, nullable=False),)
+    created_at: datetime = Field(default_factory=datetime.utcnow,)
+    updated_at: datetime = Field(default_factory=datetime.utcnow,)
+
+
+class NotificationRecipient(SQLModel, table=True):
+    __tablename__ = "notification_recipients"
+    __table_args__ = (UniqueConstraint("notification_id","user_id",name="uq_notification_recipient",),)
+    id: uuid.UUID = Field(default_factory=uuid.uuid4,primary_key=True,)
+    notification_id: UUID = Field(foreign_key="notifications.id",nullable=False,index=True,)
+    user_id: UUID = Field(foreign_key="users.id",nullable=False,index=True,)
+    read_at: Optional[datetime] = Field(default=None,index=True,)
+    created_at: datetime = Field(default_factory=datetime.utcnow,)
+    updated_at: datetime = Field(default_factory=datetime.utcnow,)
 
 
 class Board(SQLModel, table=True):
