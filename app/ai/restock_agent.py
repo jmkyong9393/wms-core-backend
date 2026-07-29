@@ -24,15 +24,18 @@ def restock_agent(
     - 출력: RestockRecommendationResponse
     - 응답 형식: JSON Schema 기반 Structured Output
 
-    TODO:
-    현재 입력·출력 스키마는 연동 테스트용 임시 규격이다.
-    실제 반려 처리 API 및 order_proposals 규격 확정 후 수정한다.
+    Restock 추천안은 최종 반려된 ReturnJob을 기준으로
+    restock_service에서 생성·저장한다.
+
+    이 Agent는 실제 AUTO_PO 주문을 바로 생성하지 않는다.
+    Agent 결과는 관리자 검토용 OrderProposal로 저장되며,
+    승인 후 AUTO_PO 생성은 후속 구현 대상이다.
 
     TODO:
-    현재 최근 판매량을 한 번의 발주 주기에 필요한
-    예상 수요로 간주한다.
     판매 집계 기간, 안전재고, 공급 리드타임이 확정되면
     프롬프트의 발주 판단 기준을 수정한다.
+
+
     """
 
     logger.info(
@@ -118,9 +121,9 @@ def restock_agent(
             "반환하지 않았습니다."
         )
 
-    print(
-        "[Agent] Restock Agent 발주 추천 완료 "
-        f"- 추천 수량: {result.recommended_order_quantity}"
+    logger.info(
+        "Restock Agent 발주 추천 완료. recommended_order_quantity=%s",
+        result.recommended_order_quantity,
     )
 
     return result
