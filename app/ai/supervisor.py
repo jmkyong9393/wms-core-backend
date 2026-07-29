@@ -1,6 +1,7 @@
 import os
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
+import json
 
 from .state import WMSInspectionState
 from .agents import (
@@ -37,70 +38,155 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
     #    - 검증 실패 시 policy_agent 재처리 또는 human_node 에스컬레이션 구현
     # 6. Critic 검증 완벽히 통과 시 report_agent 반환
     
-    raw_revision_count = state.get("revision_count", 0)
+    def route(
+        node: str,
+        reason: str,
+    ) -> str:
+        log = {
+            "event": "SUPERVISOR_ROUTED",
+            "book_id": state.get(
+                "book_id"
+            ),
+            "next_agent": node,
+            "reason": reason,
+            "vision_status": state.get(
+                "vision_status"
+            ),
+            "vision_reason_code": (
+                state.get(
+                    "vision_reason_code"
+                )
+            ),
+            "is_mint": state.get(
+                "is_mint"
+            ),
+            "defect_count": (
+                len(state["defects"])
+                if type(
+                    state.get("defects")
+                ) is list
+                else None
+            ),
+            "ubci_score": state.get(
+                "ubci_score"
+            ),
+            "predicted_grade": state.get(
+                "predicted_grade"
+            ),
+            "reason_code": state.get(
+                "reason_code"
+            ),
+            "revision_count": state.get(
+                "revision_count"
+            ),
+            "human_feedback": state.get(
+                "human_feedback"
+            ),
+        }
+
+        print(
+            "[AI_TRACE] "
+            + json.dumps(
+                log,
+                ensure_ascii=False,
+                default=str,
+            )
+        )
+
+        return node
+
+    raw_revision_count = state.get(
+        "revision_count",
+        0,
+    )
 
     if (
         type(raw_revision_count) is not int
         or raw_revision_count < 0
     ):
-        return _route(
+        return route(
             "human_node",
             "잘못된 revision_count",
         )
 
     revision_count = raw_revision_count
-    reason_code = state.get("reason_code")
-    human_feedback = state.get("human_feedback")
-
-    # 관리자가 개입할 수 있는 상태인지 확인
-    hitl_pending = (
-        revision_count >= MAX_REVISIONS
-        or reason_code in HITL_REASON_CODES
+    reason_code = state.get(
+        "reason_code"
+    )
+    vision_status = state.get(
+        "vision_status"
+    )
+    vision_reason_code = state.get(
+        "vision_reason_code"
+    )
+    human_feedback = state.get(
+        "human_feedback"
     )
 
-    # 관리자 입력은 최대 재시도 검사보다 먼저 처리
+    hitl_pending = (
+        revision_count >= MAX_REVISIONS
+        or vision_status in {
+            "REVIEW_REQUIRED",
+            "FAILED",
+        }
+        or reason_code
+        in HITL_REASON_CODES
+    )
+
+    # 관리자 입력을 가장 먼저 처리
     if human_feedback is not None:
         if not hitl_pending:
-            return _route(
+            return route(
                 "human_node",
                 "HITL 대기 상태가 아닌 관리자 입력",
             )
 
         if human_feedback == "RE_CHECK":
-            # Backend가 새 이미지를 messages에 추가한 후 재개
-            return _route(
+            return route(
                 "vision_agent",
                 "관리자 재검수·재촬영 요청",
             )
 
-        if human_feedback == "APPROVE_NORMAL":
-            return _route(
+        if (
+            human_feedback
+            == "APPROVE_NORMAL"
+        ):
+            return route(
                 "report_agent",
                 "관리자 정상 승인",
             )
 
-        if human_feedback == "APPROVE_DOWNGRADE":
-            target_grade = state.get("target_grade")
-            primary_reason_code = state.get(
-                "primary_reason_code"
+        if (
+            human_feedback
+            == "APPROVE_DOWNGRADE"
+        ):
+            if state.get(
+                "target_grade"
+            ) not in {"A", "B"}:
+                return route(
+                    "human_node",
+                    "하향 승인에는 A/B "
+                    "target_grade가 필요함",
+                )
+
+            primary_reason_code = (
+                state.get(
+                    "primary_reason_code"
+                )
             )
 
-            if target_grade not in {"A", "B"}:
-                return _route(
-                    "human_node",
-                    "등급 하향 승인에는 A/B target_grade가 필요함",
-                )
-
             if (
-                type(primary_reason_code) is not str
+                type(primary_reason_code)
+                is not str
                 or not primary_reason_code.strip()
             ):
-                return _route(
+                return route(
                     "human_node",
-                    "등급 하향 승인에는 primary_reason_code가 필요함",
+                    "하향 승인에는 "
+                    "primary_reason_code가 필요함",
                 )
 
-            return _route(
+            return route(
                 "report_agent",
                 "관리자 등급 하향 승인",
             )
@@ -109,152 +195,234 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
             "REJECT_RETURN",
             "REJECT_DISCARD",
         }:
-            primary_reason_code = state.get(
-                "primary_reason_code"
+            primary_reason_code = (
+                state.get(
+                    "primary_reason_code"
+                )
             )
 
             if (
-                type(primary_reason_code) is not str
+                type(primary_reason_code)
+                is not str
                 or not primary_reason_code.strip()
             ):
-                return _route(
+                return route(
                     "human_node",
-                    "반려에는 primary_reason_code가 필요함",
+                    "반려에는 "
+                    "primary_reason_code가 필요함",
                 )
 
-            return _route(
+            return route(
                 "report_agent",
-                f"관리자 반려: {human_feedback}",
+                f"관리자 반려: "
+                f"{human_feedback}",
             )
 
-        return _route(
+        return route(
             "human_node",
             "허용되지 않은 관리자 입력",
         )
 
-    # 관리자 입력이 없는 일반 실행에서만 최대 재시도를 검사
     if revision_count >= MAX_REVISIONS:
-        return _route(
+        return route(
             "human_node",
             "최대 재시도 횟수 도달",
         )
 
-    # Vision 출력이 없으면 Vision부터 실행
-    if (
-        state.get("is_mint") is None
+    # Vision이 실제로 실행됐는지 검사
+    vision_output_missing = (
+        vision_status is None
         or state.get("defects") is None
-        or state.get("image_quality_ok") is None
-        or state.get("vision_confidence") is None
-    ):
-        return _route(
+        or state.get(
+            "image_quality_ok"
+        ) is None
+        or state.get(
+            "vision_confidence"
+        ) is None
+        or state.get(
+            "yolo_model_manifest"
+        ) is None
+        or state.get(
+            "raw_yolo_detections"
+        ) is None
+        or state.get(
+            "ensemble_candidates"
+        ) is None
+        or state.get(
+            "reviewed_candidates"
+        ) is None
+        or state.get(
+            "rejected_candidates"
+        ) is None
+        or state.get(
+            "uncertain_candidates"
+        ) is None
+    )
+
+    if vision_output_missing:
+        return route(
             "vision_agent",
             "Vision 출력 없음",
         )
 
-    # 재촬영이나 즉시 관리자 확인이 필요한 결과
+    if vision_status in {
+        "REVIEW_REQUIRED",
+        "FAILED",
+    }:
+        return route(
+            "human_node",
+            (
+                vision_reason_code
+                or vision_status
+            ),
+        )
+
+    if vision_status != "COMPLETED":
+        return route(
+            "human_node",
+            "허용되지 않은 vision_status: "
+            f"{vision_status}",
+        )
+
     if reason_code in HITL_REASON_CODES:
-        return _route(
+        return route(
             "human_node",
             reason_code,
         )
 
     if reason_code in VISION_RETRY_CODES:
-        return _route(
+        return route(
             "vision_agent",
             reason_code,
         )
 
     if reason_code in POLICY_RETRY_CODES:
-        return _route(
+        return route(
             "policy_agent",
             reason_code,
         )
 
-    # Critic이 통과시킨 결과라도 필수 Policy 값이 있는지 확인
-    if reason_code == "OK":
-        ubci_score = state.get("ubci_score")
-        predicted_grade = state.get("predicted_grade")
-        score_breakdown = state.get("score_breakdown")
-        fatal_defect_detected = state.get(
-            "fatal_defect_detected"
-        )
-        rule_reference = state.get("rule_reference")
-        policy_confidence = state.get(
-            "policy_confidence"
+    # Policy의 필수 출력 검사
+    policy_output_complete = (
+        type(state.get("is_mint"))
+        is bool
+
+        and type(state.get("ubci_score"))
+        in (int, float)
+
+        and 0
+        <= state["ubci_score"]
+        <= 100
+
+        and state.get("predicted_grade")
+        in {"S", "A", "B", "REJECT"}
+
+        and type(
+            state.get("score_breakdown")
+        ) is list
+
+        and type(
+            state.get(
+                "fatal_defect_detected"
+            )
+        ) is bool
+
+        and type(
+            state.get(
+                "grade_reason_code"
+            )
+        ) is str
+
+        and bool(
+            state[
+                "grade_reason_code"
+            ].strip()
         )
 
-        policy_output_valid = (
-            type(ubci_score) in (int,float)
-            and 0 <= ubci_score <= 100
-            and predicted_grade
-            in {"S", "A", "B", "REJECT"}
-            and type(score_breakdown) is list
-            and type(fatal_defect_detected) is bool
-            and type(rule_reference) is str
-            and bool(rule_reference.strip())
-            and type(policy_confidence)
-            in (int, float)
-            and 0 <= policy_confidence <= 1
+        and type(
+            state.get("rule_reference")
+        ) is str
+
+        and bool(
+            state[
+                "rule_reference"
+            ].strip()
         )
 
-        if not policy_output_valid:
-            return _route(
+        and type(
+            state.get(
+                "policy_confidence"
+            )
+        ) in (int, float)
+
+        and 0
+        <= state["policy_confidence"]
+        <= 1
+    )
+
+    # Vision 뒤에는 반드시 Policy
+    if not policy_output_complete:
+        return route(
+            "policy_agent",
+            "Policy 출력 없음 또는 불완전",
+        )
+
+    is_mint = state["is_mint"]
+    defects = state["defects"]
+
+    if is_mint is True and defects:
+        return route(
+            "human_node",
+            "MINT인데 결함이 존재함",
+        )
+
+    if (
+        is_mint is False
+        and not defects
+    ):
+        return route(
+            "human_node",
+            "비정상인데 결함이 없음",
+        )
+
+    # Policy가 확정한 MINT만 Fast-track
+    if is_mint is True:
+        if (
+            state.get("ubci_score")
+            != 100.0
+            or state.get(
+                "predicted_grade"
+            ) != "S"
+            or state.get(
+                "score_breakdown"
+            ) != []
+        ):
+            return route(
                 "human_node",
-                "OK 상태지만 Policy 필수 출력이 불완전함",
+                "MINT 결과가 100점/S와 모순",
             )
 
-        return _route(
+        return route(
+            "auto_refund_agent",
+            "Policy 확정 MINT Fast-track",
+        )
+
+    if reason_code == "OK":
+        return route(
             "report_agent",
             "Critic 검증 통과",
         )
 
     if reason_code is not None:
-        return _route(
+        return route(
             "human_node",
-            f"처리할 수 없는 Reason Code: {reason_code}",
+            "처리할 수 없는 Reason Code: "
+            f"{reason_code}",
         )
 
-    # 정상 도서 Fast-track
-    if (
-        state.get("is_mint") is True
-        and not state.get("defects")
-    ):
-        vision_confidence = state.get(
-            "vision_confidence"
-        )
-
-        if (
-            state.get("image_quality_ok") is not True
-            or type(vision_confidence)
-            not in (int, float)
-            or not 0 <= vision_confidence <= 1
-            or vision_confidence
-            < MIN_VISION_CONFIDENCE
-        ):
-            return _route(
-                "human_node",
-                "Fast-track Vision 품질 미달",
-            )
-
-        return _route(
-            "auto_refund_agent",
-            "MINT Fast-track",
-        )
-
-    # 결함은 있으나 Policy 결과가 아직 없음
-    if (
-        state.get("ubci_score") is None
-        or not state.get("rule_reference")
-        or state.get("policy_confidence") is None
-    ):
-        return _route(
-            "policy_agent",
-            "Policy 출력 없음",
-        )
-
-    return _route(
+    return route(
         "critic_agent",
-        "교차 검증 필요",
+        "Policy 계산 후 교차 검증 필요",
     )
 
 

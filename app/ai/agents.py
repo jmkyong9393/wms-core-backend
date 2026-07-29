@@ -1,17 +1,22 @@
-import json, base64
+import base64
+import json
 import os
-from typing import Annotated, Literal
+import re
 
-from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, ConfigDict, Field, model_validator
-from .state import Grade, WMSInspectionState
+from dataclasses import dataclass
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
-from PIL import Image, ImageDraw
+from typing import Annotated, Literal
+
+from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage
+from langchain_openai import ChatOpenAI
+from PIL import Image, ImageDraw
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from ultralytics import YOLO
+
+from .state import Grade, WMSInspectionState
 
 POLICY_VERSION = "UBCI_SPEC_V2.0.0.0"
 
@@ -37,6 +42,7 @@ DefectCode = Literal[
     "LIBRARY_STAMP",
     "WATER_DAMAGE",
     "PAGE_WARPING",
+    "PAGE_FOLD",
     "WRITING",
     "HIGHLIGHTING",
     "BARCODE_DAMAGE",
@@ -54,18 +60,21 @@ DefectLocation = Literal[
     "OTHER",
 ]
 
-# VLM이 승인한 최종 결함의 데이터 계약
-# 정규화 BBox가 0~1 범위인지 검증하고 좌표가 뒤집힌 결과를 차단
+
 class DefectOutput(BaseModel):
     model_config = ConfigDict(strict=True)
+
     type: DefectCode
     location: DefectLocation
-    bbox: list[NormalizedValue] = Field(min_length=4, max_length=4)
+    bbox: list[NormalizedValue] = Field(
+        min_length=4,
+        max_length=4,
+    )
     ratio: float = Field(ge=0, le=100)
     confidence: float = Field(ge=0, le=1)
     image_index: int = Field(ge=0)
-    text_overlap: bool = False      #결함이 표지나 본문의 글자를 실제로 가리는지 여부
-    morphology_severe: bool = False # 재본 분리처럼 구조가 심하게 변형되었는지 여부
+    text_overlap: bool = False
+    morphology_severe: bool = False
 
     @model_validator(mode="after")
     def validate_bbox(self):
@@ -84,99 +93,314 @@ RejectReason = Literal[
     "COVER_DESIGN",
     "LIGHT_OR_SHADOW",
     "INSUFFICIENT_EVIDENCE",
+    "MODEL_CLASS_CONFLICT",
 ]
 
-# YOLO 후보 하나에 대한 VLM의 승인 또는 거절 결과
-# 승인된 후보와 거절된 후보의 필수 필드가 섞이지 않도록 검증
+ReviewDecision = Literal[
+    "CONFIRMED",
+    "REJECTED",
+    "UNCERTAIN",
+]
+
+
 class CandidateReview(BaseModel):
+    """
+    VLM은 YOLO 후보를 확인할 뿐이다.
+
+    새로운 BBox, MINT, UBCI 점수,
+    등급, Reason Code를 만들 수 없다.
+    """
+
     model_config = ConfigDict(strict=True)
 
     candidate_id: int = Field(ge=0)
-    is_defect: bool
-    type: DefectCode | None = None
+    decision: ReviewDecision
+
+    confirmed_type: DefectCode | None = None
     location: DefectLocation | None = None
+
     ratio: float = Field(ge=0, le=100)
-    confidence: float = Field(ge=0, le=1)
+    review_confidence: float = Field(ge=0, le=1)
+
     reject_reason: RejectReason | None = None
     text_overlap: bool = False
     morphology_severe: bool = False
 
     @model_validator(mode="after")
     def validate_review(self):
-        if self.is_defect:
-            if self.type is None or self.location is None:
+        if self.decision == "CONFIRMED":
+            if (
+                self.confirmed_type is None
+                or self.location is None
+            ):
                 raise ValueError(
-                    "실제 결함은 type과 location이 필요합니다."
+                    "승인 후보에는 결함 유형과 위치가 필요합니다."
                 )
 
             if self.reject_reason is not None:
                 raise ValueError(
-                    "실제 결함에 reject_reason을 사용할 수 없습니다."
+                    "승인 후보에는 reject_reason을 사용할 수 없습니다."
                 )
 
             if self.ratio <= 0:
                 raise ValueError(
-                    "실제 결함의 ratio는 0보다 커야 합니다."
+                    "승인 후보의 ratio는 0보다 커야 합니다."
                 )
 
         else:
-            if self.type is not None or self.location is not None:
+            if (
+                self.confirmed_type is not None
+                or self.location is not None
+            ):
                 raise ValueError(
-                    "거절 후보에는 결함 유형과 위치를 지정하지 않습니다."
+                    "거절·보류 후보에는 결함 유형을 지정하지 않습니다."
                 )
 
             if self.ratio != 0:
                 raise ValueError(
-                    "거절 후보의 ratio는 0이어야 합니다."
+                    "거절·보류 후보의 ratio는 0이어야 합니다."
                 )
 
             if self.reject_reason is None:
                 raise ValueError(
-                    "거절 후보에는 reject_reason이 필요합니다."
+                    "거절·보류 후보에는 reject_reason이 필요합니다."
                 )
 
         return self
 
-# 사진 한 장에 포함된 모든 YOLO 후보의 VLM 검증 결과
-# YOLO가 놓친 결함 의심 여부와 사진 전체 신뢰도도 함께 전달
+
 class HybridVisionReview(BaseModel):
     model_config = ConfigDict(strict=True)
 
     image_quality_ok: bool
     reviews: list[CandidateReview]
     missed_defect_suspected: bool
-    vision_confidence: float = Field(ge=0, le=1)
-YOLO_IMAGE_SIZE = 960
-YOLO_MAX_CANDIDATES = 10
+    review_confidence: float = Field(ge=0, le=1)
+YOLO_IMAGE_SIZE = int(
+    os.getenv("YOLO_IMAGE_SIZE", "960")
+)
 
-# YOLO 모델은 로딩 비용이 크므로 프로세스에서 한 번만 로드해 재사용
-# 상대 경로는 프로젝트 루트를 기준으로 변환하고 모델이 없으면 즉시 실패시킴
-@lru_cache(maxsize=1)
-def get_yolo_model() -> YOLO:
+YOLO_MAX_PER_MODEL = int(
+    os.getenv(
+        "YOLO_MAX_CANDIDATES_PER_MODEL",
+        "30",
+    )
+)
+
+YOLO_MAX_ENSEMBLE_CANDIDATES = int(
+    os.getenv(
+        "YOLO_MAX_ENSEMBLE_CANDIDATES",
+        "15",
+    )
+)
+
+YOLO_ENSEMBLE_IOU = float(
+    os.getenv("YOLO_ENSEMBLE_IOU", "0.55")
+)
+
+
+@dataclass(frozen=True)
+class YoloModelSpec:
+    name: str
+    env_name: str
+    default_path: str
+    role: str
+    confidence: float
+    class_mapping: dict[str, str]
+
+
+YOLO_MODEL_SPECS = (
+    YoloModelSpec(
+        name="general_binary",
+        env_name="YOLO_GENERAL_MODEL_PATH",
+        default_path=(
+            "models/general_binary_1559_best.pt"
+        ),
+        role="GENERAL_RECALL",
+        confidence=0.15,
+        class_mapping={
+            "wornout": "OTHER_VISIBLE_DAMAGE",
+            "ripped": "COVER_TEAR",
+        },
+    ),
+    YoloModelSpec(
+        name="physical4",
+        env_name="YOLO_PHYSICAL_MODEL_PATH",
+        default_path="models/physical4_best.pt",
+        role="PHYSICAL_SPECIALIST",
+        confidence=0.20,
+        class_mapping={
+            "cover_tear": "COVER_TEAR",
+            "edge_wear": "EDGE_WEAR",
+            "general_stain": "GENERAL_STAIN",
+            "page_fold": "PAGE_FOLD",
+        },
+    ),
+    YoloModelSpec(
+        name="doodle",
+        env_name="YOLO_DOODLE_MODEL_PATH",
+        default_path="models/doodle_best.pt",
+        role="DOODLE_SPECIALIST",
+        confidence=0.20,
+        class_mapping={
+            "doodle_scribble": "WRITING",
+        },
+    ),
+)
+
+MODEL_PRIORITY = {
+    "general_binary": 1,
+    "physical4": 2,
+    "doodle": 3,
+}
+
+
+def trace_event(
+    event: str,
+    payload: dict,
+) -> None:
+    """에이전트의 입력·출력을 한 줄 JSON으로 표시한다."""
+
+    print(
+        "[AI_TRACE]",
+        json.dumps(
+            {
+                "event": event,
+                **payload,
+            },
+            ensure_ascii=False,
+            default=str,
+        ),
+    )
+
+
+def normalize_model_class(value: str) -> str:
+    normalized = re.sub(
+        r"[^a-z0-9]+",
+        "_",
+        value.strip().lower(),
+    )
+    return normalized.strip("_")
+
+
+def resolve_model_path(
+    configured_path: str,
+) -> Path:
     repo_root = Path(__file__).resolve().parents[2]
-    configured_path = Path(
-        os.getenv(
-            "YOLO_MODEL_PATH",
-            "models/defect_region_best.pt",
+    path = Path(configured_path)
+
+    if path.is_absolute():
+        return path
+
+    return repo_root / path
+
+
+@lru_cache(maxsize=1)
+def get_yolo_models() -> dict[str, dict]:
+    """활성화된 YOLO 모델을 최초 한 번만 불러온다."""
+
+    enabled_names = {
+        item.strip()
+        for item in os.getenv(
+            "YOLO_ENABLED_MODELS",
+            "general_binary,physical4,doodle",
+        ).split(",")
+        if item.strip()
+    }
+
+    known_names = {
+        spec.name
+        for spec in YOLO_MODEL_SPECS
+    }
+
+    unknown_names = enabled_names - known_names
+
+    if unknown_names:
+        raise ValueError(
+            "알 수 없는 YOLO 모델: "
+            + ", ".join(sorted(unknown_names))
         )
-    )
 
-    model_path = (
-        configured_path
-        if configured_path.is_absolute()
-        else repo_root / configured_path
-    )
+    loaded: dict[str, dict] = {}
+    missing: list[str] = []
 
-    if not model_path.exists():
+    for spec in YOLO_MODEL_SPECS:
+        if spec.name not in enabled_names:
+            continue
+
+        model_path = resolve_model_path(
+            os.getenv(
+                spec.env_name,
+                spec.default_path,
+            )
+        )
+
+        if not model_path.is_file():
+            missing.append(
+                f"{spec.name}={model_path}"
+            )
+            continue
+
+        model = YOLO(str(model_path))
+
+        names = {
+            int(key): str(value)
+            for key, value in model.names.items()
+        }
+
+        loaded[spec.name] = {
+            "spec": spec,
+            "model": model,
+            "path": str(model_path),
+            "classes": names,
+        }
+
+    if missing:
         raise FileNotFoundError(
-            f"YOLO 모델이 없습니다: {model_path}"
+            "YOLO 모델 파일이 없습니다: "
+            + " | ".join(missing)
         )
 
-    return YOLO(str(model_path))
+    if not loaded:
+        raise RuntimeError(
+            "활성화된 YOLO 모델이 없습니다."
+        )
 
-# PIL 이미지를 임시 파일 없이 Base64 Data URL로 변환해 OpenAI API에 전달
-def image_to_data_url(image: Image.Image) -> str:
+    trace_event(
+        "YOLO_MODELS_LOADED",
+        {
+            "models": [
+                {
+                    "name": name,
+                    "path": item["path"],
+                    "role": item["spec"].role,
+                    "classes": item["classes"],
+                }
+                for name, item in loaded.items()
+            ]
+        },
+    )
+
+    return loaded
+
+
+def get_yolo_model_manifest() -> list[dict]:
+    return [
+        {
+            "name": name,
+            "path": item["path"],
+            "role": item["spec"].role,
+            "classes": item["classes"],
+        }
+        for name, item in get_yolo_models().items()
+    ]
+
+
+def image_to_data_url(
+    image: Image.Image,
+) -> str:
     buffer = BytesIO()
+
     image.convert("RGB").save(
         buffer,
         format="JPEG",
@@ -189,50 +413,294 @@ def image_to_data_url(image: Image.Image) -> str:
 
     return f"data:image/jpeg;base64,{encoded}"
 
-# YOLO는 결함 종류를 판정하지 않고 의심 영역만 찾음
-# 좌표를 이미지 경계 안으로 제한하고 후보 수를 10개로 제한해 오탐과 API 비용을 방어
-# VLM 검증용 Crop에는 주변 문맥을 15% 포함
+
+def calculate_bbox_iou(
+    first: list[float],
+    second: list[float],
+) -> float:
+    x1 = max(first[0], second[0])
+    y1 = max(first[1], second[1])
+    x2 = min(first[2], second[2])
+    y2 = min(first[3], second[3])
+
+    intersection = (
+        max(0.0, x2 - x1)
+        * max(0.0, y2 - y1)
+    )
+
+    first_area = (
+        max(0.0, first[2] - first[0])
+        * max(0.0, first[3] - first[1])
+    )
+
+    second_area = (
+        max(0.0, second[2] - second[0])
+        * max(0.0, second[3] - second[1])
+    )
+
+    union = (
+        first_area
+        + second_area
+        - intersection
+    )
+
+    if union <= 0:
+        return 0.0
+
+    return intersection / union
+
+
+def merge_model_detections(
+    detections: list[dict],
+) -> list[list[dict]]:
+    clusters: list[list[dict]] = []
+
+    sorted_detections = sorted(
+        detections,
+        key=lambda item: item["confidence"],
+        reverse=True,
+    )
+
+    for detection in sorted_detections:
+        matching_cluster = next(
+            (
+                cluster
+                for cluster in clusters
+                if any(
+                    calculate_bbox_iou(
+                        detection["bbox"],
+                        existing["bbox"],
+                    )
+                    >= YOLO_ENSEMBLE_IOU
+                    for existing in cluster
+                )
+            ),
+            None,
+        )
+
+        if matching_cluster is None:
+            clusters.append([detection])
+        else:
+            matching_cluster.append(detection)
+
+    return clusters
+
+
+def weighted_bbox(
+    detections: list[dict],
+) -> list[float]:
+    weights = [
+        max(item["confidence"], 0.000001)
+        for item in detections
+    ]
+
+    total = sum(weights)
+
+    return [
+        round(
+            sum(
+                item["bbox"][index] * weight
+                for item, weight in zip(
+                    detections,
+                    weights,
+                )
+            ) / total,
+            6,
+        )
+        for index in range(4)
+    ]
+
+
+def choose_proposed_type(
+    detections: list[dict],
+) -> str:
+    selected = max(
+        detections,
+        key=lambda item: (
+            item["mapped_type"]
+            != "OTHER_VISIBLE_DAMAGE",
+            MODEL_PRIORITY.get(
+                item["source_model"],
+                0,
+            ),
+            item["confidence"],
+        ),
+    )
+
+    return selected["mapped_type"]
+
+
 def detect_yolo_candidates(
     image: Image.Image,
-) -> list[dict]:
-    model = get_yolo_model()
-
-    result = model.predict(
-        source=image,
-        conf=float(
-            os.getenv("YOLO_CONFIDENCE", "0.25")
-        ),
-        iou=float(
-            os.getenv("YOLO_IOU", "0.50")
-        ),
-        imgsz=YOLO_IMAGE_SIZE,
-        max_det=YOLO_MAX_CANDIDATES,
-        device=os.getenv("YOLO_DEVICE", "cpu"),
-        verbose=False,
-    )[0]
-
-    if result.boxes is None:
-        return []
+    image_index: int,
+) -> tuple[list[dict], list[dict]]:
+    """
+    모든 YOLO 모델을 실행하고
+    겹치는 BBox를 후보 하나로 합친다.
+    """
 
     width, height = image.size
-    boxes = result.boxes.xyxy.cpu().tolist()
-    confidences = result.boxes.conf.cpu().tolist()
+    raw_detections: list[dict] = []
 
-    candidates = []
+    for model_name, item in get_yolo_models().items():
+        spec: YoloModelSpec = item["spec"]
+        model: YOLO = item["model"]
 
-    for candidate_id, (box, confidence) in enumerate(
-        zip(boxes, confidences)
+        result = model.predict(
+            source=image,
+            conf=float(
+                os.getenv(
+                    (
+                        f"YOLO_"
+                        f"{model_name.upper()}"
+                        f"_CONFIDENCE"
+                    ),
+                    str(spec.confidence),
+                )
+            ),
+            iou=float(
+                os.getenv(
+                    "YOLO_MODEL_NMS_IOU",
+                    "0.50",
+                )
+            ),
+            imgsz=YOLO_IMAGE_SIZE,
+            max_det=YOLO_MAX_PER_MODEL,
+            device=os.getenv(
+                "YOLO_DEVICE",
+                "cpu",
+            ),
+            verbose=False,
+        )[0]
+
+        if result.boxes is None:
+            continue
+
+        boxes = result.boxes.xyxy.cpu().tolist()
+        confidences = (
+            result.boxes.conf.cpu().tolist()
+        )
+        class_ids = (
+            result.boxes.cls.cpu().tolist()
+        )
+
+        for (
+            box,
+            confidence,
+            raw_class_id,
+        ) in zip(
+            boxes,
+            confidences,
+            class_ids,
+        ):
+            class_id = int(raw_class_id)
+            source_class = str(
+                model.names[class_id]
+            )
+
+            normalized_class = (
+                normalize_model_class(
+                    source_class
+                )
+            )
+
+            mapped_type = (
+                spec.class_mapping.get(
+                    normalized_class,
+                    "OTHER_VISIBLE_DAMAGE",
+                )
+            )
+
+            x1, y1, x2, y2 = box
+
+            x1 = max(
+                0,
+                min(int(x1), width - 1),
+            )
+            y1 = max(
+                0,
+                min(int(y1), height - 1),
+            )
+            x2 = max(
+                x1 + 1,
+                min(int(x2), width),
+            )
+            y2 = max(
+                y1 + 1,
+                min(int(y2), height),
+            )
+
+            raw_detections.append({
+                "image_index": image_index,
+                "source_model": model_name,
+                "source_role": spec.role,
+                "source_class": source_class,
+                "source_class_id": class_id,
+                "mapped_type": mapped_type,
+                "confidence": round(
+                    float(confidence),
+                    6,
+                ),
+                "bbox": [
+                    x1 / width,
+                    y1 / height,
+                    x2 / width,
+                    y2 / height,
+                ],
+                "pixel_bbox": [
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                ],
+            })
+
+    candidates: list[dict] = []
+
+    clusters = merge_model_detections(
+        raw_detections
+    )
+
+    for candidate_id, cluster in enumerate(
+        clusters
     ):
-        x1, y1, x2, y2 = box
+        bbox = weighted_bbox(cluster)
 
-        x1 = max(0, min(int(x1), width - 1))
-        y1 = max(0, min(int(y1), height - 1))
-        x2 = max(x1 + 1, min(int(x2), width))
-        y2 = max(y1 + 1, min(int(y2), height))
+        x1 = max(
+            0,
+            min(
+                int(bbox[0] * width),
+                width - 1,
+            ),
+        )
+        y1 = max(
+            0,
+            min(
+                int(bbox[1] * height),
+                height - 1,
+            ),
+        )
+        x2 = max(
+            x1 + 1,
+            min(
+                int(bbox[2] * width),
+                width,
+            ),
+        )
+        y2 = max(
+            y1 + 1,
+            min(
+                int(bbox[3] * height),
+                height,
+            ),
+        )
 
-        # Crop에 주변 문맥을 조금 포함한다.
-        padding_x = int((x2 - x1) * 0.15)
-        padding_y = int((y2 - y1) * 0.15)
+        padding_x = int(
+            (x2 - x1) * 0.15
+        )
+        padding_y = int(
+            (y2 - y1) * 0.15
+        )
 
         crop = image.crop((
             max(0, x1 - padding_x),
@@ -241,20 +709,85 @@ def detect_yolo_candidates(
             min(height, y2 + padding_y),
         ))
 
+        specialist_types = {
+            detection["mapped_type"]
+            for detection in cluster
+            if detection["mapped_type"]
+            != "OTHER_VISIBLE_DAMAGE"
+        }
+
         candidates.append({
             "candidate_id": candidate_id,
-            "bbox": [
-                x1 / width,
-                y1 / height,
-                x2 / width,
-                y2 / height,
+            "image_index": image_index,
+            "bbox": bbox,
+            "pixel_bbox": [
+                x1,
+                y1,
+                x2,
+                y2,
             ],
-            "pixel_bbox": [x1, y1, x2, y2],
-            "yolo_confidence": float(confidence),
+            "proposed_type": (
+                choose_proposed_type(cluster)
+            ),
+            "yolo_confidence": max(
+                detection["confidence"]
+                for detection in cluster
+            ),
+            "ensemble_confidence": round(
+                sum(
+                    detection["confidence"]
+                    for detection in cluster
+                ) / len(cluster),
+                6,
+            ),
+            "source_models": sorted({
+                detection["source_model"]
+                for detection in cluster
+            }),
+            "source_predictions": cluster,
+            "class_conflict": (
+                len(specialist_types) > 1
+            ),
             "crop": crop,
         })
 
-    return candidates
+    candidates.sort(
+        key=lambda candidate: (
+            len(candidate["source_models"]),
+            candidate["yolo_confidence"],
+        ),
+        reverse=True,
+    )
+
+    candidates = candidates[
+        :YOLO_MAX_ENSEMBLE_CANDIDATES
+    ]
+
+    for candidate_id, candidate in enumerate(
+        candidates
+    ):
+        candidate["candidate_id"] = (
+            candidate_id
+        )
+
+    trace_event(
+        "YOLO_ENSEMBLE_COMPLETED",
+        {
+            "image_index": image_index,
+            "raw_detections": raw_detections,
+            "ensemble_candidates": [
+                {
+                    key: value
+                    for key, value
+                    in candidate.items()
+                    if key != "crop"
+                }
+                for candidate in candidates
+            ],
+        },
+    )
+
+    return raw_detections, candidates
 
 # 전체 사진에 candidate_id를 표시
 # VLM이 전체 위치와 개별 Crop을 같은 후보로 연결할 수 있게 하는 용도
@@ -283,6 +816,20 @@ def draw_candidates(
         )
     return annotated
 
+def state_safe_candidate(
+    candidate: dict,
+) -> dict:
+    """
+    PIL Crop을 제외하고
+    JSON과 LangGraph State에 저장할 수 있게 만든다.
+    """
+
+    return {
+        key: value
+        for key, value in candidate.items()
+        if key != "crop"
+    }
+
 def vision_agent(state: WMSInspectionState) -> WMSInspectionState:
     """
     1. Vision Agent
@@ -291,17 +838,6 @@ def vision_agent(state: WMSInspectionState) -> WMSInspectionState:
     - 입력: state["messages"] 내의 이미지 URL
     - 출력: is_mint (bool), defects (list of relative ratios)
     """
-        # 구현 흐름:
-    # 1. YOLO가 결함 의심 영역의 BBox를 생성한
-    # 2. 전체 사진과 후보별 Crop을 VLM에 전달
-    # 3. VLM은 새 좌표를 만들지 않고 YOLO 후보를 승인하거나 거절
-    # 4. 승인된 후보만 결함 종류·위치·면적 비율과 함께 State에 저장
-    #
-    # 방어 로직:
-    # - VLM 구조화 출력으로 허용되지 않은 결함 코드를 차단
-    # - candidate_id 누락·중복·추가 결과를 오류 처리
-    # - 낮은 신뢰도와 YOLO 미탐 의심 결과를 HITL로 보냄
-    # - Vision 재실행 시 이전 UBCI와 최종 보고서 값을 초기화
 
     print("[Agent] Vision Agent 실행...")
 
@@ -321,6 +857,9 @@ def vision_agent(state: WMSInspectionState) -> WMSInspectionState:
         revision_count = 0
 
     downstream_reset = {
+        # 아래 값은 Vision이 아니라
+        # Policy가 결정한다.
+        "is_mint": None,
         "ubci_score": None,
         "predicted_grade": None,
         "score_breakdown": None,
@@ -336,66 +875,101 @@ def vision_agent(state: WMSInspectionState) -> WMSInspectionState:
         "final_report": None,
     }
 
-    def failure_result(message: str):
-        return {
+    def failure_result(
+        message: str,
+    ) -> WMSInspectionState:
+        result = {
             **downstream_reset,
-            "is_mint": None,
+            "yolo_model_manifest": None,
+            "raw_yolo_detections": [],
+            "ensemble_candidates": [],
+            "reviewed_candidates": [],
+            "rejected_candidates": [],
+            "uncertain_candidates": [],
             "defects": None,
             "image_quality_ok": False,
             "vision_confidence": None,
-            "reason_code": "QUALITY_ERROR",
+            "vision_status": "FAILED",
+            "vision_reason_code": (
+                "QUALITY_ERROR"
+            ),
+            "reason_code": None,
             "repair_directive": message,
-            "revision_count": revision_count + 1,
+            "revision_count": (
+                revision_count + 1
+            ),
             "messages": [
                 AIMessage(
-                    content=f"[Vision Agent] 실패 - {message}"
+                    content=(
+                        "[Vision Agent] 실행 실패 - "
+                        f"{message}"
+                    )
                 )
             ],
         }
 
+        trace_event(
+            "VISION_OUTPUT",
+            {
+                "vision_status": "FAILED",
+                "vision_reason_code": (
+                    "QUALITY_ERROR"
+                ),
+                "repair_directive": message,
+                "revision_count": (
+                    result["revision_count"]
+                ),
+            },
+        )
+
+        return result
+
     if not image_paths:
         return failure_result(
-            "검수할 image_paths가 없습니다."
+            "검사할 image_paths가 없습니다."
         )
 
     prompt = """
-당신은 중고 도서 결함 후보 검증 Agent입니다.
+당신은 중고 도서 검수 시스템의 2차 확인자입니다.
 
-YOLO가 만든 후보 BBox만 검증합니다.
-새로운 BBox나 좌표를 만들지 마세요.
+역할과 금지사항:
+1. YOLO 앙상블이 만든 candidate_id와 BBox만 검토합니다.
+2. 새로운 candidate, BBox, 좌표를 절대 만들지 않습니다.
+3. is_mint, UBCI 점수, 등급, reason_code를 결정하지 않습니다.
+4. 각 candidate_id를 정확히 한 번만 반환합니다.
 
-첫 번째 이미지는 후보 번호가 표시된 전체 사진입니다.
-그다음 이미지들은 각 candidate의 확대 Crop입니다.
+입력 이해:
+- 첫 이미지는 후보 번호가 표시된 전체 사진입니다.
+- 다음 이미지는 각 후보의 확대 Crop입니다.
+- proposed_type은 YOLO가 제안한 결함 유형입니다.
+- source_models와 source_predictions는 모델별 판단입니다.
+- class_conflict=true이면 전문 모델들의 유형이 충돌한 것입니다.
 
-각 candidate_id를 정확히 한 번씩 판정하세요.
+decision 규칙:
+- CONFIRMED: 물리적인 결함이 분명할 때
+- REJECTED: 표지 디자인, 인쇄, 그림자, 빛 반사, 배경 등 오탐일 때
+- UNCERTAIN: 흐림, 가림, 증거 부족, 모델 충돌로 확정할 수 없을 때
 
-실제 결함으로 인정:
-- 찢어짐, 눌림, 구겨짐
-- 실제 긁힘이나 마모
-- 얼룩, 필기, 도장
-- 제본 벌어짐
-- 수침 변색이나 뒤틀림
+결함 유형 규칙:
+- proposed_type이 OTHER_VISIBLE_DAMAGE가 아니면
+  CONFIRMED의 confirmed_type을 proposed_type과 같게 유지합니다.
+- OTHER_VISIBLE_DAMAGE인 일반 모델 후보만 근거가 분명한 경우
+  구체적인 허용 결함 유형으로 세분화합니다.
+- 전문 모델의 proposed_type에 동의하지 않으면
+  다른 유형으로 변경하지 말고 UNCERTAIN을 반환합니다.
 
-반드시 거절:
-- 책상, 케이블, 다른 책 등 배경 물체
-- 표지의 인쇄 글자, 그림, 로고, 스티커 디자인
-- 조명 반사, 그림자, 유광 광택
-- 물리적 손상이 명확하지 않은 색상 차이
-
-is_defect=false이면:
-- type=null
-- location=null
-- ratio=0.0
-- reject_reason을 반드시 지정
-
-is_defect=true이면:
-- type과 location 지정
-- reject_reason=null
-- ratio는 보이는 책 면적 대비 실제 결함 면적 비율
-- YOLO BBox 전체 면적을 그대로 ratio로 사용하지 않음
-
-missed_defect_suspected는 전체 사진에서 명확한 결함이 보이지만
-어떤 YOLO 후보에도 포함되지 않은 경우에만 true입니다.
+필드 규칙:
+- CONFIRMED:
+  confirmed_type과 location 필수
+  reject_reason=null
+  ratio는 책 면적 대비 실제 결함 면적 비율
+- REJECTED 또는 UNCERTAIN:
+  confirmed_type=null
+  location=null
+  ratio=0.0
+  reject_reason 필수
+- missed_defect_suspected는 전체 사진에 명확한 결함이 있지만
+  어느 YOLO 후보에도 들어 있지 않을 때만 true입니다.
 """
 
     try:
@@ -412,39 +986,110 @@ missed_defect_suspected는 전체 사진에서 명확한 결함이 보이지만
             method="json_schema",
         )
 
-        final_defects = []
-        confidence_values = []
+        model_manifest = (
+            get_yolo_model_manifest()
+        )
+
+        all_raw_detections: list[dict] = []
+        all_ensemble_candidates: list[dict] = []
+        reviewed_candidates: list[dict] = []
+        rejected_candidates: list[dict] = []
+        uncertain_candidates: list[dict] = []
+        final_defects: list[dict] = []
+        confidence_values: list[float] = []
+
+        all_image_quality_ok = True
         missed_defect_suspected = False
 
-        repo_root = Path(__file__).resolve().parents[2]
+        repo_root = (
+            Path(__file__)
+            .resolve()
+            .parents[2]
+        )
 
-        for image_index, raw_path in enumerate(image_paths):
+        for (
+            image_index,
+            raw_path,
+        ) in enumerate(image_paths):
             image_path = Path(raw_path)
 
             if not image_path.is_absolute():
-                image_path = repo_root / image_path
+                image_path = (
+                    repo_root / image_path
+                )
 
             if not image_path.exists():
                 raise FileNotFoundError(
-                    f"이미지가 없습니다: {image_path}"
+                    "이미지가 없습니다: "
+                    f"{image_path}"
                 )
 
             image = Image.open(
                 image_path
             ).convert("RGB")
 
-            candidates = detect_yolo_candidates(image)
+            (
+                raw_detections,
+                candidates,
+            ) = detect_yolo_candidates(
+                image,
+                image_index,
+            )
+
+            all_raw_detections.extend(
+                raw_detections
+            )
+
+            all_ensemble_candidates.extend([
+                state_safe_candidate(
+                    candidate
+                )
+                for candidate in candidates
+            ])
+
             annotated = draw_candidates(
                 image,
                 candidates,
             )
 
-            # VLM이 전체 이미지의 후보 번호와 Crop을 연결할 수 있도록
-            # candidate_id와 정규화된 BBox 정보를 함께 전달
             candidate_metadata = [
                 {
-                    "candidate_id": candidate["candidate_id"],
+                    "candidate_id": (
+                        candidate[
+                            "candidate_id"
+                        ]
+                    ),
                     "bbox": candidate["bbox"],
+                    "proposed_type": (
+                        candidate[
+                            "proposed_type"
+                        ]
+                    ),
+                    "yolo_confidence": (
+                        candidate[
+                            "yolo_confidence"
+                        ]
+                    ),
+                    "ensemble_confidence": (
+                        candidate[
+                            "ensemble_confidence"
+                        ]
+                    ),
+                    "source_models": (
+                        candidate[
+                            "source_models"
+                        ]
+                    ),
+                    "source_predictions": (
+                        candidate[
+                            "source_predictions"
+                        ]
+                    ),
+                    "class_conflict": (
+                        candidate[
+                            "class_conflict"
+                        ]
+                    ),
                 }
                 for candidate in candidates
             ]
@@ -453,7 +1098,8 @@ missed_defect_suspected는 전체 사진에서 명확한 결함이 보이지만
                 {
                     "type": "text",
                     "text": (
-                        "다음 YOLO 후보를 검증하세요.\n"
+                        "다음 YOLO 앙상블 후보를 "
+                        "규칙대로 검토하세요.\n"
                         + json.dumps(
                             candidate_metadata,
                             ensure_ascii=False,
@@ -463,7 +1109,11 @@ missed_defect_suspected는 전체 사진에서 명확한 결함이 보이지만
                 {
                     "type": "image_url",
                     "image_url": {
-                        "url": image_to_data_url(annotated),
+                        "url": (
+                            image_to_data_url(
+                                annotated
+                            )
+                        ),
                         "detail": "high",
                     },
                 },
@@ -474,15 +1124,22 @@ missed_defect_suspected는 전체 사진에서 명확한 결함이 보이지만
                     {
                         "type": "text",
                         "text": (
-                            "다음 Crop의 candidate_id는 "
-                            f"{candidate['candidate_id']}입니다."
+                            "다음 확대 이미지의 "
+                            "candidate_id는 "
+                            f"{candidate['candidate_id']}"
+                            "입니다. BBox는 변경할 수 "
+                            "없습니다."
                         ),
                     },
                     {
                         "type": "image_url",
                         "image_url": {
-                            "url": image_to_data_url(
-                                candidate["crop"]
+                            "url": (
+                                image_to_data_url(
+                                    candidate[
+                                        "crop"
+                                    ]
+                                )
                             ),
                             "detail": "high",
                         },
@@ -491,33 +1148,39 @@ missed_defect_suspected는 전체 사진에서 명확한 결함이 보이지만
 
             review = review_model.invoke([
                 ("system", prompt),
-                HumanMessage(content=content),
+                HumanMessage(
+                    content=content
+                ),
             ])
 
             expected_ids = {
                 candidate["candidate_id"]
                 for candidate in candidates
             }
+
             returned_ids = [
                 item.candidate_id
                 for item in review.reviews
             ]
 
             if (
-                len(returned_ids) != len(set(returned_ids))
-                or set(returned_ids) != expected_ids
+                len(returned_ids)
+                != len(set(returned_ids))
+                or set(returned_ids)
+                != expected_ids
             ):
                 raise ValueError(
-                    "VLM이 후보 ID를 누락하거나 추가했습니다."
+                    "VLM이 후보 ID를 "
+                    "누락·중복·추가했습니다."
                 )
 
-            if not review.image_quality_ok:
-                return failure_result(
-                    f"{image_index}번 이미지 판독 불가"
-                )
+            all_image_quality_ok = (
+                all_image_quality_ok
+                and review.image_quality_ok
+            )
 
             confidence_values.append(
-                review.vision_confidence
+                review.review_confidence
             )
 
             missed_defect_suspected = (
@@ -526,54 +1189,150 @@ missed_defect_suspected는 전체 사진에서 명확한 결함이 보이지만
             )
 
             candidates_by_id = {
-                candidate["candidate_id"]: candidate
+                candidate["candidate_id"]:
+                    candidate
                 for candidate in candidates
             }
 
             for item in review.reviews:
-                if not item.is_defect:
-                    continue
-
-                if item.type is None or item.location is None:
-                    raise ValueError(
-                        "승인된 결함 정보가 불완전합니다."
-                    )
-
                 candidate = candidates_by_id[
                     item.candidate_id
                 ]
 
+                safe_candidate = (
+                    state_safe_candidate(
+                        candidate
+                    )
+                )
+
+                review_payload = (
+                    item.model_dump()
+                )
+
+                review_record = {
+                    **safe_candidate,
+                    "vlm_review": (
+                        review_payload
+                    ),
+                }
+
+                reviewed_candidates.append(
+                    review_record
+                )
+
+                confidence_values.append(
+                    item.review_confidence
+                )
+
+                if (
+                    item.decision
+                    == "REJECTED"
+                ):
+                    rejected_candidates.append(
+                        review_record
+                    )
+                    continue
+
+                if (
+                    item.decision
+                    == "UNCERTAIN"
+                ):
+                    uncertain_candidates.append(
+                        review_record
+                    )
+                    continue
+
+                proposed_type = candidate[
+                    "proposed_type"
+                ]
+
+                if (
+                    proposed_type
+                    != "OTHER_VISIBLE_DAMAGE"
+                    and item.confirmed_type
+                    != proposed_type
+                ):
+                    uncertain_candidates.append({
+                        **safe_candidate,
+                        "vlm_review": {
+                            **review_payload,
+                            "decision": (
+                                "UNCERTAIN"
+                            ),
+                            "confirmed_type": None,
+                            "location": None,
+                            "ratio": 0.0,
+                            "reject_reason": (
+                                "MODEL_CLASS_CONFLICT"
+                            ),
+                        },
+                    })
+
+                    missed_defect_suspected = True
+                    continue
+
                 defect = DefectOutput(
-                    type=item.type,
+                    type=item.confirmed_type,
                     location=item.location,
                     bbox=candidate["bbox"],
                     ratio=item.ratio,
-                    confidence=item.confidence,
+                    confidence=(
+                        item.review_confidence
+                    ),
                     image_index=image_index,
-                    text_overlap=item.text_overlap,
+                    text_overlap=(
+                        item.text_overlap
+                    ),
                     morphology_severe=(
                         item.morphology_severe
                     ),
                 ).model_dump()
 
-                # 테스트와 로그 확인을 위한 값
-                defect["candidate_id"] = (
-                    item.candidate_id
-                )
-                defect["yolo_confidence"] = (
-                    candidate["yolo_confidence"]
+                defect.update({
+                    "candidate_id": (
+                        item.candidate_id
+                    ),
+                    "proposed_type": (
+                        proposed_type
+                    ),
+                    "yolo_confidence": (
+                        candidate[
+                            "yolo_confidence"
+                        ]
+                    ),
+                    "ensemble_confidence": (
+                        candidate[
+                            "ensemble_confidence"
+                        ]
+                    ),
+                    "vlm_confidence": (
+                        item.review_confidence
+                    ),
+                    "source_models": (
+                        candidate[
+                            "source_models"
+                        ]
+                    ),
+                    "source_predictions": (
+                        candidate[
+                            "source_predictions"
+                        ]
+                    ),
+                    "class_conflict": (
+                        candidate[
+                            "class_conflict"
+                        ]
+                    ),
+                })
+
+                final_defects.append(
+                    defect
                 )
 
-                final_defects.append(defect)
-                confidence_values.append(
-                    item.confidence
-                )
-        # 전체 평균이 아니라 가장 낮은 신뢰도를 대표값으로 사용
-        # 확실한 후보 여러 개가 불확실한 후보 하나를 평균으로 감추는 것을 방지
         vision_confidence = (
             min(confidence_values)
             if confidence_values
-            else 0.0
+            else 1.0
         )
 
     except Exception as error:
@@ -582,52 +1341,143 @@ missed_defect_suspected는 전체 사진에서 명확한 결함이 보이지만
             type(error).__name__,
             str(error),
         )
+
         return failure_result(
-            "YOLO 탐지 또는 VLM 검증에 실패했습니다."
+            "YOLO 앙상블 또는 VLM 검토 실패: "
+            f"{type(error).__name__}: {error}"
         )
 
-    reason_code = None
+    vision_status = "COMPLETED"
+    vision_reason_code = None
     repair_directive = None
 
     if (
-        missed_defect_suspected
-        or vision_confidence < MIN_VISION_CONFIDENCE
+        not all_image_quality_ok
+        or vision_confidence
+        < MIN_VISION_CONFIDENCE
     ):
-        reason_code = "VISION_LOW_CONFIDENCE"
+        vision_status = "REVIEW_REQUIRED"
+        vision_reason_code = (
+            "VISION_LOW_CONFIDENCE"
+        )
         repair_directive = (
-            "YOLO 미탐 가능성 또는 낮은 VLM 신뢰도를 "
-            "관리자가 확인해야 합니다."
+            "사진 품질 또는 판단 신뢰도가 낮아 "
+            "관리자 확인이나 재촬영이 필요합니다."
         )
         revision_count += 1
 
-    is_mint = (
-        not final_defects
-        and not missed_defect_suspected
-    )
+    elif (
+        missed_defect_suspected
+        or uncertain_candidates
+    ):
+        vision_status = "REVIEW_REQUIRED"
+        vision_reason_code = (
+            "VISION_UNCLASSIFIED_DEFECT"
+        )
+        repair_directive = (
+            "YOLO 미탐 가능성, 클래스 충돌 또는 "
+            "VLM 보류 후보를 관리자가 확인해야 합니다."
+        )
+        revision_count += 1
 
-    print(
-        "[Agent] YOLO 후보 검증 완료:",
-        f"승인 결함 {len(final_defects)}개",
-    )
-
-    return {
+    result = {
         **downstream_reset,
-        "is_mint": is_mint,
+        "yolo_model_manifest": (
+            model_manifest
+        ),
+        "raw_yolo_detections": (
+            all_raw_detections
+        ),
+        "ensemble_candidates": (
+            all_ensemble_candidates
+        ),
+        "reviewed_candidates": (
+            reviewed_candidates
+        ),
+        "rejected_candidates": (
+            rejected_candidates
+        ),
+        "uncertain_candidates": (
+            uncertain_candidates
+        ),
         "defects": final_defects,
-        "image_quality_ok": True,
-        "vision_confidence": vision_confidence,
-        "reason_code": reason_code,
-        "repair_directive": repair_directive,
-        "revision_count": revision_count,
+        "image_quality_ok": (
+            all_image_quality_ok
+        ),
+        "vision_confidence": (
+            vision_confidence
+        ),
+        "vision_status": vision_status,
+        "vision_reason_code": (
+            vision_reason_code
+        ),
+        "reason_code": None,
+        "repair_directive": (
+            repair_directive
+        ),
+        "revision_count": (
+            revision_count
+        ),
         "messages": [
             AIMessage(
                 content=(
-                    "[Vision Agent] YOLO→VLM 검증 완료 - "
-                    f"승인 결함 {len(final_defects)}개"
+                    "[Vision Agent] 완료 - "
+                    f"상태={vision_status}, "
+                    f"승인={len(final_defects)}, "
+                    "거절="
+                    f"{len(rejected_candidates)}, "
+                    "보류="
+                    f"{len(uncertain_candidates)}"
                 )
             )
         ],
     }
+
+    trace_event(
+        "VISION_OUTPUT",
+        {
+            "vision_status": (
+                vision_status
+            ),
+            "vision_reason_code": (
+                vision_reason_code
+            ),
+            "image_quality_ok": (
+                all_image_quality_ok
+            ),
+            "vision_confidence": (
+                vision_confidence
+            ),
+            "model_manifest": (
+                model_manifest
+            ),
+            "raw_detection_count": (
+                len(all_raw_detections)
+            ),
+            "ensemble_candidate_count": (
+                len(
+                    all_ensemble_candidates
+                )
+            ),
+            "confirmed_defects": (
+                final_defects
+            ),
+            "rejected_candidates": (
+                rejected_candidates
+            ),
+            "uncertain_candidates": (
+                uncertain_candidates
+            ),
+            "repair_directive": (
+                repair_directive
+            ),
+            "revision_count": (
+                revision_count
+            ),
+        },
+    )
+
+    return result
 
 
 PENALTY_MATRIX: dict[
@@ -653,12 +1503,16 @@ FATAL_DEFECTS = {
     "PAGE_WARPING",
 }
 
-# 사진만으로 페이지 수나 실제 상태를 확정하기 어려운 결함
 HITL_REQUIRED_DEFECTS = {
     "WRITING",
     "HIGHLIGHTING",
     "BARCODE_DAMAGE",
     "OTHER_VISIBLE_DAMAGE",
+
+    # PAGE_FOLD는 모델이 탐지할 수 있지만
+    # UBCI v2 감점표가 아직 없으므로
+    # 임의 감점하지 않고 관리자에게 전달
+    "PAGE_FOLD",
 }
 
 
@@ -852,109 +1706,163 @@ def policy_agent(state: WMSInspectionState) -> WMSInspectionState:
     """
     print("[Agent] Policy Agent 실행...")
 
-    defects = state.get("defects") or []
+    defects = state.get("defects")
+    vision_status = state.get(
+        "vision_status"
+    )
+
     raw_revision_count = state.get(
         "revision_count",
         0,
     )
+
     revision_count = (
         raw_revision_count
-        if type(raw_revision_count) is int
-        and raw_revision_count >= 0
+        if (
+            type(raw_revision_count) is int
+            and raw_revision_count >= 0
+        )
         else 0
     )
 
-
     try:
-        if not defects:
+        if vision_status != "COMPLETED":
             raise ValueError(
-                "Policy Agent에 전달된 결함이 없습니다."
+                "완료된 Vision 결과만 "
+                "Policy가 계산할 수 있습니다."
             )
 
-        if any(type(defect) is not dict for defect in defects):
+        if type(defects) is not list:
+            raise ValueError(
+                "defects는 list여야 합니다."
+            )
+
+        if any(
+            type(defect) is not dict
+            for defect in defects
+        ):
             raise ValueError(
                 "defects의 각 항목은 dict여야 합니다."
             )
 
-        manual_types = sorted(
-            {
-                defect.get("type")
-                for defect in defects
-            }
-            & HITL_REQUIRED_DEFECTS
-        )
-
-        # 재계산해도 해결되지 않는 항목이므로 바로 HITL로 보냄
-        if manual_types:
-            return {
-                "ubci_score": None,
-                "predicted_grade": None,
-                "score_breakdown": None,
-                "fatal_defect_detected": None,
-                "grade_reason_code": manual_types[0],
-                "rule_reference": POLICY_VERSION,
-                "policy_confidence": None,
-                "reason_code": "POLICY_REQUIRES_HITL",
-                "repair_directive": (
-                    "관리자 확인 필요 결함: "
-                    + ", ".join(manual_types)
+        # 결함이 없을 때 Policy가 MINT 확정
+        if not defects:
+            result = {
+                "is_mint": True,
+                "ubci_score": 100.0,
+                "predicted_grade": "S",
+                "score_breakdown": [],
+                "fatal_defect_detected": False,
+                "grade_reason_code": (
+                    "NO_VISIBLE_DEFECT"
                 ),
-                "revision_count": revision_count,
-                "overall_confidence": None,
-                "human_feedback": None,
-                "final_grade": None,
-                "final_report": None,
-                "messages": [
-                    AIMessage(
-                        content=(
-                            "[Policy Agent] 관리자 확인 필요"
-                        )
-                    )
-                ],
+                "rule_reference": (
+                    POLICY_VERSION
+                ),
+                "policy_confidence": 1.0,
+                "reason_code": None,
+                "repair_directive": None,
             }
 
-        (
-            ubci_score,
-            score_breakdown,
-            fatal_defect_detected,
-        ) = calculate_ubci_score(defects)
-
-        predicted_grade = calculate_ubci_grade(
-            ubci_score,
-            fatal_defect_detected,
-        )
-
-        if fatal_defect_detected:
-            grade_reason_code = next(
-                item["type"]
-                for item in score_breakdown
-                if item["fatal"]
-            )
         else:
-            grade_reason_code = max(
-                score_breakdown,
-                key=lambda item: item["applied_penalty"],
-            )["type"]
+            manual_types = sorted(
+                {
+                    defect.get("type")
+                    for defect in defects
+                }
+                & HITL_REQUIRED_DEFECTS
+            )
 
-        result = {
-            "ubci_score": ubci_score,
-            "predicted_grade": predicted_grade,
-            "score_breakdown": score_breakdown,
-            "fatal_defect_detected": fatal_defect_detected,
-            "grade_reason_code": grade_reason_code,
-            "rule_reference": POLICY_VERSION,
+            if manual_types:
+                result = {
+                    "is_mint": False,
+                    "ubci_score": None,
+                    "predicted_grade": None,
+                    "score_breakdown": None,
+                    "fatal_defect_detected": None,
+                    "grade_reason_code": (
+                        manual_types[0]
+                    ),
+                    "rule_reference": (
+                        POLICY_VERSION
+                    ),
+                    "policy_confidence": None,
+                    "reason_code": (
+                        "POLICY_REQUIRES_HITL"
+                    ),
+                    "repair_directive": (
+                        "UBCI 감점 규칙 또는 사람 확인이 "
+                        "필요한 결함: "
+                        + ", ".join(manual_types)
+                    ),
+                }
 
-            # 현재는 고정된 정책표 계산 신뢰도
-            # RAG 연결 후 검색 신뢰도로 교체
-            "policy_confidence": 1.0,
-            "reason_code": None,
-            "repair_directive": None,
-        }
+            else:
+                (
+                    ubci_score,
+                    score_breakdown,
+                    fatal_defect_detected,
+                ) = calculate_ubci_score(
+                    defects
+                )
+
+                predicted_grade = (
+                    calculate_ubci_grade(
+                        ubci_score,
+                        fatal_defect_detected,
+                    )
+                )
+
+                if fatal_defect_detected:
+                    grade_reason_code = next(
+                        item["type"]
+                        for item
+                        in score_breakdown
+                        if item["fatal"]
+                    )
+                else:
+                    grade_reason_code = max(
+                        score_breakdown,
+                        key=lambda item: (
+                            item[
+                                "applied_penalty"
+                            ]
+                        ),
+                    )["type"]
+
+                result = {
+                    "is_mint": False,
+
+                    # DB와 동일하게 float 보장
+                    "ubci_score": float(
+                        ubci_score
+                    ),
+
+                    "predicted_grade": (
+                        predicted_grade
+                    ),
+                    "score_breakdown": (
+                        score_breakdown
+                    ),
+                    "fatal_defect_detected": (
+                        fatal_defect_detected
+                    ),
+                    "grade_reason_code": (
+                        grade_reason_code
+                    ),
+                    "rule_reference": (
+                        POLICY_VERSION
+                    ),
+                    "policy_confidence": 1.0,
+                    "reason_code": None,
+                    "repair_directive": None,
+                }
 
     except (TypeError, ValueError) as error:
         revision_count += 1
 
         result = {
+            "is_mint": None,
             "ubci_score": None,
             "predicted_grade": None,
             "score_breakdown": None,
@@ -962,26 +1870,84 @@ def policy_agent(state: WMSInspectionState) -> WMSInspectionState:
             "grade_reason_code": None,
             "rule_reference": None,
             "policy_confidence": None,
-            "reason_code": "UBCI_POLICY_VIOLATION",
+            "reason_code": (
+                "UBCI_POLICY_VIOLATION"
+            ),
             "repair_directive": str(error),
         }
 
-    return {
+    output = {
         **result,
         "revision_count": revision_count,
         "overall_confidence": None,
         "human_feedback": None,
+        "primary_reason_code": None,
+        "target_grade": None,
         "final_grade": None,
         "final_report": None,
         "messages": [
             AIMessage(
                 content=(
                     "[Policy Agent] 계산 결과 - "
-                    f"{result['reason_code'] or '정상'}"
+                    f"{result['reason_code'] or '정상'}, "
+                    f"MINT={result['is_mint']}, "
+                    f"UBCI={result['ubci_score']}, "
+                    "등급="
+                    f"{result['predicted_grade']}"
                 )
             )
         ],
     }
+
+    trace_event(
+        "POLICY_OUTPUT",
+        {
+            "is_mint": (
+                output["is_mint"]
+            ),
+            "input_defects": defects,
+            "ubci_score": (
+                output["ubci_score"]
+            ),
+            "predicted_grade": (
+                output["predicted_grade"]
+            ),
+            "score_breakdown": (
+                output["score_breakdown"]
+            ),
+            "fatal_defect_detected": (
+                output[
+                    "fatal_defect_detected"
+                ]
+            ),
+            "grade_reason_code": (
+                output[
+                    "grade_reason_code"
+                ]
+            ),
+            "rule_reference": (
+                output["rule_reference"]
+            ),
+            "policy_confidence": (
+                output[
+                    "policy_confidence"
+                ]
+            ),
+            "reason_code": (
+                output["reason_code"]
+            ),
+            "repair_directive": (
+                output[
+                    "repair_directive"
+                ]
+            ),
+            "revision_count": (
+                output["revision_count"]
+            ),
+        },
+    )
+
+    return output
 
 
 def critic_agent(state: WMSInspectionState) -> WMSInspectionState:

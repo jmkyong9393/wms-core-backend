@@ -3,7 +3,7 @@ from typing import Annotated, List, Literal, Optional, TypedDict
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 
-# Critic 에이전트가 뱉어낼 수 있는 명시적 에러 코드 (Reason Code)
+# Policy 또는 Critic 검증 후 Supervisor가 처리할 상태코드
 ReasonCode = Literal[
     "UBCI_POLICY_VIOLATION",
     "VISION_RESULT_CONFLICT",
@@ -15,16 +15,49 @@ ReasonCode = Literal[
     "OK",
 ]
 
-PrimaryReasonCode = Literal[
-    "FP_SHADOW", "FP_COVER_PATTERN", "FP_GLARE",
-    "FP_BOOK_BAND", "FP_DUST", "FP_OTHER",
-    "DMG_EXT_WET", "DMG_EXT_CRUSH", "DMG_EXT_TEAR", "DMG_EXT_BOX",
-    "DMG_INT_BINDING", "DMG_INT_STAIN",
-    "DMG_INT_DISCOLOR", "DMG_INT_BARCODE",
-    "SYS_BLURRY", "SYS_WRONG_ITEM",
-    "SYS_MISSING_PARTS", "SYS_OTHER",
+# Vision Agent 전용 상태 코드
+VisionStatus = Literal[
+    "COMPLETED",
+    "REVIEW_REQUIRED",
+    "FAILED",
 ]
 
+# Vision이 관리자 확인 또는 실패 사유를 표시하는 코드 
+VisionReasonCode = Literal[
+    "QUALITY_ERROR",
+    "VISION_LOW_CONFIDENCE",
+    "VISION_UNCLASSIFIED_DEFECT",
+]
+
+# HITL 관리자 사유코드 
+PrimaryReasonCode = Literal[
+    # AI 오탐: 정상 도서를 결함으로 잘못 판단
+    "FP_SHADOW",
+    "FP_COVER_PATTERN",
+    "FP_GLARE",
+    "FP_BOOK_BAND",
+    "FP_DUST",
+    "FP_OTHER",
+    # 외부 파손
+    "DMG_EXT_WET",
+    "DMG_EXT_CRUSH",
+    "DMG_EXT_TEAR",
+    "DMG_EXT_BOX",
+    "DMG_EXT_OTHER",
+    #내부 결함
+    "DMG_INT_BINDING",
+    "DMG_INT_STAIN",
+    "DMG_INT_DISCOLOR",
+    "DMG_INT_BARCODE",
+    "DMG_INT_OTHER",
+    #재촬영 및 시스템 예외
+    "SYS_BLURRY",
+    "SYS_WRONG_ITEM",
+    "SYS_MISSING_PARTS",
+    "SYS_OTHER",
+]
+
+# HITL 관리자 결정 코드
 HumanFeedback = Literal[
     "APPROVE_NORMAL",
     "APPROVE_DOWNGRADE",
@@ -32,6 +65,8 @@ HumanFeedback = Literal[
     "REJECT_DISCARD",
     "RE_CHECK",
 ]
+
+#등급 코드
 Grade = Literal["S", "A", "B", "REJECT"]
 TargetGrade = Literal["A", "B"]
 
@@ -46,19 +81,29 @@ class WMSInspectionState(TypedDict, total=False):
     """
     messages: Annotated[List[BaseMessage], add_messages]
 
-    # 요청 추적 정보: Worker/DB 작업과 LangGraph 실행을 연결합니다.
-    tenant_id: str
-    book_id: str
-    mode: str
+    # 요청 추적 정보
+    tenant_id: str # 고객사 또는 물류센터 식별 값
+    book_id: str # 검수 중인 단품 도서 또는 LPN 식별값
+    mode: str # 실행모드 예: INSPECTION< RE_CHECK
+    image_paths: list[str] # Vision Agent가 검사할 실제 이미지 경로 목록
 
-    # 1. Vision Agent (1차 판독)
-    image_paths: list[str]  # 현재는 Vision이 직접 열 수 있는 로컬 경로
-    is_mint: Optional[bool]  # 결함 없음 여부. True이면 Fast-track 후보
-    defects: Optional[list[dict]]  # VLM이 승인한 결함과 YOLO BBox
-    image_quality_ok: Optional[bool]  # 모든 입력 사진의 판독 가능 여부
+    # YOLO 앙상블 원본 결과
+    yolo_model_manifest: Optional[list[dict]] # YOLO 모델 이름, 경로, 역할, 클래스 목록
+    raw_yolo_detections: Optional[list[dict]] # 각 YOLO 모델이 출력한 가공 전 탐지 결과
+    ensemble_candidates: Optional[list[dict]] # 여러 YOLO 모델의 겹치는 BBOX를 병합한 후보 목록, 이후보가 VLM 2차 검토 입력
+    
+    # 1. Vision Agent (2차 검토)
+    reviewed_candidates: Optional[list[dict]] # CONFIRMED ,REJECTED, UNCERTAIN 결과를 모두 포함
+    rejected_candidates: Optional[list[dict]] # 오탐으로 판단한 후보
+    uncetain_candidates: Optional[list[dict]] # VLM도 확정하지 못해 HITL로 넘겨야하는 후보
+    defects: Optional[list[dict]] # VLM이 최종 승인한 실제 결함 목록
+    image_quality_ok: Optional[bool] # 입력 사진 전체가 판독 가능한 품질인지 표시
     vision_confidence: Optional[float]  # 전체 Vision 판독 신뢰도, 0~1
+    vision_status: Optional[VisionStatus] # Vision 실행 상태
+    vision_reason_code: Optional[VisionReasonCode]  # Vision이 REVIEW_REQUIRED 또는 FAILED가 된 사유
 
     # 2. Policy Agent (UBCI 대조)
+    is_mint: Optional[bool]
     ubci_score: Optional[float]  # 훼손도 기반 차감 점수, 0~100
     predicted_grade: Optional[Grade]  # Policy가 산정한 최초 등급
     score_breakdown: Optional[list[dict]]  # 결함별 심각도와 감점 내역
