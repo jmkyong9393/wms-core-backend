@@ -1,7 +1,6 @@
 CREATE TYPE standard_size AS ENUM ('A5', 'B5');
 CREATE TYPE inbound_type AS ENUM ('NEW_STOCK', 'USED_PURCHASE', 'CUSTOMER_RETURN');
 CREATE TYPE inbound_status AS ENUM ('RECEIVED', 'CHECKING', 'COMPLETED');
-CREATE TYPE putaway_status AS ENUM ('WAITING', 'COMPLETED', 'CLEARED');
 CREATE TYPE condition_grade AS ENUM ('NEW', 'MINT', 'EXCELLENT', 'NORMAL', 'REJECT');
 CREATE TYPE book_category AS ENUM (
     'COMIC',
@@ -21,6 +20,7 @@ CREATE TYPE return_job_status AS ENUM ('PENDING', 'PROCESSING', 'APPROVED', 'REJ
 CREATE TYPE inspection_mode AS ENUM ('RETURN', 'USED_PURCHASE');
 CREATE TYPE inventory_transaction_type AS ENUM ('INBOUND', 'OUTBOUND', 'RETURN_RESTOCK', 'DISCARD');
 CREATE TYPE used_inventory_status AS ENUM ('AVAILABLE', 'RESERVED', 'SHIPPED');
+CREATE TYPE rejected_item_status AS ENUM ('REJECT_HOLD', 'DISCARDED');
 CREATE TYPE user_role AS ENUM ('MASTER', 'ADMIN', 'WORKER', 'GUEST', 'PENDING');
 CREATE TYPE user_status AS ENUM ('ACTIVE', 'INACTIVE');
 CREATE TYPE ticket_status AS ENUM ('TODO', 'IN_PROGRESS', 'RESOLVED');
@@ -99,17 +99,6 @@ CREATE TABLE locations (
         CHECK (barcode = zone || '-' || rack || '-' || shelf)
 );
 
-CREATE TABLE putaway_jobs (
-    id UUID PRIMARY KEY,
-    inbound_item_id UUID NOT NULL UNIQUE REFERENCES inbound_items(id),
-    location_id UUID NOT NULL REFERENCES locations(id),
-    status putaway_status NOT NULL DEFAULT 'WAITING',
-    completed_at TIMESTAMP,
-    cleared_at TIMESTAMP,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE TABLE inventory (
     id UUID PRIMARY KEY,
     book_id UUID NOT NULL REFERENCES books(id),
@@ -137,7 +126,9 @@ CREATE TABLE inventory_used_items (
     certificate_url VARCHAR,
     stocked_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT ck_inventory_used_items_sellable_grade
+        CHECK (condition_grade IN ('MINT', 'EXCELLENT', 'NORMAL'))
 );
 
 CREATE TABLE orders (
@@ -201,6 +192,22 @@ CREATE INDEX ix_return_jobs_tenant_id ON return_jobs(tenant_id);
 ALTER TABLE inventory_used_items
     ADD CONSTRAINT fk_inventory_used_items_return_job
     FOREIGN KEY (return_job_id) REFERENCES return_jobs(id);
+
+CREATE TABLE rejected_items (
+    id UUID PRIMARY KEY,
+    inbound_item_id UUID NOT NULL UNIQUE REFERENCES inbound_items(id),
+    return_job_id UUID UNIQUE REFERENCES return_jobs(id),
+    book_id UUID NOT NULL REFERENCES books(id),
+    location_id UUID NOT NULL REFERENCES locations(id),
+    lpn_barcode VARCHAR NOT NULL UNIQUE,
+    ubci_score NUMERIC(5, 2),
+    rejection_reason JSONB,
+    status rejected_item_status NOT NULL DEFAULT 'REJECT_HOLD',
+    rejected_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    discarded_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 
 CREATE TABLE inventory_logs (
     id UUID PRIMARY KEY,

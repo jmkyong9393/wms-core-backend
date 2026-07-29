@@ -1,7 +1,3 @@
-from dataclasses import dataclass
-from datetime import datetime
-from uuid import UUID
-
 from sqlalchemy import func, text
 from sqlmodel import Session, select
 
@@ -15,12 +11,11 @@ from app.domain.warehouse_location_policy import (
 from app.models.wms import (
     Book,
     ConditionGrade,
-    InboundItem,
     Inventory,
     InventoryUsedItem,
     Location,
-    PutawayJob,
-    PutawayStatus,
+    RejectedItem,
+    RejectedItemStatus,
     UsedInventoryStatus,
 )
 
@@ -29,27 +24,14 @@ class NoAvailableLocationError(Exception):
     pass
 
 
-@dataclass(frozen=True)
-class LocationAssignment:
-    putaway_job: PutawayJob
-    location: Location
-
-
-def assign_putaway_location(
+def assign_inventory_location(
     session: Session,
-    inbound_item: InboundItem,
     book: Book,
     grade: ConditionGrade,
-) -> LocationAssignment:
+) -> Location:
     zone = zone_for_grade(grade)
     rack = rack_for_category(book.category)
     _lock_zone_rack(session, zone, rack)
-
-    existing_job = session.exec(
-        select(PutawayJob)
-        .where(PutawayJob.inbound_item_id == inbound_item.id)
-        .with_for_update()
-    ).first()
 
     shelf_locations: dict[str, Location] = {}
     shelf_occupancies: dict[str, int] = {}
@@ -63,7 +45,6 @@ def assign_putaway_location(
         shelf_occupancies[shelf] = _count_location_occupancy(
             session=session,
             location=location,
-            current_putaway_job_id=existing_job.id if existing_job else None,
         )
 
     selected_shelf = _select_first_available_shelf(shelf_occupancies)
@@ -72,34 +53,11 @@ def assign_putaway_location(
             f"No available shelf for warehouse zone {zone}, rack {rack}"
         )
 
-    location = shelf_locations[selected_shelf]
-    now = datetime.utcnow()
-    inbound_item.condition_grade = grade
-    inbound_item.updated_at = now
-
-    if existing_job is None:
-        putaway_job = PutawayJob(
-            inbound_item_id=inbound_item.id,
-            location_id=location.id,
-        )
-        session.add(putaway_job)
-    else:
-        putaway_job = existing_job
-        putaway_job.location_id = location.id
-        putaway_job.status = PutawayStatus.WAITING
-        putaway_job.completed_at = None
-        putaway_job.cleared_at = None
-        putaway_job.updated_at = now
-
-    session.flush()
-    return LocationAssignment(
-        putaway_job=putaway_job,
-        location=location,
-    )
+    return shelf_locations[selected_shelf]
 
 
 def _lock_zone_rack(session: Session, zone: str, rack: str) -> None:
-    lock_key = f"putaway:{zone}:{rack}"
+    lock_key = f"inventory-location:{zone}:{rack}"
     session.exec(
         text(
             "SELECT pg_advisory_xact_lock("
@@ -141,7 +99,6 @@ def _get_or_create_location(
 def _count_location_occupancy(
     session: Session,
     location: Location,
-    current_putaway_job_id: UUID | None,
 ) -> int:
     aggregate_quantity = session.exec(
         select(func.coalesce(func.sum(Inventory.quantity), 0)).where(
@@ -162,26 +119,17 @@ def _count_location_occupancy(
         )
     ).one()
 
-    putaway_statuses = [PutawayStatus.WAITING]
-    if location.zone == "C":
-        putaway_statuses.append(PutawayStatus.COMPLETED)
-
-    putaway_statement = (
+    rejected_quantity = session.exec(
         select(func.count())
-        .select_from(PutawayJob)
+        .select_from(RejectedItem)
         .where(
-            PutawayJob.location_id == location.id,
-            PutawayJob.status.in_(putaway_statuses),
+            RejectedItem.location_id == location.id,
+            RejectedItem.status == RejectedItemStatus.REJECT_HOLD,
         )
-    )
-    if current_putaway_job_id is not None:
-        putaway_statement = putaway_statement.where(
-            PutawayJob.id != current_putaway_job_id
-        )
-    pending_quantity = session.exec(putaway_statement).one()
+    ).one()
 
     return int(aggregate_quantity) + int(used_item_quantity) + int(
-        pending_quantity
+        rejected_quantity
     )
 
 

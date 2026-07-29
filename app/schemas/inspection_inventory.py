@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.models.wms import ConditionGrade, PutawayStatus
+from app.models.wms import ConditionGrade
 from app.schemas.hitl import HITLReasonCode
 
 InspectionDecision = Literal["APPROVE", "REJECT"]
@@ -80,8 +80,12 @@ class InspectionInventoryResponse(BaseModel):
     decision: InspectionDecision = Field(description="적용된 승인 또는 반려 결정")
     condition_grade: ConditionGrade = Field(description="UBCI 정책으로 확정된 등급")
     lpn_barcode: str = Field(description="검수 대상 단품 LPN")
-    putaway_job_id: UUID = Field(description="생성 또는 갱신된 적재 작업 ID")
-    putaway_status: PutawayStatus = Field(description="적재 작업 상태")
     location_id: UUID = Field(description="등급과 카테고리로 확정된 로케이션 ID")
     location_barcode: str = Field(description="확정된 로케이션 바코드")
-    putaway_changed: bool = Field(description="적재 배정 결과 변경 여부")
+    inventory_used_item_id: UUID | None = Field(
+        description="판매 가능 중고·반품 단품 재고 ID",
+    )
+    rejected_item_id: UUID | None = Field(
+        description="REJECT 판정 도서의 폐기 대기 레코드 ID",
+    )
+    inventory_changed: bool = Field(description="재고 또는 폐기 대기 기록 생성 여부")

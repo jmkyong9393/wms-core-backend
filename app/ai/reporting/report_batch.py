@@ -100,7 +100,7 @@ def fetch_inventory_stats(session: Session) -> Dict[str, Any]:
     low_stock = session.execute(query_low).scalar()
     
     query_scrap = text("""
-        SELECT COUNT(*) FROM inventory_used_items WHERE condition_grade = 'REJECT';
+        SELECT COUNT(*) FROM rejected_items WHERE status = 'REJECT_HOLD';
     """)
     scrap = session.execute(query_scrap).scalar()
     

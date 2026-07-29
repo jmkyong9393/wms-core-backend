@@ -27,12 +27,6 @@ class InboundStatus(str, Enum):
     COMPLETED = "COMPLETED"
 
 
-class PutawayStatus(str, Enum):
-    WAITING = "WAITING"
-    COMPLETED = "COMPLETED"
-    CLEARED = "CLEARED"
-
-
 class ConditionGrade(str, Enum):
     NEW = "NEW"
     MINT = "MINT"
@@ -87,6 +81,11 @@ class UsedInventoryStatus(str, Enum):
     AVAILABLE = "AVAILABLE"
     RESERVED = "RESERVED"
     SHIPPED = "SHIPPED"
+
+
+class RejectedItemStatus(str, Enum):
+    REJECT_HOLD = "REJECT_HOLD"
+    DISCARDED = "DISCARDED"
 
 
 class UserRole(str, Enum):
@@ -225,23 +224,6 @@ class Location(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
-class PutawayJob(SQLModel, table=True):
-    __tablename__ = "putaway_jobs"
-
-    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    inbound_item_id: uuid.UUID = Field(
-        foreign_key="inbound_items.id",
-        unique=True,
-        nullable=False,
-    )
-    location_id: uuid.UUID = Field(foreign_key="locations.id", nullable=False)
-    status: PutawayStatus = Field(default=PutawayStatus.WAITING, nullable=False)
-    completed_at: Optional[datetime] = Field(default=None)
-    cleared_at: Optional[datetime] = Field(default=None)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
-
-
 class Inventory(SQLModel, table=True):
     __tablename__ = "inventory"
     __table_args__ = (
@@ -262,6 +244,12 @@ class Inventory(SQLModel, table=True):
 
 class InventoryUsedItem(SQLModel, table=True):
     __tablename__ = "inventory_used_items"
+    __table_args__ = (
+        CheckConstraint(
+            "condition_grade IN ('MINT', 'EXCELLENT', 'NORMAL')",
+            name="ck_inventory_used_items_sellable_grade",
+        ),
+    )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     book_id: uuid.UUID = Field(foreign_key="books.id")
@@ -395,6 +383,41 @@ class ReturnJob(SQLModel, table=True):
 
     final_report: Optional[str] = Field(default=None)
 
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class RejectedItem(SQLModel, table=True):
+    __tablename__ = "rejected_items"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    inbound_item_id: uuid.UUID = Field(
+        foreign_key="inbound_items.id",
+        unique=True,
+        nullable=False,
+    )
+    return_job_id: Optional[uuid.UUID] = Field(
+        default=None,
+        foreign_key="return_jobs.id",
+        unique=True,
+    )
+    book_id: uuid.UUID = Field(foreign_key="books.id", nullable=False)
+    location_id: uuid.UUID = Field(foreign_key="locations.id", nullable=False)
+    lpn_barcode: str = Field(nullable=False, unique=True)
+    ubci_score: Optional[Decimal] = Field(
+        default=None,
+        sa_column=Column(Numeric(5, 2)),
+    )
+    rejection_reason: Optional[dict] = Field(
+        default=None,
+        sa_column=Column(JSONB),
+    )
+    status: RejectedItemStatus = Field(
+        default=RejectedItemStatus.REJECT_HOLD,
+        nullable=False,
+    )
+    rejected_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+    discarded_at: Optional[datetime] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 

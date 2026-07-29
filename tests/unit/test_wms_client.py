@@ -40,7 +40,7 @@ def test_call_wms_inspection_result_api_sends_hitl_fields(
             status_code=200,
             json_data={
                 "condition_grade": "NORMAL",
-                "putaway_changed": True,
+                "inventory_changed": True,
             },
         )
 
@@ -81,4 +81,4 @@ def test_call_wms_inspection_result_api_sends_hitl_fields(
         "return-job:test-job-id"
     )
     assert result["condition_grade"] == "NORMAL"
-    assert result["putaway_changed"] is True
+    assert result["inventory_changed"] is True

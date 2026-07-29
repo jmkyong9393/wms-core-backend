@@ -6,7 +6,6 @@ from app.models.wms import (
     ConditionGrade,
     InboundStatus,
     InboundType,
-    PutawayStatus,
 )
 from app.schemas.new_stock_inbound import (
     NewStockInboundRequest,
@@ -39,11 +38,12 @@ def test_new_stock_response_exposes_lpn_and_assigned_location():
         condition_grade=ConditionGrade.NEW,
         lpn_barcode="LPN-TEST-NEW",
         certificate_url="https://wms.example.com/certificate/token",
-        putaway_status=PutawayStatus.WAITING,
         location_id=uuid4(),
         location_barcode="A-3-1",
+        inventory_id=uuid4(),
+        inventory_quantity=1,
     )
 
     assert response.condition_grade == ConditionGrade.NEW
-    assert response.putaway_status == PutawayStatus.WAITING
+    assert response.inventory_quantity == 1
     assert response.location_barcode == "A-3-1"

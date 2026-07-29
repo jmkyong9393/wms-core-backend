@@ -106,7 +106,8 @@ def publish_final_event(
                 else None
             ),
             "lpn_barcode": wms_result.get("lpn_barcode"),
-            "putaway_changed": wms_result.get("putaway_changed", False),
+            "inventory_changed": wms_result.get("inventory_changed", False),
+            "rejected_item_id": wms_result.get("rejected_item_id"),
             "location_barcode": wms_result.get("location_barcode"),
         },
     )

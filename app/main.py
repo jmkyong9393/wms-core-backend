@@ -21,6 +21,7 @@ from app.api.routes import (
     notifications,
     orders,
     outbound,
+    rejected_items,
     stream,
     used_inbound,
 )
@@ -128,6 +129,11 @@ app.include_router(inventory.v1_router, prefix="/api/v1/inventory", tags=["Inven
 app.include_router(lpn.router, prefix="/api/v1/lpn", tags=["LPN"])
 app.include_router(outbound.router, prefix="/api/v1/outbound", tags=["Outbound"])
 app.include_router(certificates.router, prefix="/api/v1/certificate", tags=["Certificate"])
+app.include_router(
+    rejected_items.router,
+    prefix="/api/v1/admin/rejected-items",
+    tags=["Inventory"],
+)
 
 # 기존 개발용 재고 상태 API
 app.include_router(inventory.router, prefix="/api/inventory", tags=["Inventory"])

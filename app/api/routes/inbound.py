@@ -15,8 +15,10 @@ from app.models.wms import (
     InboundJob,
     InboundStatus,
     InboundType,
+    Inventory,
+    InventoryLog,
+    InventoryTransactionType,
     Location,
-    PutawayJob,
 )
 from app.schemas.new_stock_inbound import (
     NewStockInboundRequest,
@@ -24,8 +26,9 @@ from app.schemas.new_stock_inbound import (
 )
 from app.services.location_assignment_service import (
     NoAvailableLocationError,
-    assign_putaway_location,
+    assign_inventory_location,
 )
+from app.services.inventory_admission_service import admit_new_stock
 from app.services.lpn_service import (
     build_public_qr_url,
     generate_certificate_token,
@@ -58,8 +61,8 @@ def _lock_new_stock_isbn(session: Session, isbn: str) -> None:
 def _build_new_stock_response(
     inbound_job: InboundJob,
     inbound_item: InboundItem,
-    putaway_job: PutawayJob,
     location: Location,
+    inventory: Inventory,
 ) -> NewStockInboundResponse:
     if inbound_item.lpn_barcode is None:
         raise RuntimeError("New stock inbound item does not have an LPN barcode")
@@ -79,9 +82,10 @@ def _build_new_stock_response(
         condition_grade=inbound_item.condition_grade,
         lpn_barcode=inbound_item.lpn_barcode,
         certificate_url=build_public_qr_url(inbound_item.certificate_token),
-        putaway_status=putaway_job.status,
         location_id=location.id,
         location_barcode=location.barcode,
+        inventory_id=inventory.id,
+        inventory_quantity=inventory.quantity,
     )
 
 
@@ -102,9 +106,9 @@ class InboundHistoryItemResponse(BaseModel):
     summary="신간 단품 입고 접수, LPN 발급 및 로케이션 확정",
     description=(
         "신간 도서 1권에 LPN과 품질보증서 QR 경로를 발급하고 NEW 등급을 "
-        "즉시 적용합니다. 카테고리 기반 로케이션을 확정하여 적재 대기 작업을 "
-        "생성하며, 작업자가 실제 적재를 완료하기 전에는 판매 재고에 편입하지 "
-        "않습니다. 동일 Idempotency-Key 재요청은 기존 결과를 반환합니다."
+        "즉시 적용합니다. 카테고리 기반 로케이션을 확정한 뒤 같은 트랜잭션에서 "
+        "신간 묶음 재고와 입고 원장에 반영합니다. 동일 Idempotency-Key "
+        "재요청은 기존 결과를 반환합니다."
     ),
     responses={
         409: {
@@ -132,27 +136,40 @@ def create_new_stock_inbound(
         if existing_item is not None:
             existing_job = session.get(InboundJob, existing_item.inbound_job_id)
             existing_book = session.get(Book, existing_item.book_id)
-            existing_putaway = session.exec(
-                select(PutawayJob).where(
-                    PutawayJob.inbound_item_id == existing_item.id
+            existing_log = session.exec(
+                select(InventoryLog).where(
+                    InventoryLog.target_lpn == existing_item.lpn_barcode,
+                    InventoryLog.transaction_type
+                    == InventoryTransactionType.INBOUND,
+                    InventoryLog.condition_grade == ConditionGrade.NEW,
                 )
             ).first()
             if (
                 existing_job is None
                 or existing_book is None
-                or existing_putaway is None
+                or existing_log is None
+                or existing_log.picked_location is None
             ):
                 raise RuntimeError(
                     "Existing new stock intake is missing lifecycle records"
                 )
-            existing_location = session.get(
-                Location,
-                existing_putaway.location_id,
-            )
+            existing_location = session.exec(
+                select(Location).where(
+                    Location.barcode == existing_log.picked_location
+                )
+            ).first()
             if existing_location is None:
                 raise RuntimeError(
-                    "Existing new stock putaway location was not found"
+                    "Existing new stock location was not found"
                 )
+            existing_inventory = session.exec(
+                select(Inventory).where(
+                    Inventory.book_id == existing_book.id,
+                    Inventory.location_id == existing_location.id,
+                )
+            ).first()
+            if existing_inventory is None:
+                raise RuntimeError("Existing new stock inventory was not found")
             if (
                 existing_book.isbn != request.isbn
                 or existing_job.inbound_type != InboundType.NEW_STOCK
@@ -167,8 +184,8 @@ def create_new_stock_inbound(
             return _build_new_stock_response(
                 existing_job,
                 existing_item,
-                existing_putaway,
                 existing_location,
+                existing_inventory,
             )
 
         _lock_new_stock_isbn(session, request.isbn)
@@ -208,17 +225,24 @@ def create_new_stock_inbound(
         session.add(inbound_item)
         session.flush()
 
-        assignment = assign_putaway_location(
+        location = assign_inventory_location(
             session=session,
-            inbound_item=inbound_item,
             book=book,
             grade=ConditionGrade.NEW,
         )
+        inbound_item.condition_grade = ConditionGrade.NEW
+        inventory = admit_new_stock(
+            session=session,
+            inbound_item=inbound_item,
+            book=book,
+            location=location,
+        )
+        inbound_job.status = InboundStatus.COMPLETED
         session.commit()
         session.refresh(inbound_job)
         session.refresh(inbound_item)
-        session.refresh(assignment.putaway_job)
-        session.refresh(assignment.location)
+        session.refresh(location)
+        session.refresh(inventory)
     except NoAvailableLocationError as exc:
         session.rollback()
         raise HTTPException(
@@ -232,8 +256,8 @@ def create_new_stock_inbound(
     return _build_new_stock_response(
         inbound_job,
         inbound_item,
-        assignment.putaway_job,
-        assignment.location,
+        location,
+        inventory,
     )
 
 

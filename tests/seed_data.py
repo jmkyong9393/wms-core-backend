@@ -4,9 +4,9 @@ from sqlmodel import Session, SQLModel, text
 from app.core.database import engine
 from app.models.wms import (
     Tenant, Book, Location, Order, OrderItem, ReturnJob, Inventory,
-    InventoryUsedItem, InboundJob, FdsPolicy, 
+    InboundItem, InboundJob, FdsPolicy, RejectedItem,
     StandardSize, InboundType, InboundStatus, ConditionGrade, BookCategory,
-    OrderType, OrderStatus, ReturnJobStatus, InspectionMode, UsedInventoryStatus
+    OrderType, OrderStatus, ReturnJobStatus, InspectionMode
 )
 
 def seed_db():
@@ -58,7 +58,14 @@ def seed_db():
             shelf="2",
             barcode="B-2-2",
         )
-        session.add_all([loc1, loc2])
+        loc3 = Location(
+            id=uuid.uuid4(),
+            zone="C",
+            rack="1",
+            shelf="1",
+            barcode="C-1-1",
+        )
+        session.add_all([loc1, loc2, loc3])
         session.commit()
         
         # 5. Inventory (for fetch_inventory_stats & auto_po_batch)
@@ -142,12 +149,33 @@ def seed_db():
         
         session.add_all(bad_returns + watch_returns + [good_return])
         
-        # 10. InventoryUsedItem (for REJECT/SCRAP items count)
-        scrap_items = [InventoryUsedItem(
-            id=uuid.uuid4(), book_id=book1.id, location_id=loc1.id, lpn_barcode=f"LPN-{i}", 
-            condition_grade=ConditionGrade.REJECT, status=UsedInventoryStatus.AVAILABLE
-        ) for i in range(45)]
-        session.add_all(scrap_items)
+        # 10. RejectedItem (for REJECT/SCRAP items count)
+        rejected_inbound = InboundJob(
+            inbound_type=InboundType.USED_PURCHASE,
+            status=InboundStatus.COMPLETED,
+            supplier_name="중고 매입",
+        )
+        session.add(rejected_inbound)
+        session.flush()
+        for i in range(45):
+            lpn_barcode = f"LPN-REJECT-{i}"
+            inbound_item = InboundItem(
+                inbound_job_id=rejected_inbound.id,
+                book_id=book1.id,
+                quantity=1,
+                lpn_barcode=lpn_barcode,
+                condition_grade=ConditionGrade.REJECT,
+            )
+            session.add(inbound_item)
+            session.flush()
+            session.add(
+                RejectedItem(
+                    inbound_item_id=inbound_item.id,
+                    book_id=book1.id,
+                    location_id=loc3.id,
+                    lpn_barcode=lpn_barcode,
+                )
+            )
         
         session.commit()
         print("✅ DB Seed Data Insertion Completed!")

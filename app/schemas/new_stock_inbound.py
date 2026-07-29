@@ -8,7 +8,6 @@ from app.models.wms import (
     ConditionGrade,
     InboundStatus,
     InboundType,
-    PutawayStatus,
     StandardSize,
 )
 
@@ -62,6 +61,7 @@ class NewStockInboundResponse(BaseModel):
     condition_grade: ConditionGrade = Field(description="신간 고정 등급 NEW")
     lpn_barcode: str = Field(description="신간 단품 추적 LPN")
     certificate_url: str = Field(description="LPN 라벨 QR에 인코딩할 공개 URL")
-    putaway_status: PutawayStatus = Field(description="물리 적재 작업 상태")
     location_id: UUID = Field(description="정책으로 확정된 적재 로케이션 ID")
     location_barcode: str = Field(description="정책으로 확정된 적재 로케이션 바코드")
+    inventory_id: UUID = Field(description="즉시 편입된 신간 묶음 재고 ID")
+    inventory_quantity: int = Field(description="편입 후 해당 로케이션의 재고 수량")

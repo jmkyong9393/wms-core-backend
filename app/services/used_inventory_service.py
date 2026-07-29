@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
@@ -15,8 +16,9 @@ from app.models.wms import (
     InboundStatus,
     InboundType,
     InspectionMode,
-    PutawayJob,
-    PutawayStatus,
+    InventoryUsedItem,
+    Location,
+    RejectedItem,
     ReturnJob,
     ReturnJobStatus,
 )
@@ -24,7 +26,11 @@ from app.schemas.hitl import HITLReasonCode
 from app.schemas.inspection_inventory import RejectionDisposition
 from app.services.location_assignment_service import (
     NoAvailableLocationError,
-    assign_putaway_location,
+    assign_inventory_location,
+)
+from app.services.inventory_admission_service import (
+    admit_rejected_item,
+    admit_used_stock,
 )
 
 
@@ -32,20 +38,20 @@ AdmissionDecision = Literal["APPROVE", "REJECT"]
 
 
 @dataclass(frozen=True)
-class InspectionPutawayResult:
+class InspectionAdmissionResult:
     return_job_id: UUID
     inbound_item_id: UUID
     decision: AdmissionDecision
     condition_grade: ConditionGrade
     lpn_barcode: str
-    putaway_job_id: UUID
-    putaway_status: PutawayStatus
     location_id: UUID
     location_barcode: str
-    putaway_changed: bool
+    inventory_used_item_id: UUID | None
+    rejected_item_id: UUID | None
+    inventory_changed: bool
 
 
-def assign_inspected_item_putaway(
+def apply_inspected_item_result(
     session: Session,
     return_job_id: UUID,
     decision: AdmissionDecision,
@@ -54,7 +60,7 @@ def assign_inspected_item_putaway(
     admin_decision_code: HITLReasonCode | None = None,
     final_grade: ConditionGrade | None = None,
     rejection_disposition: RejectionDisposition | None = None,
-) -> InspectionPutawayResult:
+) -> InspectionAdmissionResult:
     return_job = session.get(ReturnJob, return_job_id)
     if return_job is None:
         raise HTTPException(
@@ -109,17 +115,6 @@ def assign_inspected_item_putaway(
         )
 
     _validate_inspection_mode(return_job, inbound_job)
-    if inbound_job.status != InboundStatus.CHECKING:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Inbound job cannot assign putaway from {inbound_job.status}",
-        )
-    if return_job.status != ReturnJobStatus.PROCESSING:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Return job cannot assign putaway from {return_job.status}",
-        )
-
     condition_grade = _resolve_condition_grade(
         decision=decision,
         ubci_score=ubci_score,
@@ -134,22 +129,59 @@ def assign_inspected_item_putaway(
             detail="Book linked to inbound item was not found",
         )
 
-    existing_putaway = session.exec(
-        select(PutawayJob).where(
-            PutawayJob.inbound_item_id == inbound_item.id
+    existing_used_item = session.exec(
+        select(InventoryUsedItem).where(
+            InventoryUsedItem.return_job_id == return_job.id
         )
     ).first()
-    previous_grade = inbound_item.condition_grade
-    previous_location_id = (
-        existing_putaway.location_id if existing_putaway is not None else None
-    )
-    previous_status = (
-        existing_putaway.status if existing_putaway is not None else None
-    )
+    existing_rejected_item = session.exec(
+        select(RejectedItem).where(
+            RejectedItem.return_job_id == return_job.id
+        )
+    ).first()
+    existing_record = existing_used_item or existing_rejected_item
+    if existing_record is not None:
+        if inbound_item.condition_grade != condition_grade:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Inspection result was already admitted with another grade",
+            )
+        location = session.get(Location, existing_record.location_id)
+        if location is None:
+            raise RuntimeError("Admitted inspection result has no location")
+        return InspectionAdmissionResult(
+            return_job_id=return_job.id,
+            inbound_item_id=inbound_item.id,
+            decision=decision,
+            condition_grade=condition_grade,
+            lpn_barcode=inbound_item.lpn_barcode,
+            location_id=location.id,
+            location_barcode=location.barcode,
+            inventory_used_item_id=(
+                existing_used_item.id if existing_used_item is not None else None
+            ),
+            rejected_item_id=(
+                existing_rejected_item.id
+                if existing_rejected_item is not None
+                else None
+            ),
+            inventory_changed=False,
+        )
+
+    if inbound_job.status != InboundStatus.CHECKING:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Inbound job cannot admit inventory from {inbound_job.status}",
+        )
+    if return_job.status != ReturnJobStatus.PROCESSING:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Return job cannot admit inventory from {return_job.status}",
+        )
+
     try:
-        assignment = assign_putaway_location(
+        location = assign_inventory_location(
             session=session,
-            inbound_item=inbound_item,
             book=book,
             grade=condition_grade,
         )
@@ -159,23 +191,50 @@ def assign_inspected_item_putaway(
             detail=str(exc),
         ) from exc
 
-    putaway_changed = (
-        existing_putaway is None
-        or previous_location_id != assignment.location.id
-        or previous_grade != condition_grade
-        or previous_status != PutawayStatus.WAITING
-    )
-    return InspectionPutawayResult(
+    inbound_item.condition_grade = condition_grade
+    inbound_item.updated_at = datetime.utcnow()
+    return_job.ubci_score = ubci_score
+    return_job.condition_grade = condition_grade
+    inbound_job.status = InboundStatus.COMPLETED
+    session.add(inbound_item)
+    session.add(return_job)
+    session.add(inbound_job)
+
+    inventory_used_item = None
+    rejected_item = None
+    if condition_grade == ConditionGrade.REJECT:
+        rejected_item = admit_rejected_item(
+            session=session,
+            inbound_item=inbound_item,
+            return_job=return_job,
+            location=location,
+            rejection_reason={
+                "defects": defects,
+                "disposition": rejection_disposition,
+            },
+        )
+    else:
+        inventory_used_item = admit_used_stock(
+            session=session,
+            inbound_item=inbound_item,
+            return_job=return_job,
+            location=location,
+            grade=condition_grade,
+        )
+
+    return InspectionAdmissionResult(
         return_job_id=return_job.id,
         inbound_item_id=inbound_item.id,
         decision=decision,
         condition_grade=condition_grade,
         lpn_barcode=inbound_item.lpn_barcode,
-        putaway_job_id=assignment.putaway_job.id,
-        putaway_status=assignment.putaway_job.status,
-        location_id=assignment.location.id,
-        location_barcode=assignment.location.barcode,
-        putaway_changed=putaway_changed,
+        location_id=location.id,
+        location_barcode=location.barcode,
+        inventory_used_item_id=(
+            inventory_used_item.id if inventory_used_item is not None else None
+        ),
+        rejected_item_id=rejected_item.id if rejected_item is not None else None,
+        inventory_changed=True,
     )
 
 

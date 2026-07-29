@@ -6,7 +6,7 @@ from app.schemas.inspection_inventory import (
     InspectionInventoryRequest,
     InspectionInventoryResponse,
 )
-from app.services.used_inventory_service import assign_inspected_item_putaway
+from app.services.used_inventory_service import apply_inspected_item_result
 
 
 router = APIRouter()
@@ -16,12 +16,11 @@ router = APIRouter()
     "/inspection-results",
     response_model=InspectionInventoryResponse,
     operation_id="applyInspectionInventoryResult",
-    summary="검수 결과 기반 LPN 적재 로케이션 확정",
+    summary="검수 결과 기반 LPN 재고 또는 폐기 대기 편입",
     description=(
         "AI 검수 결과를 입고 품목에 적용합니다. 승인 결과는 UBCI 정책으로 "
-        "등급을 계산하여 B Zone 로케이션을 확정하고, 반려 결과는 C Zone "
-        "로케이션을 확정합니다. 작업자가 실제 적재를 완료하기 전에는 "
-        "판매 가능 재고를 생성하지 않습니다."
+        "등급을 계산하여 B Zone 판매 가능 단품 재고에 즉시 편입하고, 반려 "
+        "결과는 C Zone의 폐기 대기 레코드로 분리합니다."
     ),
     responses={
         404: {"description": "검수 작업을 찾을 수 없음"},
@@ -33,7 +32,7 @@ def apply_inspection_inventory_result(
     session: Session = Depends(get_session),
 ) -> InspectionInventoryResponse:
     try:
-        result = assign_inspected_item_putaway(
+        result = apply_inspected_item_result(
             session=session,
             return_job_id=request.return_job_id,
             decision=request.decision,
@@ -54,9 +53,9 @@ def apply_inspection_inventory_result(
         decision=result.decision,
         condition_grade=result.condition_grade,
         lpn_barcode=result.lpn_barcode,
-        putaway_job_id=result.putaway_job_id,
-        putaway_status=result.putaway_status,
         location_id=result.location_id,
         location_barcode=result.location_barcode,
-        putaway_changed=result.putaway_changed,
+        inventory_used_item_id=result.inventory_used_item_id,
+        rejected_item_id=result.rejected_item_id,
+        inventory_changed=result.inventory_changed,
     )
