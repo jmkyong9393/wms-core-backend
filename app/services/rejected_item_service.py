@@ -2,7 +2,7 @@ from datetime import datetime
 
 from sqlmodel import Session, select
 
-from app.models.wms import RejectedItem, RejectedItemStatus
+from app.models.wms import Location, RejectedItem, RejectedItemStatus
 
 
 def discard_all_rejected_items(
@@ -10,9 +10,13 @@ def discard_all_rejected_items(
 ) -> tuple[int, datetime]:
     rejected_items = session.exec(
         select(RejectedItem)
-        .where(RejectedItem.status == RejectedItemStatus.REJECT_HOLD)
+        .join(Location, RejectedItem.location_id == Location.id)
+        .where(
+            Location.zone == "C",
+            RejectedItem.status == RejectedItemStatus.REJECT_HOLD,
+        )
         .order_by(RejectedItem.id)
-        .with_for_update()
+        .with_for_update(of=RejectedItem)
     ).all()
     discarded_at = datetime.utcnow()
     for rejected_item in rejected_items:
@@ -22,4 +26,3 @@ def discard_all_rejected_items(
         session.add(rejected_item)
 
     return len(rejected_items), discarded_at
-

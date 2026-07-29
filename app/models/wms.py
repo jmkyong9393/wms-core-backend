@@ -5,7 +5,7 @@ from decimal import Decimal
 from enum import Enum
 from typing import Optional
 
-from sqlalchemy import CheckConstraint, Column, UniqueConstraint
+from sqlalchemy import CheckConstraint, Column, Index, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import Numeric
 from sqlmodel import Field, SQLModel
@@ -389,6 +389,13 @@ class ReturnJob(SQLModel, table=True):
 
 class RejectedItem(SQLModel, table=True):
     __tablename__ = "rejected_items"
+    __table_args__ = (
+        Index(
+            "ix_rejected_items_status_location",
+            "status",
+            "location_id",
+        ),
+    )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     inbound_item_id: uuid.UUID = Field(

@@ -209,6 +209,9 @@ CREATE TABLE rejected_items (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE INDEX ix_rejected_items_status_location
+    ON rejected_items(status, location_id);
+
 CREATE TABLE inventory_logs (
     id UUID PRIMARY KEY,
     transaction_type inventory_transaction_type NOT NULL,
