@@ -66,14 +66,18 @@ def seed_mock_data(
     session.add(book)
     session.flush()
 
-    location = Location(
-        zone="A",
-        rack="1",
-        shelf="3",
-        barcode=f"A-1-3-{str(book.id)[:8]}",
-    )
-    session.add(location)
-    session.flush()
+    location = session.exec(
+        select(Location).where(Location.barcode == "A-1-3")
+    ).first()
+    if location is None:
+        location = Location(
+            zone="A",
+            rack="1",
+            shelf="3",
+            barcode="A-1-3",
+        )
+        session.add(location)
+        session.flush()
 
     inbound_job = InboundJob(
         inbound_type=InboundType.USED_PURCHASE,
@@ -225,14 +229,18 @@ def seed_order_outbound_data(
     session.add(book)
     session.flush()
 
-    location = Location(
-        zone="A",
-        rack="2",
-        shelf="1",
-        barcode=f"A-2-1-{str(book.id)[:8]}",
-    )
-    session.add(location)
-    session.flush()
+    location = session.exec(
+        select(Location).where(Location.barcode == "A-2-1")
+    ).first()
+    if location is None:
+        location = Location(
+            zone="A",
+            rack="2",
+            shelf="1",
+            barcode="A-2-1",
+        )
+        session.add(location)
+        session.flush()
 
     inventory = Inventory(
         book_id=book.id,

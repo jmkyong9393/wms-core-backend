@@ -44,8 +44,20 @@ def seed_db():
         session.add_all([book1, book2])
         
         # 4. Locations
-        loc1 = Location(id=uuid.uuid4(), zone="Zone_A", rack="R1", shelf="S1")
-        loc2 = Location(id=uuid.uuid4(), zone="Zone_C", rack="R2", shelf="S2")
+        loc1 = Location(
+            id=uuid.uuid4(),
+            zone="A",
+            rack="1",
+            shelf="1",
+            barcode="A-1-1",
+        )
+        loc2 = Location(
+            id=uuid.uuid4(),
+            zone="B",
+            rack="2",
+            shelf="2",
+            barcode="B-2-2",
+        )
         session.add_all([loc1, loc2])
         session.commit()
         

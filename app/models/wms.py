@@ -196,12 +196,30 @@ class InboundItem(SQLModel, table=True):
 
 class Location(SQLModel, table=True):
     __tablename__ = "locations"
+    __table_args__ = (
+        CheckConstraint(
+            "zone IN ('A', 'B', 'C')",
+            name="ck_locations_zone",
+        ),
+        CheckConstraint(
+            "rack ~ '^[1-9][0-9]*$'",
+            name="ck_locations_rack_positive_integer",
+        ),
+        CheckConstraint(
+            "shelf ~ '^([1-9]|10)$'",
+            name="ck_locations_shelf_range",
+        ),
+        CheckConstraint(
+            "barcode = zone || '-' || rack || '-' || shelf",
+            name="ck_locations_barcode_components",
+        ),
+    )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     zone: str = Field(nullable=False)
     rack: str = Field(nullable=False)
     shelf: str = Field(nullable=False)
-    barcode: Optional[str] = Field(default=None, unique=True)
+    barcode: str = Field(unique=True, nullable=False)
     is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

@@ -86,10 +86,17 @@ CREATE TABLE locations (
     zone VARCHAR NOT NULL,
     rack VARCHAR NOT NULL,
     shelf VARCHAR NOT NULL,
-    barcode VARCHAR UNIQUE,
+    barcode VARCHAR NOT NULL UNIQUE,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT ck_locations_zone CHECK (zone IN ('A', 'B', 'C')),
+    CONSTRAINT ck_locations_rack_positive_integer
+        CHECK (rack ~ '^[1-9][0-9]*$'),
+    CONSTRAINT ck_locations_shelf_range
+        CHECK (shelf ~ '^([1-9]|10)$'),
+    CONSTRAINT ck_locations_barcode_components
+        CHECK (barcode = zone || '-' || rack || '-' || shelf)
 );
 
 CREATE TABLE putaway_jobs (
