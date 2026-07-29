@@ -381,8 +381,6 @@ def process_saved_wms_result_with_lock(
 
         decision = agent_logs.get("ai_decision")
 
-        target_location_id = job.target_location_id
-
         ai_result = {
             "decision": decision,
             "agent_logs": agent_logs,
@@ -400,7 +398,6 @@ def process_saved_wms_result_with_lock(
         decision=decision,
         return_job_id=return_job_id,
         ai_result=ai_result,
-        target_location_id=target_location_id,
     )
 
     with Session(engine) as session:
@@ -644,7 +641,6 @@ def save_wms_processing_failed(
 
 
     
-
 
 
 

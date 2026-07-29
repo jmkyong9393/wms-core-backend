@@ -40,7 +40,7 @@ def test_call_wms_inspection_result_api_sends_hitl_fields(
             status_code=200,
             json_data={
                 "condition_grade": "NORMAL",
-                "inventory_changed": True,
+                "putaway_changed": True,
             },
         )
 
@@ -55,7 +55,6 @@ def test_call_wms_inspection_result_api_sends_hitl_fields(
         decision="APPROVE",
         ubci_score=72.5,
         defects=[{"type": "COVER_SCRATCH"}],
-        location_id="00000000-0000-4000-8000-000000000002",
         idempotency_key="return-job:test-job-id",
         admin_decision_code="APPROVE_DOWNGRADE",
         final_grade="NORMAL",
@@ -73,9 +72,6 @@ def test_call_wms_inspection_result_api_sends_hitl_fields(
         "decision": "APPROVE",
         "ubci_score": 72.5,
         "defects": [{"type": "COVER_SCRATCH"}],
-        "location_id": (
-            "00000000-0000-4000-8000-000000000002"
-        ),
         "admin_decision_code": "APPROVE_DOWNGRADE",
         "final_grade": "NORMAL",
         "rejection_disposition": None,
@@ -85,4 +81,4 @@ def test_call_wms_inspection_result_api_sends_hitl_fields(
         "return-job:test-job-id"
     )
     assert result["condition_grade"] == "NORMAL"
-    assert result["inventory_changed"] is True
+    assert result["putaway_changed"] is True

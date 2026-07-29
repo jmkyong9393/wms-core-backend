@@ -22,7 +22,6 @@ from app.models.wms import (
     InboundStatus,
     InboundType,
     InspectionMode,
-    Location,
     ReturnJob,
     ReturnJobStatus,
     User,
@@ -64,7 +63,6 @@ class CreateInspectionRequest(BaseModel):
     inbound_item_id: UUID
     book_id: UUID
     mode: InspectionMode
-    location_barcode: str = Field(min_length=1)
     image_paths: list[str] = Field(
         min_length=1,
         description=(
@@ -248,25 +246,10 @@ def create_inspection(
             detail="Inbound item already has an inspection job",
         )
 
-    location = session.exec(
-        select(Location).where(Location.barcode == request.location_barcode)
-    ).first()
-    if location is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Location barcode not found",
-        )
-    if not location.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Location is inactive",
-        )
-
     return_job = ReturnJob(
         tenant_id=current_user.tenant_id,
         book_id=request.book_id,
         inbound_item_id=inbound_item.id,
-        target_location_id=location.id,
         mode=request.mode,
         image_paths=normalized_image_paths,
         status=ReturnJobStatus.PENDING,

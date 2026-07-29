@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.models.wms import ConditionGrade, UsedInventoryStatus
+from app.models.wms import ConditionGrade, PutawayStatus
 from app.schemas.hitl import HITLReasonCode
 
 InspectionDecision = Literal["APPROVE", "REJECT"]
@@ -28,7 +28,6 @@ class InspectionInventoryRequest(BaseModel):
                         "ratio": 0.03,
                     }
                 ],
-                "location_id": "00000000-0000-4000-8000-000000000002",
                 "admin_decision_code": "FP_SHADOW",
                 "final_grade": "NORMAL",
                 "rejection_disposition": None,
@@ -50,11 +49,6 @@ class InspectionInventoryRequest(BaseModel):
         default_factory=list,
         description="등급 정책의 치명적 결함 판정에 사용할 결함 목록",
     )
-    location_id: UUID | None = Field(
-        default=None,
-        description="승인된 LPN을 적재할 활성 로케이션 ID",
-    )
-
     admin_decision_code: HITLReasonCode | None = Field(
         default=None,
         description="관리자 HITL 판정 사유 코드",
@@ -68,7 +62,7 @@ class InspectionInventoryRequest(BaseModel):
         description="반려 도서 처리 방식",
     )
     @model_validator(mode="after")
-    def validate_approved_location(self):
+    def validate_approved_result(self):
         if (
             self.decision == "APPROVE"
             and self.ubci_score is None
@@ -77,8 +71,6 @@ class InspectionInventoryRequest(BaseModel):
             raise ValueError(
                 "ubci_score or final_grade is required for approval"
             )
-        if self.decision == "APPROVE" and self.location_id is None:
-            raise ValueError("location_id is required for approval")
         return self
 
 
@@ -88,14 +80,8 @@ class InspectionInventoryResponse(BaseModel):
     decision: InspectionDecision = Field(description="적용된 승인 또는 반려 결정")
     condition_grade: ConditionGrade = Field(description="UBCI 정책으로 확정된 등급")
     lpn_barcode: str = Field(description="검수 대상 단품 LPN")
-    inventory_used_item_id: UUID | None = Field(
-        default=None,
-        description="승인 시 생성된 중고 단품 재고 ID",
-    )
-    inventory_status: UsedInventoryStatus | None = Field(
-        default=None,
-        description="승인된 단품 재고 상태",
-    )
-    inventory_changed: bool = Field(
-        description="이번 요청에서 신규 재고 편입이 발생했는지 여부",
-    )
+    putaway_job_id: UUID = Field(description="생성 또는 갱신된 적재 작업 ID")
+    putaway_status: PutawayStatus = Field(description="적재 작업 상태")
+    location_id: UUID = Field(description="등급과 카테고리로 확정된 로케이션 ID")
+    location_barcode: str = Field(description="확정된 로케이션 바코드")
+    putaway_changed: bool = Field(description="적재 배정 결과 변경 여부")

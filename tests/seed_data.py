@@ -118,7 +118,7 @@ def seed_db():
         for i in range(4):
             rj = ReturnJob(
                 id=uuid.uuid4(), tenant_id=tenant.id, order_id=order_bad.id, book_id=book1.id, 
-                target_location_id=loc1.id, mode=InspectionMode.RETURN, status=ReturnJobStatus.APPROVED,
+                mode=InspectionMode.RETURN, status=ReturnJobStatus.APPROVED,
                 ubci_score=25.5, final_report="파손", created_at=now - timedelta(days=2)
             )
             bad_returns.append(rj)
@@ -128,7 +128,7 @@ def seed_db():
         for i in range(2):
             rj = ReturnJob(
                 id=uuid.uuid4(), tenant_id=tenant.id, order_id=order_watch.id, book_id=book1.id, 
-                target_location_id=loc2.id, mode=InspectionMode.RETURN, status=ReturnJobStatus.APPROVED,
+                mode=InspectionMode.RETURN, status=ReturnJobStatus.APPROVED,
                 ubci_score=85.0, final_report="단순변심", created_at=now - timedelta(days=5)
             )
             watch_returns.append(rj)
@@ -136,7 +136,7 @@ def seed_db():
         # 이영희: 정상(오주문 1회)
         good_return = ReturnJob(
             id=uuid.uuid4(), tenant_id=tenant.id, order_id=order_good.id, book_id=book2.id, 
-            target_location_id=loc1.id, mode=InspectionMode.RETURN, status=ReturnJobStatus.APPROVED,
+            mode=InspectionMode.RETURN, status=ReturnJobStatus.APPROVED,
             ubci_score=95.0, final_report="오주문", created_at=now - timedelta(days=1)
         )
         

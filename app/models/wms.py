@@ -373,10 +373,6 @@ class ReturnJob(SQLModel, table=True):
         default=None,
         foreign_key="inbound_items.id",
     )
-    target_location_id: Optional[uuid.UUID] = Field(
-        default=None,
-        foreign_key="locations.id",
-    )
 
     task_id: Optional[str] = Field(default=None)
 

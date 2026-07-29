@@ -106,7 +106,8 @@ def publish_final_event(
                 else None
             ),
             "lpn_barcode": wms_result.get("lpn_barcode"),
-            "inventory_changed": wms_result.get("inventory_changed", False),
+            "putaway_changed": wms_result.get("putaway_changed", False),
+            "location_barcode": wms_result.get("location_barcode"),
         },
     )
 
@@ -155,7 +156,6 @@ def execute_wms_action(
     decision: str,
     return_job_id: UUID,
     ai_result: dict[str, Any],
-    target_location_id: UUID | None,
 ) -> tuple[str, dict[str, Any], str, int | float | None]:
     
     idempotency_key = f"return-job:{return_job_id}"
@@ -188,11 +188,6 @@ def execute_wms_action(
         decision=decision,
         ubci_score=ubci_score,
         defects=defects,
-        location_id=(
-            str(target_location_id)
-            if target_location_id is not None
-            else None
-        ),
         idempotency_key=idempotency_key,
         admin_decision_code=admin_decision_code,
         final_grade=final_grade,
