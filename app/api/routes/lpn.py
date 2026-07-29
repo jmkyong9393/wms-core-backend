@@ -19,10 +19,69 @@ from app.schemas.lpn import (
     LpnPutawayBookDetail,
     LpnPutawayResponse,
 )
+from app.schemas.putaway import PutawayConfirmationResponse
 from app.services.lpn_service import build_public_qr_url
+from app.services.putaway_service import confirm_putaway
 
 
 router = APIRouter()
+
+
+@router.post(
+    "/{lpn_barcode}/putaway/confirm",
+    response_model=PutawayConfirmationResponse,
+    operation_id="confirmLpnPutaway",
+    summary="LPN 물리 적재 완료 및 재고 편입",
+    description=(
+        "작업자 2가 확정 로케이션에 도서를 적재한 뒤 완료 처리합니다. 신간은 "
+        "묶음 재고, 승인된 중고·반품은 LPN 단품 재고에 편입하며 REJECT는 "
+        "판매 재고 없이 C Zone 보관 완료로 기록합니다. 동일 LPN 재요청은 "
+        "재고를 중복 증가시키지 않습니다."
+    ),
+    responses={
+        401: {"description": "인증 토큰이 없거나 유효하지 않음"},
+        403: {"description": "WMS 작업자 권한이 없음"},
+        404: {"description": "입고된 LPN을 찾을 수 없음"},
+        409: {"description": "적재 준비 미완료 또는 검수·로케이션 상태 충돌"},
+        500: {"description": "LPN에 연결된 수명주기 데이터가 유실됨"},
+    },
+)
+def confirm_lpn_putaway(
+    lpn_barcode: str = Path(
+        min_length=1,
+        description="적재 완료할 물리 도서의 LPN 바코드",
+        examples=["LPN-12345678123456781234567812345678"],
+    ),
+    session: Session = Depends(get_session),
+    _: User = Depends(require_wms_operator),
+) -> PutawayConfirmationResponse:
+    try:
+        result = confirm_putaway(
+            session=session,
+            lpn_barcode=lpn_barcode,
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    return PutawayConfirmationResponse(
+        lpn_barcode=result.inbound_item.lpn_barcode or lpn_barcode,
+        inbound_item_id=result.inbound_item.id,
+        putaway_job_id=result.putaway_job.id,
+        putaway_status=result.putaway_job.status,
+        condition_grade=result.inbound_item.condition_grade,
+        location=LpnLocationDetail(
+            id=result.location.id,
+            barcode=result.location.barcode,
+            zone=result.location.zone,
+            rack=result.location.rack,
+            shelf=result.location.shelf,
+        ),
+        inventory_kind=result.inventory_kind,
+        inventory_id=result.inventory_id,
+        stock_changed=result.stock_changed,
+    )
 
 
 @router.get(
