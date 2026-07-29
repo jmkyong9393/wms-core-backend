@@ -30,7 +30,11 @@ from app.schemas.restock import (
 logger = logging.getLogger(__name__)
 
 RECENT_SALES_DAYS = 7
-
+IN_PROGRESS_AUTO_PO_STATUSES = (
+    OrderStatus.PENDING,
+    OrderStatus.PICKING,
+    OrderStatus.SHIPPED,
+)
 
 @dataclass(frozen=True)
 class RestockProposalCreationResult:
@@ -100,6 +104,10 @@ def create_restock_proposal_for_rejected_job(
             session=session,
             book_id=book.id,
         ),
+        pending_auto_po_quantity=get_pending_auto_po_quantity(
+            session=session,
+            book_id=book.id,
+        ),
         rejected_quantity=_get_rejected_quantity(
             session=session,
             return_job=return_job,
@@ -117,6 +125,9 @@ def create_restock_proposal_for_rejected_job(
         return_job_id=return_job.id,
         recent_sales_quantity=request.recent_sales_quantity,
         current_stock=request.current_stock,
+        pending_auto_po_quantity=(
+            request.pending_auto_po_quantity
+        ),
         rejected_quantity=request.rejected_quantity,
         rejection_reason_code=request.rejection_reason_code,
         recommended_order_quantity=(
@@ -213,6 +224,32 @@ def _get_current_available_stock(
         available_used_lpn_count or 0
     )
 
+def get_pending_auto_po_quantity(
+    session: Session,
+    book_id: UUID,
+) -> int:
+    """
+    이미 생성되어 입고를 기다리는 AUTO_PO 수량을 조회한다.
+
+    기존 auto_po_batch.py와 같은 진행 상태를 사용해,
+    Agent가 중복 대체 발주를 추천하지 않도록 한다.
+    """
+    result = session.exec(
+        select(
+            func.coalesce(
+                func.sum(OrderItem.quantity),
+                0,
+            )
+        )
+        .join(Order, OrderItem.order_id == Order.id)
+        .where(
+            OrderItem.book_id == book_id,
+            Order.type == OrderType.AUTO_PO,
+            Order.status.in_(IN_PROGRESS_AUTO_PO_STATUSES),
+        )
+    ).one()
+
+    return int(result or 0)
 
 def _get_rejected_quantity(
     session: Session,
