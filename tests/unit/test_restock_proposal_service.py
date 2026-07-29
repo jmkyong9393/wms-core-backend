@@ -94,6 +94,8 @@ def test_creates_restock_proposal_from_rejected_job(
             FakeResult(one_value=2),
             # 판매 가능 중고 LPN 수
             FakeResult(one_value=1),
+            # 진행 중 AUTO_PO 수량
+            FakeResult(one_value=4),
         ],
         model_values={
             restock_service.Book: book,
@@ -138,10 +140,12 @@ def test_creates_restock_proposal_from_rejected_job(
     assert request.book_title == "테스트 도서"
     assert request.recent_sales_quantity == 45
     assert request.current_stock == 3
+    assert request.pending_auto_po_quantity == 4
     assert request.rejected_quantity == 3
     assert request.rejection_reason_code == "DMG_EXT_WET"
 
     proposal = result.proposal
+    assert proposal.pending_auto_po_quantity == 4
     assert proposal.return_job_id == return_job.id
     assert proposal.tenant_id == return_job.tenant_id
     assert proposal.book_id == return_job.book_id
@@ -230,11 +234,18 @@ def test_saves_not_required_status_for_zero_recommendation(
 
     session = FakeSession(
         results=[
+            # ReturnJob 조회
             FakeResult(first_value=return_job),
+            # 기존 OrderProposal 조회
             FakeResult(first_value=None),
+            # 최근 7일 출고 수량
             FakeResult(one_value=2),
+            # 신간 가용 재고
             FakeResult(one_value=100),
+            # 판매 가능 중고 LPN 수
             FakeResult(one_value=0),
+            # 진행 중 AUTO_PO 수량
+            FakeResult(one_value=5),
         ],
         model_values={
             restock_service.Book: book,
@@ -269,3 +280,4 @@ def test_saves_not_required_status_for_zero_recommendation(
     assert result.proposal.status == (
         OrderProposalStatus.NOT_REQUIRED
     )
+    assert result.proposal.pending_auto_po_quantity == 5

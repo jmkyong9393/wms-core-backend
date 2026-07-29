@@ -322,59 +322,33 @@ class OrderItemLpnAllocation(SQLModel, table=True):
 class OrderProposal(SQLModel, table=True):
     __tablename__ = "order_proposals"
     __table_args__ = (
-        # 동일 반려 건에서 추천안이 중복 생성되지 않도록 보장
-        UniqueConstraint(
-            "return_job_id",
-            name="uq_order_proposals_return_job",
-        ),
-    )
+        UniqueConstraint("return_job_id", name="uq_order_proposals_return_job",),
+        CheckConstraint("pending_auto_po_quantity >= 0", name="ck_order_proposals_pending_auto_po_nonnegative",),)
 
-    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-
-    # 추천안의 소속 테넌트
-    tenant_id: uuid.UUID = Field(
-        foreign_key="tenants.id",
-        nullable=False,
-        index=True,
-    )
-
-    # 추천 대상 도서
-    book_id: uuid.UUID = Field(
-        foreign_key="books.id",
-        nullable=False,
-        index=True,
-    )
-
-    # 추천의 발생 원인이 된 최종 반려 검수 작업
-    return_job_id: uuid.UUID = Field(
-        foreign_key="return_jobs.id",
-        nullable=False,
-        index=True,
-    )
-
-    # Agent 호출 시점의 입력 스냅샷
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True,)
+    tenant_id: uuid.UUID = Field(foreign_key="tenants.id",nullable=False,index=True,)
+    book_id: uuid.UUID = Field(foreign_key="books.id",nullable=False,index=True,)
+    return_job_id: uuid.UUID = Field(foreign_key="return_jobs.id",nullable=False,index=True,)
     recent_sales_quantity: int = Field(nullable=False)
     current_stock: int = Field(nullable=False)
+
+    pending_auto_po_quantity: int = Field(default=0,nullable=False,)
     rejected_quantity: int = Field(nullable=False)
     rejection_reason_code: str = Field(nullable=False)
 
-    # Agent 추천 결과
     recommended_order_quantity: int = Field(nullable=False)
     reason_summary: str = Field(nullable=False)
-    evidence: list = Field(
-        default_factory=list,
-        sa_column=Column(JSONB, nullable=False),
-    )
+    evidence: list = Field(default_factory=list,sa_column=Column(JSONB, nullable=False),)
     risk_level: str = Field(nullable=False)
 
-    # 관리자 검토 상태. 승인 후 AUTO_PO 생성은 후속 작업
-    status: OrderProposalStatus = Field(
-        default=OrderProposalStatus.PENDING,
-        nullable=False,
-    )
+    status: OrderProposalStatus = Field(default=OrderProposalStatus.PENDING,nullable=False,index=True,)
 
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    auto_po_order_id: uuid.UUID | None = Field(default=None,foreign_key="orders.id",index=True,)
+    reviewer_id: uuid.UUID | None = Field(default=None,foreign_key="users.id",index=True,)
+    reviewed_at: datetime | None = Field(default=None)
+    review_comment: str | None = Field(default=None,max_length=1000,)
+    created_at: datetime = Field(default_factory=datetime.utcnow,)
+    updated_at: datetime = Field(default_factory=datetime.utcnow,)
 
 
 class ReturnJob(SQLModel, table=True):
