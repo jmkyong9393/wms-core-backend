@@ -110,7 +110,23 @@ class StreamTicketResponse(BaseModel):
 class RecheckInspectionRequest(BaseModel):
     image_paths: list[str] = Field(
         min_length=1,
-        description="재촬영한 도서 이미지 경로 목록",
+        description=(
+            "S3 재업로드 완료 후 조회 가능한 CloudFront 이미지 URL 목록. "
+            "기존 검수 이미지를 대체할 대표·측면·내지·결함 이미지를 "
+            "촬영 순서대로 전달합니다."
+        ),
+        examples=[
+            [
+                (
+                    "https://d3j61tpuly7r0p.cloudfront.net/"
+                    "uploads/recheck-cover.jpg"
+                ),
+                (
+                    "https://d3j61tpuly7r0p.cloudfront.net/"
+                    "uploads/recheck-defect-1.jpg"
+                ),
+            ]
+        ],
     )
 
 class RecheckInspectionResponse(BaseModel):
@@ -319,6 +335,16 @@ def recheck_inspection(
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> RecheckInspectionResponse:
+    try:
+        normalized_image_paths = normalize_cloudfront_image_urls(
+            request.image_paths
+        )
+    except InspectionImageValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
+
     statement = (
         select(ReturnJob)
         .where(
@@ -346,7 +372,7 @@ def recheck_inspection(
         )
 
     # 기존 이미지를 재촬영 이미지로 교체
-    return_job.image_paths = request.image_paths
+    return_job.image_paths = normalized_image_paths
 
     # 새 Celery 작업을 등록하기 전 대기 상태로 변경
     return_job.status = ReturnJobStatus.PENDING
