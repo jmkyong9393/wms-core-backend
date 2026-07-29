@@ -6,19 +6,104 @@ from app.core.database import get_session
 from app.models.wms import (
     Book,
     InboundItem,
+    InboundJob,
     InventoryUsedItem,
     Location,
+    PutawayJob,
     User,
 )
 from app.schemas.lpn import (
     LpnBookDetail,
     LpnDetailResponse,
     LpnLocationDetail,
+    LpnPutawayBookDetail,
+    LpnPutawayResponse,
 )
 from app.services.lpn_service import build_public_qr_url
 
 
 router = APIRouter()
+
+
+@router.get(
+    "/{lpn_barcode}/putaway",
+    response_model=LpnPutawayResponse,
+    operation_id="getLpnPutawayInstruction",
+    summary="LPN 기반 적재 지시 조회",
+    description=(
+        "작업자 2가 스캔한 LPN을 기준으로 신간·중고·반품 도서의 확정 등급과 "
+        "적재할 Zone, Rack, Shelf를 조회합니다. 검수 또는 신간 패스트트랙을 "
+        "통해 로케이션이 확정된 LPN만 조회할 수 있습니다."
+    ),
+    responses={
+        401: {"description": "인증 토큰이 없거나 유효하지 않음"},
+        403: {"description": "WMS 작업자 권한이 없음"},
+        404: {"description": "입고된 LPN을 찾을 수 없음"},
+        409: {"description": "검수 또는 로케이션 배정이 아직 완료되지 않음"},
+        500: {"description": "LPN에 연결된 입고·도서·로케이션 데이터가 유실됨"},
+    },
+)
+def get_lpn_putaway_instruction(
+    lpn_barcode: str = Path(
+        min_length=1,
+        description="적재 지시를 조회할 물리 도서의 LPN 바코드",
+        examples=["LPN-12345678123456781234567812345678"],
+    ),
+    session: Session = Depends(get_session),
+    _: User = Depends(require_wms_operator),
+) -> LpnPutawayResponse:
+    inbound_item = session.exec(
+        select(InboundItem).where(
+            InboundItem.lpn_barcode == lpn_barcode,
+        )
+    ).first()
+    if inbound_item is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Inbound LPN item not found",
+        )
+
+    putaway_job = session.exec(
+        select(PutawayJob).where(
+            PutawayJob.inbound_item_id == inbound_item.id,
+        )
+    ).first()
+    if putaway_job is None or inbound_item.condition_grade is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="LPN is not ready for putaway",
+        )
+
+    inbound_job = session.get(InboundJob, inbound_item.inbound_job_id)
+    book = session.get(Book, inbound_item.book_id)
+    location = session.get(Location, putaway_job.location_id)
+    if inbound_job is None or book is None or location is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="LPN putaway references missing lifecycle data",
+        )
+
+    return LpnPutawayResponse(
+        lpn_barcode=inbound_item.lpn_barcode or lpn_barcode,
+        inbound_item_id=inbound_item.id,
+        inbound_type=inbound_job.inbound_type,
+        book=LpnPutawayBookDetail(
+            id=book.id,
+            isbn=book.isbn,
+            title=book.title,
+            category=book.category,
+        ),
+        condition_grade=inbound_item.condition_grade,
+        putaway_job_id=putaway_job.id,
+        putaway_status=putaway_job.status,
+        location=LpnLocationDetail(
+            id=location.id,
+            barcode=location.barcode,
+            zone=location.zone,
+            rack=location.rack,
+            shelf=location.shelf,
+        ),
+    )
 
 
 @router.get(
