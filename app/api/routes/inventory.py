@@ -77,7 +77,7 @@ def list_inventory(session: Session = Depends(get_session)):
             InventoryListItemResponse(
                 id=inventory.id,
                 book=InventoryBookResponse(title=book.title, isbn=book.isbn),
-                grade=ConditionGrade.MINT,
+                grade=ConditionGrade.NEW,
                 zone=_format_location(location),
                 quantity=inventory.quantity,
                 date=inventory.updated_at,

@@ -28,10 +28,24 @@ class InboundStatus(str, Enum):
 
 
 class ConditionGrade(str, Enum):
+    NEW = "NEW"
     MINT = "MINT"
     EXCELLENT = "EXCELLENT"
     NORMAL = "NORMAL"
     REJECT = "REJECT"
+
+
+class BookCategory(str, Enum):
+    COMIC = "COMIC"
+    STUDY_GUIDE = "STUDY_GUIDE"
+    NOVEL = "NOVEL"
+    HUMANITIES = "HUMANITIES"
+    SOCIAL_SCIENCE = "SOCIAL_SCIENCE"
+    BUSINESS_ECONOMICS = "BUSINESS_ECONOMICS"
+    SCIENCE_TECHNOLOGY = "SCIENCE_TECHNOLOGY"
+    CHILDREN = "CHILDREN"
+    LANGUAGE = "LANGUAGE"
+    ART_LIFESTYLE = "ART_LIFESTYLE"
 
 
 class OrderType(str, Enum):
@@ -137,6 +151,7 @@ class Book(SQLModel, table=True):
     title: str = Field(nullable=False)
     isbn: Optional[str] = Field(default=None, unique=True)
     publisher: Optional[str] = Field(default=None)
+    category: BookCategory = Field(nullable=False)
     standard_size: Optional[StandardSize] = Field(default=None)
     thickness_mm: Optional[int] = Field(default=None)
     base_price: Decimal = Field(
@@ -168,6 +183,7 @@ class InboundItem(SQLModel, table=True):
     quantity: int = Field(nullable=False)
     lpn_barcode: Optional[str] = Field(default=None, unique=True)
     certificate_token: Optional[str] = Field(default=None, unique=True)
+    condition_grade: Optional[ConditionGrade] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 

@@ -7,6 +7,7 @@ from fastapi import HTTPException
 
 from app.models.wms import (
     Book,
+    BookCategory,
     ConditionGrade,
     InboundItem,
     InventoryUsedItem,
@@ -69,6 +70,7 @@ def test_get_certificate_by_token_returns_public_certificate():
         title="사피엔스",
         isbn="9781234567890",
         publisher="김영사",
+        category=BookCategory.HUMANITIES,
     )
     inbound_item = InboundItem(
         inbound_job_id=uuid4(),

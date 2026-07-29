@@ -1,7 +1,19 @@
 CREATE TYPE standard_size AS ENUM ('A5', 'B5');
 CREATE TYPE inbound_type AS ENUM ('NEW_STOCK', 'USED_PURCHASE', 'CUSTOMER_RETURN');
 CREATE TYPE inbound_status AS ENUM ('RECEIVED', 'CHECKING', 'COMPLETED');
-CREATE TYPE condition_grade AS ENUM ('MINT', 'EXCELLENT', 'NORMAL', 'REJECT');
+CREATE TYPE condition_grade AS ENUM ('NEW', 'MINT', 'EXCELLENT', 'NORMAL', 'REJECT');
+CREATE TYPE book_category AS ENUM (
+    'COMIC',
+    'STUDY_GUIDE',
+    'NOVEL',
+    'HUMANITIES',
+    'SOCIAL_SCIENCE',
+    'BUSINESS_ECONOMICS',
+    'SCIENCE_TECHNOLOGY',
+    'CHILDREN',
+    'LANGUAGE',
+    'ART_LIFESTYLE'
+);
 CREATE TYPE order_type AS ENUM ('B2B_ORDER', 'AUTO_PO');
 CREATE TYPE order_status AS ENUM ('PENDING', 'PICKING', 'SHIPPED', 'RETURN_REQUESTED');
 CREATE TYPE return_job_status AS ENUM ('PENDING', 'PROCESSING', 'APPROVED', 'REJECTED', 'HITL_REQUIRED', 'RECHECK_REQUIRED', 'FAILED');
@@ -38,6 +50,7 @@ CREATE TABLE books (
     title VARCHAR NOT NULL,
     isbn VARCHAR UNIQUE,
     publisher VARCHAR,
+    category book_category NOT NULL,
     standard_size standard_size,
     thickness_mm INTEGER,
     base_price DECIMAL(12, 2) NOT NULL DEFAULT 0,
@@ -62,6 +75,7 @@ CREATE TABLE inbound_items (
     quantity INTEGER NOT NULL,
     lpn_barcode VARCHAR UNIQUE,
     certificate_token VARCHAR UNIQUE,
+    condition_grade condition_grade,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

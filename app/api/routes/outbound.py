@@ -284,7 +284,7 @@ def create_picking_instruction(
                             order_item_id=order_item.id,
                             book_id=inventory.book_id,
                             quantity=reserved_quantity,
-                            condition_grade=ConditionGrade.MINT,
+                            condition_grade=ConditionGrade.NEW,
                         ),
                     )
                 )

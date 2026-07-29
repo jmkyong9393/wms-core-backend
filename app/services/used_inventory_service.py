@@ -179,10 +179,13 @@ def admit_inspected_item(
             detail="Approved inspection requires location",
         )
 
-    if final_grade == ConditionGrade.REJECT:
+    if final_grade in {
+        ConditionGrade.NEW,
+        ConditionGrade.REJECT,
+    }:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Approved inspection cannot use REJECT final grade",
+            detail="Approved used inspection requires a sellable used grade",
         )
 
     if rejection_disposition is not None:
@@ -208,10 +211,13 @@ def admit_inspected_item(
             defects,
         )
 
-    if condition_grade == ConditionGrade.REJECT:
+    if condition_grade in {
+        ConditionGrade.NEW,
+        ConditionGrade.REJECT,
+    }:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Approved inspection result maps to REJECT condition grade",
+            detail="Approved inspection result is not a sellable used grade",
         )
 
     location = session.get(Location, location_id)

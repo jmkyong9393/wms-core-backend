@@ -5,7 +5,7 @@ from app.core.database import engine
 from app.models.wms import (
     Tenant, Book, Location, Order, OrderItem, ReturnJob, Inventory,
     InventoryUsedItem, InboundJob, FdsPolicy, 
-    StandardSize, InboundType, InboundStatus, ConditionGrade,
+    StandardSize, InboundType, InboundStatus, ConditionGrade, BookCategory,
     OrderType, OrderStatus, ReturnJobStatus, InspectionMode, UsedInventoryStatus
 )
 
@@ -27,8 +27,20 @@ def seed_db():
         session.add_all(policies)
 
         # 3. Books
-        book1 = Book(id=uuid.uuid4(), title="Book A", publisher="A출판사", base_price=15000)
-        book2 = Book(id=uuid.uuid4(), title="Book B", publisher="B비전북스", base_price=20000)
+        book1 = Book(
+            id=uuid.uuid4(),
+            title="Book A",
+            publisher="A출판사",
+            category=BookCategory.NOVEL,
+            base_price=15000,
+        )
+        book2 = Book(
+            id=uuid.uuid4(),
+            title="Book B",
+            publisher="B비전북스",
+            category=BookCategory.SCIENCE_TECHNOLOGY,
+            base_price=20000,
+        )
         session.add_all([book1, book2])
         
         # 4. Locations

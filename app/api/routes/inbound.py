@@ -11,6 +11,7 @@ from sqlmodel import Session, select
 from app.core.database import get_session
 from app.models.wms import (
     Book,
+    BookCategory,
     ConditionGrade,
     InboundItem,
     InboundJob,
@@ -50,6 +51,7 @@ class NewStockInboundItemRequest(BaseModel):
     )
     title: str = Field(min_length=1, description="도서명")
     publisher: str | None = Field(default=None, description="출판사명")
+    category: BookCategory = Field(description="로케이션 Rack 배정용 도서 카테고리")
     base_price: Decimal = Field(gt=0, description="도서 기준 판매가")
     standard_size: StandardSize | None = Field(
         default=None,
@@ -74,6 +76,7 @@ class NewStockInboundRequest(BaseModel):
                         "isbn": "9788912345678",
                         "title": "해리포터와 마법사의 돌",
                         "publisher": "문학수첩",
+                        "category": "NOVEL",
                         "base_price": "15000.00",
                         "standard_size": "A5",
                         "thickness_mm": 20,
@@ -178,6 +181,7 @@ def create_new_stock_inbound(
                     isbn=item.isbn,
                     title=item.title,
                     publisher=item.publisher,
+                    category=item.category,
                     base_price=item.base_price,
                     standard_size=item.standard_size,
                     thickness_mm=item.thickness_mm,
@@ -190,6 +194,7 @@ def create_new_stock_inbound(
                     inbound_job_id=inbound_job.id,
                     book_id=book.id,
                     quantity=item.quantity,
+                    condition_grade=ConditionGrade.NEW,
                 )
             )
 
@@ -227,7 +232,7 @@ def create_new_stock_inbound(
                 InventoryLog(
                     transaction_type=InventoryTransactionType.INBOUND,
                     book_id=book.id,
-                    condition_grade=ConditionGrade.MINT,
+                    condition_grade=ConditionGrade.NEW,
                     quantity_change=item.quantity,
                     picked_location=location.barcode,
                 )
