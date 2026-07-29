@@ -1,120 +1,88 @@
 from datetime import datetime
-from decimal import Decimal
 from typing import List
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func, text, update
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from pydantic import BaseModel, Field
+from sqlalchemy import func, text
 from sqlmodel import Session, select
 
 from app.core.database import get_session
 from app.models.wms import (
     Book,
-    BookCategory,
     ConditionGrade,
     InboundItem,
     InboundJob,
     InboundStatus,
     InboundType,
-    Inventory,
-    InventoryLog,
-    InventoryTransactionType,
     Location,
-    StandardSize,
+    PutawayJob,
+)
+from app.schemas.new_stock_inbound import (
+    NewStockInboundRequest,
+    NewStockInboundResponse,
+)
+from app.services.location_assignment_service import (
+    NoAvailableLocationError,
+    assign_putaway_location,
+)
+from app.services.lpn_service import (
+    build_public_qr_url,
+    generate_certificate_token,
+    generate_lpn_barcode,
 )
 
 router = APIRouter()
 
 
-def _lock_inbound_isbns(
-    session: Session,
-    items: List["NewStockInboundItemRequest"],
-) -> None:
-    # 아직 생성되지 않은 Book도 ISBN 단위로 직렬화하고, 정렬로 교착을 방지한다.
-    for isbn in sorted({item.isbn for item in items}):
-        session.exec(
-            text(
-                "SELECT pg_advisory_xact_lock("
-                "hashtextextended(:isbn, 0)"
-                ")"
-            ).bindparams(isbn=isbn)
+def _lock_new_stock_request(session: Session, request_id: UUID) -> None:
+    session.exec(
+        text(
+            "SELECT pg_advisory_xact_lock("
+            "hashtextextended(:request_id, 0)"
+            ")"
+        ).bindparams(request_id=str(request_id))
+    )
+
+
+def _lock_new_stock_isbn(session: Session, isbn: str) -> None:
+    session.exec(
+        text(
+            "SELECT pg_advisory_xact_lock("
+            "hashtextextended(:isbn, 0)"
+            ")"
+        ).bindparams(isbn=isbn)
+    )
+
+
+def _build_new_stock_response(
+    inbound_job: InboundJob,
+    inbound_item: InboundItem,
+    putaway_job: PutawayJob,
+    location: Location,
+) -> NewStockInboundResponse:
+    if inbound_item.lpn_barcode is None:
+        raise RuntimeError("New stock inbound item does not have an LPN barcode")
+    if inbound_item.certificate_token is None:
+        raise RuntimeError(
+            "New stock inbound item does not have a certificate token"
         )
+    if inbound_item.condition_grade != ConditionGrade.NEW:
+        raise RuntimeError("New stock inbound item does not have NEW grade")
 
-
-class NewStockInboundItemRequest(BaseModel):
-    isbn: str = Field(
-        min_length=10,
-        max_length=13,
-        description="입고 도서 ISBN",
-        examples=["9788912345678"],
+    return NewStockInboundResponse(
+        inbound_id=inbound_job.id,
+        inbound_item_id=inbound_item.id,
+        inbound_type=inbound_job.inbound_type,
+        status=inbound_job.status,
+        book_id=inbound_item.book_id,
+        condition_grade=inbound_item.condition_grade,
+        lpn_barcode=inbound_item.lpn_barcode,
+        certificate_url=build_public_qr_url(inbound_item.certificate_token),
+        putaway_status=putaway_job.status,
+        location_id=location.id,
+        location_barcode=location.barcode,
     )
-    title: str = Field(min_length=1, description="도서명")
-    publisher: str | None = Field(default=None, description="출판사명")
-    category: BookCategory = Field(description="로케이션 Rack 배정용 도서 카테고리")
-    base_price: Decimal = Field(gt=0, description="도서 기준 판매가")
-    standard_size: StandardSize | None = Field(
-        default=None,
-        description="3D Bin Packing용 도서 규격",
-    )
-    thickness_mm: int | None = Field(
-        default=None,
-        gt=0,
-        description="도서 두께(mm)",
-    )
-    quantity: int = Field(gt=0, description="입고 수량")
-
-
-class NewStockInboundRequest(BaseModel):
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "supplier_name": "교보문고",
-                "location_barcode": "A-1-3",
-                "items": [
-                    {
-                        "isbn": "9788912345678",
-                        "title": "해리포터와 마법사의 돌",
-                        "publisher": "문학수첩",
-                        "category": "NOVEL",
-                        "base_price": "15000.00",
-                        "standard_size": "A5",
-                        "thickness_mm": 20,
-                        "quantity": 50,
-                    }
-                ],
-            }
-        }
-    )
-
-    supplier_name: str | None = Field(default=None, description="공급처명")
-    location_barcode: str = Field(
-        min_length=1,
-        description="신간을 적재할 활성 로케이션 바코드",
-    )
-    items: List[NewStockInboundItemRequest] = Field(
-        min_length=1,
-        description="입고할 정상 신간 품목 목록",
-    )
-
-
-class NewStockInboundItemResponse(BaseModel):
-    book_id: UUID = Field(description="도서 마스터 ID")
-    isbn: str = Field(description="도서 ISBN")
-    title: str = Field(description="도서명")
-    quantity: int = Field(description="이번 요청에서 입고된 수량")
-    inventory_id: UUID = Field(description="반영된 묶음 재고 ID")
-    inventory_quantity: int = Field(description="입고 반영 후 로케이션 재고 수량")
-
-
-class NewStockInboundResponse(BaseModel):
-    inbound_id: UUID = Field(description="생성된 입고 작업 ID")
-    inbound_type: InboundType = Field(description="입고 유형")
-    status: InboundStatus = Field(description="입고 처리 상태")
-    location_id: UUID = Field(description="입고 로케이션 ID")
-    location_barcode: str = Field(description="입고 로케이션 바코드")
-    total_quantity: int = Field(description="이번 입고 작업의 총수량")
-    items: List[NewStockInboundItemResponse] = Field(description="품목별 반영 결과")
 
 
 class InboundHistoryItemResponse(BaseModel):
@@ -129,140 +97,143 @@ class InboundHistoryItemResponse(BaseModel):
 @router.post(
     "/new-stock",
     response_model=NewStockInboundResponse,
+    status_code=status.HTTP_201_CREATED,
     operation_id="createNewStockInbound",
-    summary="정상 신간 입고 및 묶음 재고 편입",
+    summary="신간 단품 입고 접수, LPN 발급 및 로케이션 확정",
     description=(
-        "정상 신간 입고 작업과 품목을 생성하고 로케이션별 묶음 재고를 "
-        "증가시킵니다. 동일 ISBN의 동시 입고는 PostgreSQL Lock으로 직렬화합니다."
+        "신간 도서 1권에 LPN과 품질보증서 QR 경로를 발급하고 NEW 등급을 "
+        "즉시 적용합니다. 카테고리 기반 로케이션을 확정하여 적재 대기 작업을 "
+        "생성하며, 작업자가 실제 적재를 완료하기 전에는 판매 재고에 편입하지 "
+        "않습니다. 동일 Idempotency-Key 재요청은 기존 결과를 반환합니다."
     ),
     responses={
-        404: {"description": "입고 로케이션 바코드를 찾을 수 없음"},
-        409: {"description": "입고 로케이션이 비활성 상태"},
+        409: {
+            "description": (
+                "Idempotency-Key 충돌 또는 적재 가능한 로케이션 없음"
+            )
+        },
     },
 )
 def create_new_stock_inbound(
     request: NewStockInboundRequest,
+    idempotency_key: UUID | None = Header(
+        default=None,
+        alias="Idempotency-Key",
+        description="재요청 중복 입고를 방지하는 클라이언트 생성 UUID",
+    ),
     session: Session = Depends(get_session),
-):
-    location = session.exec(
-        select(Location).where(Location.barcode == request.location_barcode)
-    ).first()
-    if location is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Location barcode not found",
-        )
-    if not location.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Location is inactive",
-        )
+) -> NewStockInboundResponse:
+    request_id = idempotency_key or uuid4()
 
     try:
-        _lock_inbound_isbns(session, request.items)
+        _lock_new_stock_request(session, request_id)
+
+        existing_item = session.get(InboundItem, request_id)
+        if existing_item is not None:
+            existing_job = session.get(InboundJob, existing_item.inbound_job_id)
+            existing_book = session.get(Book, existing_item.book_id)
+            existing_putaway = session.exec(
+                select(PutawayJob).where(
+                    PutawayJob.inbound_item_id == existing_item.id
+                )
+            ).first()
+            if (
+                existing_job is None
+                or existing_book is None
+                or existing_putaway is None
+            ):
+                raise RuntimeError(
+                    "Existing new stock intake is missing lifecycle records"
+                )
+            existing_location = session.get(
+                Location,
+                existing_putaway.location_id,
+            )
+            if existing_location is None:
+                raise RuntimeError(
+                    "Existing new stock putaway location was not found"
+                )
+            if (
+                existing_book.isbn != request.isbn
+                or existing_job.inbound_type != InboundType.NEW_STOCK
+                or existing_job.supplier_name != request.supplier_name
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Idempotency-Key is already used by another request",
+                )
+
+            session.commit()
+            return _build_new_stock_response(
+                existing_job,
+                existing_item,
+                existing_putaway,
+                existing_location,
+            )
+
+        _lock_new_stock_isbn(session, request.isbn)
+        book = session.exec(
+            select(Book).where(Book.isbn == request.isbn)
+        ).first()
+        if book is None:
+            book = Book(
+                isbn=request.isbn,
+                title=request.title,
+                publisher=request.publisher,
+                category=request.category,
+                base_price=request.base_price,
+                standard_size=request.standard_size,
+                thickness_mm=request.thickness_mm,
+            )
+            session.add(book)
+            session.flush()
 
         inbound_job = InboundJob(
             inbound_type=InboundType.NEW_STOCK,
-            status=InboundStatus.COMPLETED,
+            status=InboundStatus.RECEIVED,
             supplier_name=request.supplier_name,
         )
         session.add(inbound_job)
         session.flush()
 
-        response_items: list[NewStockInboundItemResponse] = []
-        total_quantity = 0
+        inbound_item = InboundItem(
+            id=request_id,
+            inbound_job_id=inbound_job.id,
+            book_id=book.id,
+            quantity=1,
+            lpn_barcode=generate_lpn_barcode(request_id),
+            certificate_token=generate_certificate_token(),
+            condition_grade=ConditionGrade.NEW,
+        )
+        session.add(inbound_item)
+        session.flush()
 
-        for item in request.items:
-            book = session.exec(
-                select(Book).where(Book.isbn == item.isbn)
-            ).first()
-            if book is None:  # Book이 없다면 새로 등록도 해준다.
-                book = Book(
-                    isbn=item.isbn,
-                    title=item.title,
-                    publisher=item.publisher,
-                    category=item.category,
-                    base_price=item.base_price,
-                    standard_size=item.standard_size,
-                    thickness_mm=item.thickness_mm,
-                )
-                session.add(book)
-                session.flush()
-
-            session.add(
-                InboundItem(
-                    inbound_job_id=inbound_job.id,
-                    book_id=book.id,
-                    quantity=item.quantity,
-                    condition_grade=ConditionGrade.NEW,
-                )
-            )
-
-            inventory = session.exec(
-                select(Inventory)
-                .where(
-                    Inventory.book_id == book.id,
-                    Inventory.location_id == location.id,
-                )
-                .with_for_update()
-            ).first()
-            if inventory is None:
-                inventory = Inventory(
-                    book_id=book.id,
-                    location_id=location.id,
-                    quantity=0,
-                )
-                session.add(inventory)
-                session.flush()
-
-            now = datetime.utcnow()
-            inventory.quantity += item.quantity
-            inventory.updated_at = now
-            session.exec(
-                update(Book)
-                .where(Book.id == book.id)
-                .values(
-                    virtual_stock=Book.virtual_stock + item.quantity,
-                    updated_at=now,
-                )
-                .execution_options(synchronize_session=False)
-            )
-
-            session.add(
-                InventoryLog(
-                    transaction_type=InventoryTransactionType.INBOUND,
-                    book_id=book.id,
-                    condition_grade=ConditionGrade.NEW,
-                    quantity_change=item.quantity,
-                    picked_location=location.barcode,
-                )
-            )
-
-            total_quantity += item.quantity
-            response_items.append(
-                NewStockInboundItemResponse(
-                    book_id=book.id,
-                    isbn=book.isbn or item.isbn,
-                    title=book.title,
-                    quantity=item.quantity,
-                    inventory_id=inventory.id,
-                    inventory_quantity=inventory.quantity,
-                )
-            )
-
+        assignment = assign_putaway_location(
+            session=session,
+            inbound_item=inbound_item,
+            book=book,
+            grade=ConditionGrade.NEW,
+        )
         session.commit()
+        session.refresh(inbound_job)
+        session.refresh(inbound_item)
+        session.refresh(assignment.putaway_job)
+        session.refresh(assignment.location)
+    except NoAvailableLocationError as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
     except Exception:
         session.rollback()
         raise
 
-    return NewStockInboundResponse(
-        inbound_id=inbound_job.id,
-        inbound_type=inbound_job.inbound_type,
-        status=inbound_job.status,
-        location_id=location.id,
-        location_barcode=location.barcode or request.location_barcode,
-        total_quantity=total_quantity,
-        items=response_items,
+    return _build_new_stock_response(
+        inbound_job,
+        inbound_item,
+        assignment.putaway_job,
+        assignment.location,
     )
 
 
