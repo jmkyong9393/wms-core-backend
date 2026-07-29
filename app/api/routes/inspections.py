@@ -43,6 +43,10 @@ from app.services.hitl_task_service import (
     create_hitl_task_id,
     dispatch_hitl_followup_task,
 )
+from app.services.inspection_image_service import (
+    InspectionImageValidationError,
+    normalize_cloudfront_image_urls,
+)
 from app.services.inspection_task_service import enqueue_inspection
 from app.services.sse_ticket_service import issue_sse_ticket
 from app.services.redis_pubsub import publish_return_job_event
@@ -61,7 +65,25 @@ class CreateInspectionRequest(BaseModel):
     book_id: UUID
     mode: InspectionMode
     location_barcode: str = Field(min_length=1)
-    image_paths: list[str] = Field(min_length=1)
+    image_paths: list[str] = Field(
+        min_length=1,
+        description=(
+            "S3 업로드 완료 후 조회 가능한 CloudFront 이미지 URL 목록. "
+            "도서 한 권의 대표·측면·내지·결함 이미지를 촬영 순서대로 전달합니다."
+        ),
+        examples=[
+            [
+                (
+                    "https://d3j61tpuly7r0p.cloudfront.net/"
+                    "uploads/cover.jpg"
+                ),
+                (
+                    "https://d3j61tpuly7r0p.cloudfront.net/"
+                    "uploads/inside-1.jpg"
+                ),
+            ]
+        ],
+    )
 
 
 class CreateInspectionResponse(BaseModel):
@@ -128,6 +150,16 @@ def create_inspection(
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> CreateInspectionResponse:
+    try:
+        normalized_image_paths = normalize_cloudfront_image_urls(
+            request.image_paths
+        )
+    except InspectionImageValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
+
     inbound_item = session.exec(
         select(InboundItem)
         .where(InboundItem.id == request.inbound_item_id)
@@ -200,7 +232,7 @@ def create_inspection(
         inbound_item_id=inbound_item.id,
         target_location_id=location.id,
         mode=request.mode,
-        image_paths=request.image_paths,
+        image_paths=normalized_image_paths,
         status=ReturnJobStatus.PENDING,
     )
 
