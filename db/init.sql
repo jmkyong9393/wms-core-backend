@@ -1,6 +1,7 @@
 CREATE TYPE standard_size AS ENUM ('A5', 'B5');
 CREATE TYPE inbound_type AS ENUM ('NEW_STOCK', 'USED_PURCHASE', 'CUSTOMER_RETURN');
 CREATE TYPE inbound_status AS ENUM ('RECEIVED', 'CHECKING', 'COMPLETED');
+CREATE TYPE putaway_status AS ENUM ('WAITING', 'COMPLETED', 'CLEARED');
 CREATE TYPE condition_grade AS ENUM ('NEW', 'MINT', 'EXCELLENT', 'NORMAL', 'REJECT');
 CREATE TYPE book_category AS ENUM (
     'COMIC',
@@ -87,6 +88,17 @@ CREATE TABLE locations (
     shelf VARCHAR NOT NULL,
     barcode VARCHAR UNIQUE,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE putaway_jobs (
+    id UUID PRIMARY KEY,
+    inbound_item_id UUID NOT NULL UNIQUE REFERENCES inbound_items(id),
+    location_id UUID NOT NULL REFERENCES locations(id),
+    status putaway_status NOT NULL DEFAULT 'WAITING',
+    completed_at TIMESTAMP,
+    cleared_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

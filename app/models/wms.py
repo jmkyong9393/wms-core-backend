@@ -27,6 +27,12 @@ class InboundStatus(str, Enum):
     COMPLETED = "COMPLETED"
 
 
+class PutawayStatus(str, Enum):
+    WAITING = "WAITING"
+    COMPLETED = "COMPLETED"
+    CLEARED = "CLEARED"
+
+
 class ConditionGrade(str, Enum):
     NEW = "NEW"
     MINT = "MINT"
@@ -197,6 +203,23 @@ class Location(SQLModel, table=True):
     shelf: str = Field(nullable=False)
     barcode: Optional[str] = Field(default=None, unique=True)
     is_active: bool = Field(default=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class PutawayJob(SQLModel, table=True):
+    __tablename__ = "putaway_jobs"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    inbound_item_id: uuid.UUID = Field(
+        foreign_key="inbound_items.id",
+        unique=True,
+        nullable=False,
+    )
+    location_id: uuid.UUID = Field(foreign_key="locations.id", nullable=False)
+    status: PutawayStatus = Field(default=PutawayStatus.WAITING, nullable=False)
+    completed_at: Optional[datetime] = Field(default=None)
+    cleared_at: Optional[datetime] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
