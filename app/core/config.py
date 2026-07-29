@@ -5,6 +5,12 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql://admin:password@localhost:5432/wms_db"
     PUBLIC_WEB_BASE_URL: str = "http://localhost:3000"
 
+    # 검수 이미지 조회에 허용할 CloudFront 배포 도메인과 객체 경로
+    CLOUDFRONT_IMAGE_BASE_URL: str = (
+        "https://d3j61tpuly7r0p.cloudfront.net"
+    )
+    CLOUDFRONT_IMAGE_PATH_PREFIX: str = "/uploads/"
+
     CHROMA_SERVER_HOST: str = "localhost"
     CHROMA_SERVER_PORT: int = 8001
 
