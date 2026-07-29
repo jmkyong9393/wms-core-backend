@@ -22,7 +22,7 @@ router = APIRouter()
 @router.post(
     "/mock-recommendation",
     response_model=RestockRecommendationResponse,
-    summary="자동 발주 추천 Agent 임시 호출",
+    summary="자동 발주 추천 Agent 수동 호출(개발 확인용)",
 )
 def create_mock_restock_recommendation(
     request: RestockRecommendationRequest,
@@ -31,16 +31,12 @@ def create_mock_restock_recommendation(
     ),
 ) -> RestockRecommendationResponse:
     """
-    자동 발주 추천 Agent 연결 흐름을 확인하기 위한 임시 API.
+    Restock Agent를 수동으로 호출해 추천 결과만 확인하는 개발용 API.
 
-    TODO:
-    실제 반려 처리 API와 재고·판매량 조회 기능이 완성되면
-    이 Mock API 대신 해당 처리 흐름에서
-    generate_restock_recommendation()을 호출한다.
+    실제 업무 흐름에서는 최종 반려된 검수 작업을 기준으로
+    Worker가 Restock 추천안을 생성하고 OrderProposal에 저장한다.
 
-    TODO:
-    order_proposals 저장 규격이 확정되면
-    Agent 결과 저장 로직을 별도 서비스에서 연결한다.
+    이 API는 OrderProposal 저장, 관리자 알림, AUTO_PO 생성은 수행하지 않는다.
     """
     try:
         return generate_restock_recommendation(
