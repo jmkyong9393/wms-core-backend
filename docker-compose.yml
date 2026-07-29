@@ -99,6 +99,28 @@ services:
     # AI 검수 비동기 작업을 처리하는 Celery Worker
     command: ["celery", "-A", "app.worker", "worker", "-l", "info", "--pool=gevent", "-E"]
 
+  mock-order-generator:
+    build: .
+    container_name: wms-mock-order-generator
+    profiles:
+      - demo
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://admin:password@db:5432/wms_db
+      MOCK_ORDER_INTERVAL_SECONDS: "1"
+    volumes:
+      - ./app:/app/app
+    command:
+      [
+        "python",
+        "-m",
+        "app.batch.mock_order_generator",
+      ]
+
   # flower 컨테이너 추가
   flower:
     image: mher/flower
