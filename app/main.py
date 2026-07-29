@@ -42,6 +42,13 @@ WMS_OPENAPI_TAGS = [
         "description": "신간 묶음 재고와 중고 단품 재고 통합 조회 API",
     },
     {
+        "name": "Inspections",
+        "description": (
+            "중고·반품 도서의 AI 검수 요청, 상태 조회, 재검수 및 "
+            "관리자 HITL 판정 API"
+        ),
+    },
+    {
         "name": "LPN",
         "description": "중고·반품 단품 재고의 LPN 상세 조회 API",
     },
