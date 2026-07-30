@@ -4,7 +4,7 @@ from app.models.wms import BookCategory, ConditionGrade
 
 
 SHELF_COUNT_PER_RACK = 10
-SHELF_CAPACITY = 20
+SHELF_CAPACITY = 9999
 
 CATEGORY_RACK_MAP = MappingProxyType(
     {

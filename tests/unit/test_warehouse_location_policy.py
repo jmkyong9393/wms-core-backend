@@ -49,9 +49,9 @@ def test_policy_covers_every_category_and_used_grade():
     assert set(USED_GRADE_ZONE_MAP) == set(ConditionGrade)
 
 
-def test_shelf_policy_uses_ten_shelves_with_twenty_book_capacity():
+def test_shelf_policy_uses_ten_shelves_with_demo_capacity():
     assert SHELF_COUNT_PER_RACK == 10
-    assert SHELF_CAPACITY == 20
+    assert SHELF_CAPACITY == 9999
 
 
 def test_location_barcode_uses_zone_rack_shelf_components():
