@@ -2,7 +2,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import text
 from sqlmodel import Session, select
 
 from app.models.wms import (
@@ -186,14 +185,16 @@ def approve_restock_proposal(
     추천안 생성 이후 진행 중 AUTO_PO가 늘어났다면 증가분만큼
     추천 수량에서 제외해 중복 발주를 방지한다.
     """
-    proposal, book = _get_restock_proposal_for_update(
+    proposal, _book = _get_restock_proposal_for_update(
         session=session,
         tenant_id=tenant_id,
         proposal_id=proposal_id,
     )
     _validate_pending_proposal(proposal)
 
-    _lock_auto_po_approval_book(
+    # 동일 도서의 서로 다른 추천안이 동시에 승인되는 경우를 직렬화한다.
+    # UUID 해시 Advisory Lock 대신 DB의 고유 Book 행을 직접 잠근다.
+    book = _lock_auto_po_approval_book(
         session=session,
         book_id=proposal.book_id,
     )
@@ -325,21 +326,26 @@ def reject_restock_proposal(
 def _lock_auto_po_approval_book(
     session: Session,
     book_id: UUID,
-) -> None:
+) -> Book:
     """
-    동일 도서의 AUTO_PO 승인 처리를 직렬화한다.
+    동일 도서의 자동 발주 승인 처리를 직렬화한다.
 
-    서로 다른 추천안이라도 같은 도서를 동시에 승인하면
-    진행 중 AUTO_PO 수량을 중복으로 계산할 수 있으므로,
-    PostgreSQL 트랜잭션 Advisory Lock을 사용한다.
+    UUID를 64-bit 해시로 변환하는 Advisory Lock 대신,
+    books 테이블의 고유 행을 SELECT FOR UPDATE로 직접 잠근다.
+    따라서 해시 충돌 없이 동일 도서 기준으로만 동시 승인을 제어한다.
     """
-    session.exec(
-        text(
-            "SELECT pg_advisory_xact_lock("
-            "hashtextextended(:book_id, 0)"
-            ")"
-        ).bindparams(book_id=str(book_id))
-    )
+    book = session.exec(
+        select(Book)
+        .where(Book.id == book_id)
+        .with_for_update()
+    ).first()
+
+    if book is None:
+        raise RuntimeError(
+            f"Restock proposal book was not found: {book_id}"
+        )
+
+    return book
 
 def _get_restock_proposal_for_update(
     *,
@@ -355,7 +361,7 @@ def _get_restock_proposal_for_update(
             OrderProposal.id == proposal_id,
             OrderProposal.tenant_id == tenant_id,
         )
-        .with_for_update()
+        .with_for_update(of=OrderProposal)
     ).first()
 
     if row is None:

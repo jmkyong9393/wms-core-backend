@@ -147,6 +147,7 @@ def test_zero_quantity_proposal_does_not_publish_notification(
         lambda **_kwargs: SimpleNamespace(
             proposal=proposal,
             created=True,
+            generation_in_progress=False,
         ),
     )
 
@@ -197,6 +198,7 @@ def test_positive_quantity_proposal_publishes_notification(
         lambda **_kwargs: SimpleNamespace(
             proposal=proposal,
             created=True,
+            generation_in_progress=False,
         ),
     )
     monkeypatch.setattr(

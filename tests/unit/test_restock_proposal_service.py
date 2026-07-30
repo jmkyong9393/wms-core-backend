@@ -131,8 +131,21 @@ def test_creates_restock_proposal_from_rejected_job(
     )
 
     assert result.created is True
-    assert len(session.added_items) == 1
-    assert session.commit_count == 1
+    created_proposals = [
+        item
+        for item in session.added_items
+        if isinstance(item, restock_service.OrderProposal)
+    ]
+
+    assert len(created_proposals) == 1
+
+    proposal = created_proposals[0]
+    assert (
+        return_job.agent_logs["restock_generation"]["status"]
+        == restock_service.RESTOCK_GENERATION_COMPLETED
+    )
+    # GENERATING 저장 → RESPONSE_SAVED 저장 → Proposal/COMPLETED 저장
+    assert session.commit_count == 3
     assert session.refresh_count == 1
 
     request = captured_request["value"]
@@ -281,3 +294,148 @@ def test_saves_not_required_status_for_zero_recommendation(
         OrderProposalStatus.NOT_REQUIRED
     )
     assert result.proposal.pending_auto_po_quantity == 5
+
+def test_uses_saved_agent_response_without_calling_openai(
+    monkeypatch,
+):
+    return_job = build_rejected_return_job()
+
+    saved_request = {
+        "isbn": "9790000000001",
+        "book_title": "복구 대상 도서",
+        "recent_sales_quantity": 45,
+        "current_stock": 3,
+        "pending_auto_po_quantity": 4,
+        "rejected_quantity": 3,
+        "rejection_reason_code": "DMG_EXT_WET",
+    }
+    saved_response = {
+        "isbn": "9790000000001",
+        "book_title": "복구 대상 도서",
+        "recommended_order_quantity": 45,
+        "reason_summary": "저장된 Agent 응답으로 추천안을 복구합니다.",
+        "evidence": [
+            "최근 판매량: 45권",
+            "현재 재고: 3권",
+            "반려 수량: 3권",
+        ],
+        "risk_level": "HIGH",
+    }
+
+    return_job.agent_logs["restock_generation"] = {
+        "status": restock_service.RESTOCK_GENERATION_RESPONSE_SAVED,
+        "request": saved_request,
+        "response": saved_response,
+    }
+
+    book = SimpleNamespace(
+        id=return_job.book_id,
+        isbn="9790000000001",
+        title="복구 대상 도서",
+    )
+
+    session = FakeSession(
+        results=[
+            # ReturnJob 조회
+            FakeResult(first_value=return_job),
+            # 기존 OrderProposal 조회
+            FakeResult(first_value=None),
+        ],
+        model_values={
+            restock_service.Book: book,
+        },
+    )
+
+    def fail_if_agent_is_called(_request):
+        raise AssertionError(
+            "저장된 Agent 응답이 있으면 OpenAI를 다시 호출하면 안 됩니다."
+        )
+
+    monkeypatch.setattr(
+        restock_service,
+        "generate_restock_recommendation",
+        fail_if_agent_is_called,
+    )
+
+    result = (
+        restock_service.create_restock_proposal_for_rejected_job(
+            session=session,
+            return_job_id=return_job.id,
+        )
+    )
+
+    assert result.created is True
+    assert result.generation_in_progress is False
+    assert result.proposal is not None
+    assert result.proposal.recommended_order_quantity == 45
+    assert result.proposal.reason_summary == (
+        "저장된 Agent 응답으로 추천안을 복구합니다."
+    )
+    assert session.commit_count == 1
+    assert session.refresh_count == 1
+    assert (
+        return_job.agent_logs["restock_generation"]["status"]
+        == restock_service.RESTOCK_GENERATION_COMPLETED
+    )
+
+
+def test_skips_duplicate_agent_call_when_generation_is_in_progress(
+    monkeypatch,
+):
+    return_job = build_rejected_return_job()
+
+    return_job.agent_logs["restock_generation"] = {
+        "status": restock_service.RESTOCK_GENERATION_GENERATING,
+        "request": {
+            "isbn": "9790000000001",
+            "book_title": "생성 진행 중 도서",
+            "recent_sales_quantity": 45,
+            "current_stock": 3,
+            "pending_auto_po_quantity": 4,
+            "rejected_quantity": 3,
+            "rejection_reason_code": "DMG_EXT_WET",
+        },
+    }
+
+    book = SimpleNamespace(
+        id=return_job.book_id,
+        isbn="9790000000001",
+        title="생성 진행 중 도서",
+    )
+
+    session = FakeSession(
+        results=[
+            # ReturnJob 조회
+            FakeResult(first_value=return_job),
+            # 기존 OrderProposal 조회
+            FakeResult(first_value=None),
+        ],
+        model_values={
+            restock_service.Book: book,
+        },
+    )
+
+    def fail_if_agent_is_called(_request):
+        raise AssertionError(
+            "GENERATING 상태에서는 OpenAI를 중복 호출하면 안 됩니다."
+        )
+
+    monkeypatch.setattr(
+        restock_service,
+        "generate_restock_recommendation",
+        fail_if_agent_is_called,
+    )
+
+    result = (
+        restock_service.create_restock_proposal_for_rejected_job(
+            session=session,
+            return_job_id=return_job.id,
+        )
+    )
+
+    assert result.created is False
+    assert result.proposal is None
+    assert result.generation_in_progress is True
+    assert session.added_items == []
+    assert session.commit_count == 0
+    assert session.refresh_count == 0

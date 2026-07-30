@@ -1,6 +1,7 @@
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import func
@@ -36,10 +37,18 @@ IN_PROGRESS_AUTO_PO_STATUSES = (
     OrderStatus.SHIPPED,
 )
 
+RESTOCK_GENERATION_LOG_KEY = "restock_generation"
+
+RESTOCK_GENERATION_GENERATING = "GENERATING"
+RESTOCK_GENERATION_RESPONSE_SAVED = "RESPONSE_SAVED"
+RESTOCK_GENERATION_COMPLETED = "COMPLETED"
+RESTOCK_GENERATION_FAILED = "FAILED"
+
 @dataclass(frozen=True)
 class RestockProposalCreationResult:
-    proposal: OrderProposal
+    proposal: OrderProposal | None
     created: bool
+    generation_in_progress: bool = False
 
 
 def generate_restock_recommendation(
@@ -54,9 +63,11 @@ def create_restock_proposal_for_rejected_job(
     return_job_id: UUID,
 ) -> RestockProposalCreationResult:
     """
-    최종 반려된 검수 작업을 기준으로 Restock Agent 추천안을 생성·저장한다.
+    최종 반려된 검수 작업을 기준으로 Restock Agent 추천안을 생성한다.
 
-    동일 return_job_id의 추천안이 이미 있으면 기존 데이터를 반환한다.
+    Agent 호출 전후 상태와 응답을 ReturnJob.agent_logs에 저장한다.
+    따라서 Worker가 Agent 호출 직후 종료되더라도, 응답이 이미 저장된 경우에는
+    재시도 시 OpenAI를 다시 호출하지 않고 OrderProposal 저장을 이어서 처리한다.
     """
     return_job = session.exec(
         select(ReturnJob)
@@ -93,31 +104,95 @@ def create_restock_proposal_for_rejected_job(
             f"Book for ReturnJob was not found: {return_job.book_id}"
         )
 
-    request = RestockRecommendationRequest(
-        isbn=book.isbn or str(book.id),
-        book_title=book.title,
-        recent_sales_quantity=_get_recent_sales_quantity(
-            session=session,
-            book_id=book.id,
-        ),
-        current_stock=_get_current_available_stock(
-            session=session,
-            book_id=book.id,
-        ),
-        pending_auto_po_quantity=get_pending_auto_po_quantity(
-            session=session,
-            book_id=book.id,
-        ),
-        rejected_quantity=_get_rejected_quantity(
-            session=session,
-            return_job=return_job,
-        ),
-        rejection_reason_code=_get_rejection_reason_code(
-            return_job=return_job,
-        ),
-    )
+    generation_log = _get_restock_generation_log(return_job)
+    saved_request = generation_log.get("request")
+    saved_response = generation_log.get("response")
 
-    recommendation = generate_restock_recommendation(request)
+    # 이전 실행에서 Agent 응답까지 저장된 경우:
+    # OpenAI를 다시 호출하지 않고 추천안 DB 저장만 이어서 수행한다.
+    if saved_response is not None:
+        if not isinstance(saved_request, dict):
+            raise RuntimeError(
+                "Saved Restock Agent response exists without request snapshot."
+            )
+
+        request = RestockRecommendationRequest.model_validate(
+            saved_request
+        )
+        recommendation = RestockRecommendationResponse.model_validate(
+            saved_response
+        )
+
+    # 다른 Worker가 이미 Agent 호출을 시작했고 아직 응답을 남기지 않은 경우:
+    # 중복 OpenAI 호출을 막고 현재 작업은 조용히 종료한다.
+    elif generation_log.get("status") == RESTOCK_GENERATION_GENERATING:
+        logger.warning(
+            "Restock Agent generation is already in progress. "
+            "return_job_id=%s",
+            return_job.id,
+        )
+
+        return RestockProposalCreationResult(
+            proposal=None,
+            created=False,
+            generation_in_progress=True,
+        )
+
+    else:
+        # Agent 통신 실패 후 재시도하는 경우에도,
+        # 최초 Agent 호출에 사용한 입력 스냅샷을 그대로 재사용한다.
+        if (
+            generation_log.get("status")
+            == RESTOCK_GENERATION_FAILED
+            and isinstance(saved_request, dict)
+        ):
+            request = RestockRecommendationRequest.model_validate(
+                saved_request
+            )
+        else:
+            request = _build_restock_recommendation_request(
+                session=session,
+                return_job=return_job,
+                book=book,
+            )
+
+        # OpenAI 호출 전에 GENERATING 상태와 입력 스냅샷을 먼저 확정한다.
+        # 여기서 commit해야 Worker 강제 종료 시에도 상태가 남는다.
+        _save_restock_generation_log(
+            return_job=return_job,
+            status=RESTOCK_GENERATION_GENERATING,
+            request=request.model_dump(mode="json"),
+        )
+        session.add(return_job)
+        session.commit()
+
+        try:
+            recommendation = generate_restock_recommendation(
+                request
+            )
+
+        except Exception as error:
+            # 일반적인 API 통신 실패는 FAILED로 기록하고 Celery 재시도를 허용한다.
+            _save_restock_generation_log(
+                return_job=return_job,
+                status=RESTOCK_GENERATION_FAILED,
+                request=request.model_dump(mode="json"),
+                last_error=str(error),
+            )
+            session.add(return_job)
+            session.commit()
+            raise
+
+        # Agent 응답을 추천안 생성보다 먼저 확정 저장한다.
+        # 이후 proposal 저장 단계에서 죽어도 재시도 시 OpenAI 재호출이 없다.
+        _save_restock_generation_log(
+            return_job=return_job,
+            status=RESTOCK_GENERATION_RESPONSE_SAVED,
+            request=request.model_dump(mode="json"),
+            response=recommendation.model_dump(mode="json"),
+        )
+        session.add(return_job)
+        session.commit()
 
     proposal = OrderProposal(
         tenant_id=return_job.tenant_id,
@@ -143,7 +218,16 @@ def create_restock_proposal_for_rejected_job(
         ),
     )
 
+    _save_restock_generation_log(
+        return_job=return_job,
+        status=RESTOCK_GENERATION_COMPLETED,
+        request=request.model_dump(mode="json"),
+        response=recommendation.model_dump(mode="json"),
+    )
+
+    # 추천안 생성과 COMPLETED 상태 변경은 하나의 commit으로 처리한다.
     session.add(proposal)
+    session.add(return_job)
     session.commit()
     session.refresh(proposal)
 
@@ -160,6 +244,79 @@ def create_restock_proposal_for_rejected_job(
         created=True,
     )
 
+def _build_restock_recommendation_request(
+    session: Session,
+    return_job: ReturnJob,
+    book: Book,
+) -> RestockRecommendationRequest:
+    """반려 검수 작업과 현재 재고·판매 데이터를 Agent 입력 스냅샷으로 만든다."""
+    return RestockRecommendationRequest(
+        isbn=book.isbn or str(book.id),
+        book_title=book.title,
+        recent_sales_quantity=_get_recent_sales_quantity(
+            session=session,
+            book_id=book.id,
+        ),
+        current_stock=_get_current_available_stock(
+            session=session,
+            book_id=book.id,
+        ),
+        pending_auto_po_quantity=get_pending_auto_po_quantity(
+            session=session,
+            book_id=book.id,
+        ),
+        rejected_quantity=_get_rejected_quantity(
+            session=session,
+            return_job=return_job,
+        ),
+        rejection_reason_code=_get_rejection_reason_code(
+            return_job=return_job,
+        ),
+    )
+
+
+def _get_restock_generation_log(
+    return_job: ReturnJob,
+) -> dict[str, Any]:
+    """기존 검수 로그를 보존한 채 Restock 생성 로그만 조회한다."""
+    agent_logs = return_job.agent_logs or {}
+    generation_log = agent_logs.get(RESTOCK_GENERATION_LOG_KEY)
+
+    return (
+        dict(generation_log)
+        if isinstance(generation_log, dict)
+        else {}
+    )
+
+
+def _save_restock_generation_log(
+    return_job: ReturnJob,
+    status: str,
+    request: dict[str, Any],
+    response: dict[str, Any] | None = None,
+    last_error: str | None = None,
+) -> None:
+    """
+    Restock Agent 실행 상태를 ReturnJob.agent_logs에 저장한다.
+
+    기존 reason_code, admin_decision_code 등 검수 로그는 유지한다.
+    """
+    agent_logs = dict(return_job.agent_logs or {})
+
+    generation_log: dict[str, Any] = {
+        "status": status,
+        "request": request,
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+
+    if response is not None:
+        generation_log["response"] = response
+
+    if last_error is not None:
+        generation_log["last_error"] = last_error
+
+    agent_logs[RESTOCK_GENERATION_LOG_KEY] = generation_log
+    return_job.agent_logs = agent_logs
 
 def _get_recent_sales_quantity(
     session: Session,

@@ -112,7 +112,7 @@ def test_approve_creates_auto_po_for_residual_quantity():
         results=[
             FakeResult(first_value=(proposal, book)),
             # 도서 단위 Advisory Lock
-            FakeResult(),
+            FakeResult(first_value=book),
             # 승인 시점 진행 AUTO_PO 수량
             FakeResult(one_value=8),
         ],
@@ -152,7 +152,8 @@ def test_approve_creates_auto_po_for_residual_quantity():
     assert auto_po_item.final_price == Decimal("45000")
     assert session.flush_count == 1
     assert any(
-        "pg_advisory_xact_lock" in statement
+        "FROM books" in statement
+        and "FOR UPDATE" in statement
         for statement in session.executed_statements
     )
     assert session.commit_count == 1
@@ -170,7 +171,7 @@ def test_approve_marks_not_required_when_pending_auto_po_increased():
         results=[
             FakeResult(first_value=(proposal, book)),
             # 도서 단위 Advisory Lock
-            FakeResult(),
+            FakeResult(first_value=book),
             # 추천 생성 이후 진행 AUTO_PO가 4권 증가
             FakeResult(one_value=11),
         ],
@@ -196,7 +197,8 @@ def test_approve_marks_not_required_when_pending_auto_po_increased():
         for item in session.added_items
     )
     assert any(
-        "pg_advisory_xact_lock" in statement
+        "FROM books" in statement
+        and "FOR UPDATE" in statement
         for statement in session.executed_statements
     )
     assert session.flush_count == 0

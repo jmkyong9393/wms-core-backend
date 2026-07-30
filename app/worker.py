@@ -454,7 +454,26 @@ def process_restock_proposal(
                 return_job_id=job_id,
             )
 
+            if result.generation_in_progress:
+                logger.warning(
+                    "Restock Agent generation is in progress. "
+                    "task_id=%s return_job_id=%s",
+                    task_id,
+                    job_id,
+                )
+
+                return {
+                    "task_id": task_id,
+                    "return_job_id": str(job_id),
+                    "created": False,
+                    "generation_in_progress": True,
+                }
+
             proposal = result.proposal
+            if proposal is None:
+                raise RuntimeError(
+                    "Restock proposal result does not include a proposal."
+                )
 
             if not result.created:
                 logger.info(
