@@ -552,6 +552,10 @@ class User(SQLModel, table=True):
     # 관리자가 직원 계정 만들면 True -> 직원이 임시 비밀번호를 새 비밀번호로 변경하면 False
     must_change_password: bool = Field(default=True)
 
+    refresh_token_hash: Optional[str] = Field(default=None, unique=True,)
+    refresh_token_expires_at: Optional[datetime] = Field(default=None,index=True,)
+    auth_version: int = Field(default=0, nullable=False,)
+
     last_login: Optional[datetime] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
