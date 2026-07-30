@@ -10,7 +10,7 @@ from app.api.dependencies.auth import require_admin_or_master
 from app.models.wms import ReturnJob, ReturnJobStatus, User
 from app.schemas.admin_inspection import (
     InspectionDetailResponse,
-    InspectionHistoryRow,
+    InspectionHistoryListResponse,
 )
 from app.services.admin_inspection_service import (
     get_inspection_detail,
@@ -98,7 +98,7 @@ def get_inspection_metrics(
 # 관리자용 전체 검수 이력 그리드 조회 API
 @router.get(
     "/inspections",
-    response_model=list[InspectionHistoryRow],
+    response_model=InspectionHistoryListResponse,
 )
 def get_admin_inspection_history(
     status: ReturnJobStatus | None = Query(
@@ -117,10 +117,23 @@ def get_admin_inspection_history(
         default=None,
         description="도서명 검색 키워드",
     ),
+    page: int = Query(
+        default=1,
+        ge=1,
+        description="페이지 번호",
+    ),
+    size: int = Query(
+        default=20,
+        ge=1,
+        le=100,
+        description="페이지당 조회 건수",
+    ),
     current_admin: User = Depends(require_admin_or_master),
     session: Session = Depends(get_session),
-) -> list[InspectionHistoryRow]:
-
+) -> InspectionHistoryListResponse:
+    """
+    관리자 검수 이력 그리드를 서버 페이지네이션 방식으로 조회한다.
+    """
     return get_inspection_history(
         session=session,
         tenant_id=current_admin.tenant_id,
@@ -128,6 +141,8 @@ def get_admin_inspection_history(
         start_date=start_date,
         end_date=end_date,
         keyword=keyword,
+        page=page,
+        size=size,
     )
 
 # 관리자용 개별 검수 상세 조회 API
