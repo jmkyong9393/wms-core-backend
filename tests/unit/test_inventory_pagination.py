@@ -52,7 +52,7 @@ def test_returns_new_and_used_inventory_availability_fields():
                 "id": UUID(
                     "00000000-0000-4000-8000-000000000001"
                 ),
-                "inventory_type": "NEW_STOCK",
+                "stock_type": "NEW_STOCK",
                 "book_title": "신간 도서",
                 "book_isbn": "9790000000001",
                 "grade": None,
@@ -70,7 +70,7 @@ def test_returns_new_and_used_inventory_availability_fields():
                 "id": UUID(
                     "00000000-0000-4000-8000-000000000002"
                 ),
-                "inventory_type": "USED_ITEM",
+                "stock_type": "USED_ITEM",
                 "book_title": "중고 도서",
                 "book_isbn": "9790000000002",
                 "grade": "EXCELLENT",
@@ -88,6 +88,7 @@ def test_returns_new_and_used_inventory_availability_fields():
     )
 
     response = list_inventory(
+        isbn=None,
         page=1,
         size=20,
         current_admin=None,
@@ -100,13 +101,14 @@ def test_returns_new_and_used_inventory_availability_fields():
     assert response.total == 2
     assert response.total_pages == 1
 
-    assert new_stock.inventory_type == "NEW_STOCK"
+    assert new_stock.stock_type == "NEW_STOCK"
+    assert new_stock.grade is None
     assert new_stock.quantity == 10
     assert new_stock.reserved_quantity == 3
     assert new_stock.available_quantity == 7
     assert new_stock.lpn_status is None
 
-    assert used_item.inventory_type == "USED_ITEM"
+    assert used_item.stock_type == "USED_ITEM"
     assert used_item.quantity == 1
     assert used_item.reserved_quantity == 1
     assert used_item.available_quantity == 0
@@ -120,6 +122,7 @@ def test_applies_requested_offset_and_limit_to_inventory_query():
     )
 
     response = list_inventory(
+        isbn=None,
         page=3,
         size=10,
         current_admin=None,
@@ -135,6 +138,28 @@ def test_applies_requested_offset_and_limit_to_inventory_query():
     assert session.list_statement._limit_clause.value == 10
 
 
+def test_applies_isbn_filter_to_new_and_used_inventory_query():
+    session = FakeSession(
+        total=0,
+        rows=[],
+    )
+
+    list_inventory(
+        isbn="9790000000001",
+        page=1,
+        size=20,
+        current_admin=None,
+        session=session,
+    )
+
+    compiled_params = session.list_statement.compile().params
+
+    assert sum(
+        value == "9790000000001"
+        for value in compiled_params.values()
+    ) == 2
+
+
 def test_excludes_shipped_lpn_from_inventory_query():
     session = FakeSession(
         total=0,
@@ -142,6 +167,7 @@ def test_excludes_shipped_lpn_from_inventory_query():
     )
 
     list_inventory(
+        isbn=None,
         page=1,
         size=20,
         current_admin=None,
@@ -160,6 +186,7 @@ def test_returns_zero_total_pages_when_inventory_is_empty():
     )
 
     response = list_inventory(
+        isbn=None,
         page=1,
         size=20,
         current_admin=None,
