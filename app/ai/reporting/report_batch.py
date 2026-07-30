@@ -1,44 +1,90 @@
 import logging
-import pandas as pd
 from typing import List, Dict, Any
 from sqlmodel import Session, text
 import uuid
 from app.core.database import engine
-from app.models.wms import FdsReport, WeeklyInsight
+from app.models.wms import (
+    FdsReport,
+    NotificationCategory,
+    NotificationSeverity,
+    WeeklyInsight,
+)
+from app.services.notification_service import (
+    create_notification_for_tenant,
+)
+from app.services.redis_pubsub import (
+    publish_tenant_notification_event,
+)
 
 logger = logging.getLogger(__name__)
 
-def fetch_recent_returns(session: Session) -> List[Dict[str, Any]]:
-    logger.info("DB에서 최근 반품 데이터를 조회합니다...")
+def fetch_recent_returns(
+    session: Session,
+) -> List[Dict[str, Any]]:
+    logger.info("DB에서 최근 반품 데이터를 조회합니다..")
+
     query = text("""
-    SELECT 
+    SELECT
+        r.tenant_id,
         o.customer_id,
         o.customer_name,
-        COUNT(CASE WHEN r.created_at >= NOW() - INTERVAL '30 days' THEN 1 END) AS returns_last_30d,
-        COUNT(CASE WHEN r.created_at >= NOW() - INTERVAL '90 days' THEN 1 END) AS returns_last_90d,
-        COUNT(CASE WHEN r.created_at >= NOW() - INTERVAL '7 days' THEN 1 END) AS weekly_return_count,
+        COUNT(
+            CASE
+                WHEN r.created_at >= NOW() - INTERVAL '30 days'
+                THEN 1
+            END
+        ) AS returns_last_30d,
+        COUNT(
+            CASE
+                WHEN r.created_at >= NOW() - INTERVAL '90 days'
+                THEN 1
+            END
+        ) AS returns_last_90d,
+        COUNT(
+            CASE
+                WHEN r.created_at >= NOW() - INTERVAL '7 days'
+                THEN 1
+            END
+        ) AS weekly_return_count,
         AVG(r.ubci_score) AS avg_ubci_score,
         SUM(oi.final_price) AS total_refund_amount,
         STRING_AGG(r.final_report, ', ') AS final_report
     FROM return_jobs r
     JOIN orders o ON r.order_id = o.id
-    JOIN order_items oi ON r.order_id = oi.order_id AND r.book_id = oi.book_id
-    WHERE r.created_at >= NOW() - INTERVAL '90 days' AND r.status = 'APPROVED'
-    GROUP BY o.customer_id, o.customer_name;
+    JOIN order_items oi
+        ON r.order_id = oi.order_id
+        AND r.book_id = oi.book_id
+    WHERE r.created_at >= NOW() - INTERVAL '90 days'
+      AND r.status = 'APPROVED'
+    GROUP BY r.tenant_id, o.customer_id, o.customer_name;
     """)
+
     result = session.execute(query)
     data = []
+
     for row in result:
-        data.append({
-            "customer_id": str(row[0]),
-            "customer_name": row[1],
-            "returns_last_30d": row[2] or 0,
-            "returns_last_90d": row[3] or 0,
-            "weekly_return_count": row[4] or 0,
-            "avg_ubci_score": float(row[5]) if row[5] is not None else 100.0,
-            "total_refund_amount": float(row[6]) if row[6] is not None else 0.0,
-            "final_report": row[7] or ""
-        })
+        data.append(
+            {
+                "tenant_id": str(row[0]),
+                "customer_id": str(row[1]),
+                "customer_name": row[2],
+                "returns_last_30d": row[3] or 0,
+                "returns_last_90d": row[4] or 0,
+                "weekly_return_count": row[5] or 0,
+                "avg_ubci_score": (
+                    float(row[6])
+                    if row[6] is not None
+                    else 100.0
+                ),
+                "total_refund_amount": (
+                    float(row[7])
+                    if row[7] is not None
+                    else 0.0
+                ),
+                "final_report": row[8] or "",
+            }
+        )
+
     return data
 
 def fetch_inventory_stats(session: Session) -> Dict[str, Any]:
@@ -113,50 +159,94 @@ def fetch_defective_publishers(session: Session) -> Dict[str, int]:
     result = session.execute(query)
     return {row[0]: row[1] for row in result}
 
-def save_fds_report(session: Session, results: List[Dict[str, Any]]):
-    logger.info(f"총 {len(results)}건의 이상거래 의심 내역이 보고되었습니다.")
+def save_fds_report(
+    session: Session,
+    results: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    logger.info(
+        f"총 {len(results)}건의 이상거래 의심 내역을 보고합니다."
+    )
+
+    # SSE 알림 발행 대상을 구분하기 위한 반환값.
+    # 기존 FDS 보고서 저장·갱신 정책은 변경하지 않는다.
+    alert_candidates = []
+
     for res in results:
-        cid = res["customer_id"]
+        tenant_id = uuid.UUID(res["tenant_id"])
+        cid = uuid.UUID(res["customer_id"])
         new_score = res["fraud_score"]
         new_reason = res["fraud_reason"]
-        
-        # 1. 기존 적발 이력 조회
+
+        # 1. 기존 의심 이력 조회
         existing = session.execute(
-            text("SELECT id, fraud_score FROM fds_reports WHERE customer_id = :cid"),
-            {"cid": cid}
+            text("""
+                SELECT id, fraud_score
+                FROM fds_reports
+                WHERE tenant_id = :tenant_id
+                  AND customer_id = :cid
+            """),
+            {
+                "tenant_id": tenant_id,
+                "cid": cid,
+            },
         ).fetchone()
-        
+
         if not existing:
             # 최초 적발: 신규 INSERT
-            logger.warning(f"🚨 신규 이상거래 탐지: {res}")
+            logger.warning(
+                f"신규 이상거래 의심 유저: {res}"
+            )
             report = FdsReport(
                 id=uuid.uuid4(),
+                tenant_id=tenant_id,
                 customer_id=cid,
                 fraud_score=new_score,
-                fraud_reason=new_reason
+                fraud_reason=new_reason,
             )
             session.add(report)
+
+            # 신규 적발 건을 SSE 알림 후보에 추가
+            alert_candidates.append(res)
+
         else:
             old_id = existing[0]
             old_score = existing[1]
-            
+
             if new_score > old_score:
-                # 2. 이미 적발되었으나 위험도가 더 상향(악화)된 경우: UPDATE 및 detected_at 갱신
-                logger.warning(f"🚨 이상거래 위험도 상향 갱신 (점수: {old_score} -> {new_score}): {res}")
+                # 2. 이미 적발되었으나 위험도가 더 상승한 경우:
+                # UPDATE 및 detected_at 갱신
+                logger.warning(
+                    "이상거래 위험도 상향 갱신 "
+                    f"(점수: {old_score} -> {new_score}): {res}"
+                )
                 session.execute(
                     text("""
-                        UPDATE fds_reports 
-                        SET fraud_score = :score, 
-                            fraud_reason = :reason, 
-                            detected_at = CURRENT_TIMESTAMP, 
-                            updated_at = CURRENT_TIMESTAMP 
+                        UPDATE fds_reports
+                        SET fraud_score = :score,
+                            fraud_reason = :reason,
+                            detected_at = CURRENT_TIMESTAMP,
+                            updated_at = CURRENT_TIMESTAMP
                         WHERE id = :id
                     """),
-                    {"score": new_score, "reason": new_reason, "id": old_id}
+                    {
+                        "score": new_score,
+                        "reason": new_reason,
+                        "id": old_id,
+                    },
                 )
+
+                # 위험도 상승 건을 SSE 알림 후보에 추가
+                alert_candidates.append(res)
+
             else:
-                # 3. 동일 점수이거나 점수가 낮아진 경우 무시 (최초 적발일 detected_at 보존)
-                logger.info(f"✅ 기존 탐지 이력 유지 (점수 악화 없음) - {cid}")
+                # 3. 동일 점수거나 점수가 더 낮아진 경우 무시
+                # (최초 적발의 detected_at 보존)
+                logger.info(
+                    "기존 의심 유저 유지 "
+                    f"(점수 악화 없음) - {cid}"
+                )
+
+    return alert_candidates
 
 def generate_weekly_insights(
     session: Session,
@@ -232,10 +322,69 @@ def main():
             insights = generate_weekly_insights(session, raw_return_data, inventory_stats, order_stats)
             
             logger.info("DB 트랜잭션을 시작합니다 (BEGIN)...")
-            save_fds_report(session, suspicious_records)
+            alert_candidates = save_fds_report(
+                session,
+                suspicious_records,
+            )
+
+            notification_events = []
+
+            for record in alert_candidates:
+                fraud_score = record["fraud_score"]
+                severity = (
+                    NotificationSeverity.HIGH
+                    if fraud_score >= 90
+                    else NotificationSeverity.MEDIUM
+                )
+
+                notification = create_notification_for_tenant(
+                    session=session,
+                    tenant_id=uuid.UUID(record["tenant_id"]),
+                    category=NotificationCategory.FDS_ALERT,
+                    severity=severity,
+                    title="반품·환불 이상거래 탐지",
+                    message=(
+                        f"{record['customer_name']} 고객의 이상거래가 탐지되었습니다. "
+                        f"{record['fraud_reason']}"
+                    ),
+                    payload={
+                        "customer_id": record["customer_id"],
+                        "fraud_score": fraud_score,
+                    },
+                )
+
+                notification_events.append(
+                    {
+                        "tenant_id": str(notification.tenant_id),
+                        "event": {
+                            "id": str(notification.id),
+                            "category": notification.category.value,
+                            "severity": notification.severity.value,
+                            "title": notification.title,
+                            "message": notification.message,
+                            "timestamp": notification.created_at.isoformat(),
+                            "read": False,
+                        },
+                    }
+                )
+
             save_insight_report(session, insights)
-            
+
             session.commit()
+
+            # DB 커밋이 성공한 알림만 실시간으로 발행한다.
+            for notification_event in notification_events:
+                try:
+                    publish_tenant_notification_event(
+                        tenant_id=notification_event["tenant_id"],
+                        event=notification_event["event"],
+                    )
+                except Exception:
+                    logger.exception(
+                        "FDS 알림 Redis 발행에 실패했습니다. "
+                        "notification_id=%s",
+                        notification_event["event"]["id"],
+                    )
             logger.info("모든 데이터가 멱등성을 보장하며 성공적으로 적재되었습니다 (COMMIT).")
         except Exception as e:
             session.rollback()
