@@ -10,14 +10,11 @@ from sqlmodel import Session, select
 from app.core.database import get_session
 from app.models.wms import (
     Book,
-    ConditionGrade,
     InboundItem,
     InboundJob,
     InboundStatus,
     InboundType,
     Inventory,
-    InventoryLog,
-    InventoryTransactionType,
     Location,
 )
 from app.schemas.new_stock_inbound import (
@@ -26,14 +23,9 @@ from app.schemas.new_stock_inbound import (
 )
 from app.services.location_assignment_service import (
     NoAvailableLocationError,
-    assign_inventory_location,
+    assign_new_stock_location,
 )
 from app.services.inventory_admission_service import admit_new_stock
-from app.services.lpn_service import (
-    build_public_qr_url,
-    generate_certificate_token,
-    generate_lpn_barcode,
-)
 
 router = APIRouter()
 
@@ -64,24 +56,13 @@ def _build_new_stock_response(
     location: Location,
     inventory: Inventory,
 ) -> NewStockInboundResponse:
-    if inbound_item.lpn_barcode is None:
-        raise RuntimeError("New stock inbound item does not have an LPN barcode")
-    if inbound_item.certificate_token is None:
-        raise RuntimeError(
-            "New stock inbound item does not have a certificate token"
-        )
-    if inbound_item.condition_grade != ConditionGrade.NEW:
-        raise RuntimeError("New stock inbound item does not have NEW grade")
-
     return NewStockInboundResponse(
         inbound_id=inbound_job.id,
         inbound_item_id=inbound_item.id,
         inbound_type=inbound_job.inbound_type,
         status=inbound_job.status,
         book_id=inbound_item.book_id,
-        condition_grade=inbound_item.condition_grade,
-        lpn_barcode=inbound_item.lpn_barcode,
-        certificate_url=build_public_qr_url(inbound_item.certificate_token),
+        received_quantity=inbound_item.quantity,
         location_id=location.id,
         location_barcode=location.barcode,
         inventory_id=inventory.id,
@@ -103,12 +84,11 @@ class InboundHistoryItemResponse(BaseModel):
     response_model=NewStockInboundResponse,
     status_code=status.HTTP_201_CREATED,
     operation_id="createNewStockInbound",
-    summary="신간 단품 입고 접수, LPN 발급 및 로케이션 확정",
+    summary="ISBN 기반 신간 묶음 입고 및 로케이션 확정",
     description=(
-        "신간 도서 1권에 LPN과 품질보증서 QR 경로를 발급하고 NEW 등급을 "
-        "즉시 적용합니다. 카테고리 기반 로케이션을 확정한 뒤 같은 트랜잭션에서 "
-        "신간 묶음 재고와 입고 원장에 반영합니다. 동일 Idempotency-Key "
-        "재요청은 기존 결과를 반환합니다."
+        "동일 ISBN의 신간을 수량 단위로 입고합니다. 기존 신간 재고가 있으면 "
+        "같은 로케이션을 재사용하고, 최초 입고일 때만 카테고리 기반 A Zone "
+        "로케이션을 확정합니다. 신간에는 LPN과 품질 등급을 발급하지 않습니다."
     ),
     responses={
         409: {
@@ -136,44 +116,28 @@ def create_new_stock_inbound(
         if existing_item is not None:
             existing_job = session.get(InboundJob, existing_item.inbound_job_id)
             existing_book = session.get(Book, existing_item.book_id)
-            existing_log = session.exec(
-                select(InventoryLog).where(
-                    InventoryLog.target_lpn == existing_item.lpn_barcode,
-                    InventoryLog.transaction_type
-                    == InventoryTransactionType.INBOUND,
-                    InventoryLog.condition_grade == ConditionGrade.NEW,
-                )
-            ).first()
-            if (
-                existing_job is None
-                or existing_book is None
-                or existing_log is None
-                or existing_log.picked_location is None
-            ):
+            if existing_job is None or existing_book is None:
                 raise RuntimeError(
                     "Existing new stock intake is missing lifecycle records"
                 )
-            existing_location = session.exec(
-                select(Location).where(
-                    Location.barcode == existing_log.picked_location
-                )
-            ).first()
-            if existing_location is None:
-                raise RuntimeError(
-                    "Existing new stock location was not found"
-                )
-            existing_inventory = session.exec(
-                select(Inventory).where(
+            existing_inventory_row = session.exec(
+                select(Inventory, Location)
+                .join(Location, Inventory.location_id == Location.id)
+                .where(
                     Inventory.book_id == existing_book.id,
-                    Inventory.location_id == existing_location.id,
+                    Location.zone == "A",
+                    Location.is_active.is_(True),
                 )
+                .order_by(Inventory.created_at, Inventory.id)
             ).first()
-            if existing_inventory is None:
+            if existing_inventory_row is None:
                 raise RuntimeError("Existing new stock inventory was not found")
+            existing_inventory, existing_location = existing_inventory_row
             if (
                 existing_book.isbn != request.isbn
                 or existing_job.inbound_type != InboundType.NEW_STOCK
                 or existing_job.supplier_name != request.supplier_name
+                or existing_item.quantity != request.quantity
             ):
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
@@ -217,20 +181,15 @@ def create_new_stock_inbound(
             id=request_id,
             inbound_job_id=inbound_job.id,
             book_id=book.id,
-            quantity=1,
-            lpn_barcode=generate_lpn_barcode(request_id),
-            certificate_token=generate_certificate_token(),
-            condition_grade=ConditionGrade.NEW,
+            quantity=request.quantity,
         )
         session.add(inbound_item)
         session.flush()
 
-        location = assign_inventory_location(
+        location = assign_new_stock_location(
             session=session,
             book=book,
-            grade=ConditionGrade.NEW,
         )
-        inbound_item.condition_grade = ConditionGrade.NEW
         inventory = admit_new_stock(
             session=session,
             inbound_item=inbound_item,

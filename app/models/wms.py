@@ -28,7 +28,6 @@ class InboundStatus(str, Enum):
 
 
 class ConditionGrade(str, Enum):
-    NEW = "NEW"
     MINT = "MINT"
     EXCELLENT = "EXCELLENT"
     NORMAL = "NORMAL"
@@ -445,7 +444,7 @@ class InventoryLog(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     transaction_type: InventoryTransactionType = Field(nullable=False)
     book_id: uuid.UUID = Field(foreign_key="books.id")
-    condition_grade: ConditionGrade = Field(nullable=False)
+    condition_grade: Optional[ConditionGrade] = Field(default=None)
     quantity_change: int = Field(nullable=False)
     target_lpn: Optional[str] = Field(default=None)
     picked_location: Optional[str] = Field(default=None)

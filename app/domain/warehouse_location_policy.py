@@ -21,9 +21,8 @@ CATEGORY_RACK_MAP = MappingProxyType(
     }
 )
 
-GRADE_ZONE_MAP = MappingProxyType(
+USED_GRADE_ZONE_MAP = MappingProxyType(
     {
-        ConditionGrade.NEW: "A",
         ConditionGrade.MINT: "B",
         ConditionGrade.EXCELLENT: "B",
         ConditionGrade.NORMAL: "B",
@@ -36,8 +35,8 @@ def rack_for_category(category: BookCategory) -> str:
     return CATEGORY_RACK_MAP[category]
 
 
-def zone_for_grade(grade: ConditionGrade) -> str:
-    return GRADE_ZONE_MAP[grade]
+def zone_for_used_grade(grade: ConditionGrade) -> str:
+    return USED_GRADE_ZONE_MAP[grade]
 
 
 def build_location_barcode(zone: str, rack: str, shelf: str) -> str:

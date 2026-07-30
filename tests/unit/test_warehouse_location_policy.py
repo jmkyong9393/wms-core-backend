@@ -2,12 +2,12 @@ import pytest
 
 from app.domain.warehouse_location_policy import (
     CATEGORY_RACK_MAP,
-    GRADE_ZONE_MAP,
+    USED_GRADE_ZONE_MAP,
     SHELF_CAPACITY,
     SHELF_COUNT_PER_RACK,
     build_location_barcode,
     rack_for_category,
-    zone_for_grade,
+    zone_for_used_grade,
 )
 from app.models.wms import BookCategory, ConditionGrade
 
@@ -34,20 +34,19 @@ def test_category_maps_to_fixed_rack(category, expected_rack):
 @pytest.mark.parametrize(
     ("grade", "expected_zone"),
     [
-        (ConditionGrade.NEW, "A"),
         (ConditionGrade.MINT, "B"),
         (ConditionGrade.EXCELLENT, "B"),
         (ConditionGrade.NORMAL, "B"),
         (ConditionGrade.REJECT, "C"),
     ],
 )
-def test_grade_maps_to_warehouse_zone(grade, expected_zone):
-    assert zone_for_grade(grade) == expected_zone
+def test_used_grade_maps_to_warehouse_zone(grade, expected_zone):
+    assert zone_for_used_grade(grade) == expected_zone
 
 
-def test_policy_covers_every_category_and_grade():
+def test_policy_covers_every_category_and_used_grade():
     assert set(CATEGORY_RACK_MAP) == set(BookCategory)
-    assert set(GRADE_ZONE_MAP) == set(ConditionGrade)
+    assert set(USED_GRADE_ZONE_MAP) == set(ConditionGrade)
 
 
 def test_shelf_policy_uses_ten_shelves_with_twenty_book_capacity():

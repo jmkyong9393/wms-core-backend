@@ -1,7 +1,7 @@
 CREATE TYPE standard_size AS ENUM ('A5', 'B5');
 CREATE TYPE inbound_type AS ENUM ('NEW_STOCK', 'USED_PURCHASE', 'CUSTOMER_RETURN');
 CREATE TYPE inbound_status AS ENUM ('RECEIVED', 'CHECKING', 'COMPLETED');
-CREATE TYPE condition_grade AS ENUM ('NEW', 'MINT', 'EXCELLENT', 'NORMAL', 'REJECT');
+CREATE TYPE condition_grade AS ENUM ('MINT', 'EXCELLENT', 'NORMAL', 'REJECT');
 CREATE TYPE book_category AS ENUM (
     'COMIC',
     'STUDY_GUIDE',
@@ -139,9 +139,15 @@ CREATE TABLE orders (
     total_price DECIMAL(12, 2) NOT NULL,
     status order_status NOT NULL,
     logistics_center VARCHAR,
+    waybill_number VARCHAR(100),
+    shipping_carrier VARCHAR(50),
+    shipped_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE UNIQUE INDEX ix_orders_waybill_number
+    ON orders(waybill_number);
 
 CREATE TABLE order_items (
     id UUID PRIMARY KEY,
@@ -155,6 +161,25 @@ CREATE TABLE order_items (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE order_item_inventory_allocations (
+    id UUID PRIMARY KEY,
+    order_item_id UUID NOT NULL REFERENCES order_items(id),
+    inventory_id UUID NOT NULL REFERENCES inventory(id),
+    quantity INTEGER NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_order_item_inventory_allocation
+        UNIQUE (order_item_id, inventory_id),
+    CONSTRAINT ck_order_item_inventory_allocation_quantity_positive
+        CHECK (quantity > 0)
+);
+
+CREATE INDEX ix_order_item_inventory_allocations_order_item_id
+    ON order_item_inventory_allocations(order_item_id);
+
+CREATE INDEX ix_order_item_inventory_allocations_inventory_id
+    ON order_item_inventory_allocations(inventory_id);
 
 CREATE TABLE order_item_lpn_allocations (
     id UUID PRIMARY KEY,
@@ -216,7 +241,7 @@ CREATE TABLE inventory_logs (
     id UUID PRIMARY KEY,
     transaction_type inventory_transaction_type NOT NULL,
     book_id UUID NOT NULL REFERENCES books(id),
-    condition_grade condition_grade NOT NULL,
+    condition_grade condition_grade,
     quantity_change INTEGER NOT NULL,
     target_lpn VARCHAR,
     picked_location VARCHAR,

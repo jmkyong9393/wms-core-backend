@@ -48,7 +48,7 @@ def admit_new_stock(
         session=session,
         inbound_item=inbound_item,
         location=location,
-        grade=ConditionGrade.NEW,
+        grade=None,
     )
     _increase_virtual_stock(session, book.id, inbound_item.quantity, now)
     session.flush()
@@ -60,7 +60,7 @@ def admit_used_stock(
     inbound_item: InboundItem,
     return_job: ReturnJob,
     location: Location,
-    grade: ConditionGrade,
+    grade: ConditionGrade | None,
 ) -> InventoryUsedItem:
     if inbound_item.lpn_barcode is None:
         raise RuntimeError("Inbound item does not have an LPN barcode")

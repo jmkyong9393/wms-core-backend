@@ -5,7 +5,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.wms import (
     BookCategory,
-    ConditionGrade,
     InboundStatus,
     InboundType,
     StandardSize,
@@ -23,6 +22,7 @@ class NewStockInboundRequest(BaseModel):
                 "base_price": "15000.00",
                 "standard_size": "A5",
                 "thickness_mm": 20,
+                "quantity": 10,
                 "supplier_name": "교보문고",
             }
         }
@@ -46,6 +46,10 @@ class NewStockInboundRequest(BaseModel):
         gt=0,
         description="도서 두께(mm)",
     )
+    quantity: int = Field(
+        gt=0,
+        description="이번에 입고할 동일 ISBN 신간 수량",
+    )
     supplier_name: str | None = Field(
         default=None,
         description="신간 공급처명",
@@ -54,13 +58,11 @@ class NewStockInboundRequest(BaseModel):
 
 class NewStockInboundResponse(BaseModel):
     inbound_id: UUID = Field(description="생성된 신간 입고 작업 ID")
-    inbound_item_id: UUID = Field(description="물리 도서 1권의 입고 품목 ID")
+    inbound_item_id: UUID = Field(description="이번 신간 입고 품목 ID")
     inbound_type: InboundType = Field(description="NEW_STOCK 입고 유형")
     status: InboundStatus = Field(description="입고 작업 상태")
     book_id: UUID = Field(description="도서 마스터 ID")
-    condition_grade: ConditionGrade = Field(description="신간 고정 등급 NEW")
-    lpn_barcode: str = Field(description="신간 단품 추적 LPN")
-    certificate_url: str = Field(description="LPN 라벨 QR에 인코딩할 공개 URL")
+    received_quantity: int = Field(description="이번 요청으로 입고된 신간 수량")
     location_id: UUID = Field(description="정책으로 확정된 적재 로케이션 ID")
     location_barcode: str = Field(description="정책으로 확정된 적재 로케이션 바코드")
     inventory_id: UUID = Field(description="즉시 편입된 신간 묶음 재고 ID")

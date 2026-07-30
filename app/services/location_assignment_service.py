@@ -6,7 +6,7 @@ from app.domain.warehouse_location_policy import (
     SHELF_COUNT_PER_RACK,
     build_location_barcode,
     rack_for_category,
-    zone_for_grade,
+    zone_for_used_grade,
 )
 from app.models.wms import (
     Book,
@@ -24,15 +24,57 @@ class NoAvailableLocationError(Exception):
     pass
 
 
-def assign_inventory_location(
+NEW_STOCK_ZONE = "A"
+
+
+def assign_new_stock_location(
+    session: Session,
+    book: Book,
+) -> Location:
+    rack = rack_for_category(book.category)
+    _lock_zone_rack(session, NEW_STOCK_ZONE, rack)
+
+    existing_location = session.exec(
+        select(Location)
+        .join(Inventory, Inventory.location_id == Location.id)
+        .where(
+            Inventory.book_id == book.id,
+            Location.zone == NEW_STOCK_ZONE,
+            Location.is_active.is_(True),
+        )
+        .order_by(Inventory.created_at, Inventory.id)
+        .with_for_update(of=Inventory)
+    ).first()
+    if existing_location is not None:
+        return existing_location
+
+    return _assign_available_location(
+        session=session,
+        zone=NEW_STOCK_ZONE,
+        rack=rack,
+    )
+
+
+def assign_graded_inventory_location(
     session: Session,
     book: Book,
     grade: ConditionGrade,
 ) -> Location:
-    zone = zone_for_grade(grade)
+    zone = zone_for_used_grade(grade)
     rack = rack_for_category(book.category)
     _lock_zone_rack(session, zone, rack)
+    return _assign_available_location(
+        session=session,
+        zone=zone,
+        rack=rack,
+    )
 
+
+def _assign_available_location(
+    session: Session,
+    zone: str,
+    rack: str,
+) -> Location:
     shelf_locations: dict[str, Location] = {}
     shelf_occupancies: dict[str, int] = {}
     for shelf_number in range(1, SHELF_COUNT_PER_RACK + 1):

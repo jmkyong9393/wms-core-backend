@@ -26,7 +26,7 @@ from app.schemas.hitl import HITLReasonCode
 from app.schemas.inspection_inventory import RejectionDisposition
 from app.services.location_assignment_service import (
     NoAvailableLocationError,
-    assign_inventory_location,
+    assign_graded_inventory_location,
 )
 from app.services.inventory_admission_service import (
     admit_rejected_item,
@@ -180,7 +180,7 @@ def apply_inspected_item_result(
         )
 
     try:
-        location = assign_inventory_location(
+        location = assign_graded_inventory_location(
             session=session,
             book=book,
             grade=condition_grade,
@@ -252,7 +252,7 @@ def _resolve_condition_grade(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Approved inspection cannot use rejection disposition",
         )
-    if final_grade in {ConditionGrade.NEW, ConditionGrade.REJECT}:
+    if final_grade == ConditionGrade.REJECT:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Approved inspection requires a sellable used grade",

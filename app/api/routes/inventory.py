@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List
+from typing import List, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
@@ -21,7 +21,12 @@ class InventoryBookResponse(BaseModel):
 class InventoryListItemResponse(BaseModel):
     id: UUID = Field(description="묶음 재고 또는 중고 단품 재고 ID")
     book: InventoryBookResponse = Field(description="재고 도서 정보")
-    grade: ConditionGrade = Field(description="재고의 상태 등급")
+    stock_type: Literal["NEW_STOCK", "USED_ITEM"] = Field(
+        description="신간 묶음 재고 또는 중고·반품 단품 재고 구분",
+    )
+    grade: ConditionGrade | None = Field(
+        description="중고·반품 품질 등급. 신간은 null",
+    )
     zone: str = Field(description="재고가 보관된 로케이션")
     quantity: int = Field(
         description="재고 수량. 중고 단품 재고는 항상 1",
@@ -77,7 +82,8 @@ def list_inventory(session: Session = Depends(get_session)):
             InventoryListItemResponse(
                 id=inventory.id,
                 book=InventoryBookResponse(title=book.title, isbn=book.isbn),
-                grade=ConditionGrade.NEW,
+                stock_type="NEW_STOCK",
+                grade=None,
                 zone=_format_location(location),
                 quantity=inventory.quantity,
                 date=inventory.updated_at,
@@ -89,6 +95,7 @@ def list_inventory(session: Session = Depends(get_session)):
             InventoryListItemResponse(
                 id=used_item.id,
                 book=InventoryBookResponse(title=book.title, isbn=book.isbn),
+                stock_type="USED_ITEM",
                 grade=used_item.condition_grade,
                 zone=_format_location(location),
                 quantity=1,

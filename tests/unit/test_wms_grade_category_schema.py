@@ -8,9 +8,8 @@ from app.models.wms import (
 )
 
 
-def test_condition_grade_includes_new_without_changing_used_grades():
+def test_condition_grade_contains_only_used_book_quality_grades():
     assert [grade.value for grade in ConditionGrade] == [
-        "NEW",
         "MINT",
         "EXCELLENT",
         "NORMAL",
@@ -33,7 +32,7 @@ def test_book_category_uses_fixed_internal_values():
     ]
 
 
-def test_new_book_and_inbound_item_store_category_and_grade():
+def test_new_book_inbound_item_does_not_require_condition_grade():
     book = Book(
         title="신간 소설",
         category=BookCategory.NOVEL,
@@ -42,8 +41,7 @@ def test_new_book_and_inbound_item_store_category_and_grade():
         inbound_job_id=uuid4(),
         book_id=book.id,
         quantity=1,
-        condition_grade=ConditionGrade.NEW,
     )
 
     assert book.category == BookCategory.NOVEL
-    assert inbound_item.condition_grade == ConditionGrade.NEW
+    assert inbound_item.condition_grade is None

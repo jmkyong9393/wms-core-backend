@@ -3,7 +3,6 @@ from uuid import uuid4
 
 from app.models.wms import (
     BookCategory,
-    ConditionGrade,
     InboundStatus,
     InboundType,
 )
@@ -13,37 +12,38 @@ from app.schemas.new_stock_inbound import (
 )
 
 
-def test_new_stock_request_is_single_book_without_location_or_quantity():
+def test_new_stock_request_accepts_isbn_quantity_without_location():
     request = NewStockInboundRequest(
         isbn="9788912345678",
         title="신간 소설",
         category=BookCategory.NOVEL,
         base_price=Decimal("15000.00"),
+        quantity=10,
         supplier_name="교보문고",
     )
 
     assert request.isbn == "9788912345678"
     assert request.category == BookCategory.NOVEL
-    assert "quantity" not in NewStockInboundRequest.model_fields
+    assert request.quantity == 10
     assert "location_barcode" not in NewStockInboundRequest.model_fields
 
 
-def test_new_stock_response_exposes_lpn_and_assigned_location():
+def test_new_stock_response_exposes_quantity_and_assigned_location():
     response = NewStockInboundResponse(
         inbound_id=uuid4(),
         inbound_item_id=uuid4(),
         inbound_type=InboundType.NEW_STOCK,
         status=InboundStatus.RECEIVED,
         book_id=uuid4(),
-        condition_grade=ConditionGrade.NEW,
-        lpn_barcode="LPN-TEST-NEW",
-        certificate_url="https://wms.example.com/certificate/token",
+        received_quantity=10,
         location_id=uuid4(),
         location_barcode="A-3-1",
         inventory_id=uuid4(),
-        inventory_quantity=1,
+        inventory_quantity=10,
     )
 
-    assert response.condition_grade == ConditionGrade.NEW
-    assert response.inventory_quantity == 1
+    assert response.received_quantity == 10
+    assert response.inventory_quantity == 10
+    assert "lpn_barcode" not in NewStockInboundResponse.model_fields
+    assert "condition_grade" not in NewStockInboundResponse.model_fields
     assert response.location_barcode == "A-3-1"
