@@ -2,14 +2,18 @@ import logging
 from typing import Any
 from uuid import UUID, uuid4
 
-
+from sqlmodel import Session
 from app.core.celery_app import celery_app
+from app.core.database import engine
+
 from app.models.wms import (
+    Book,
     NotificationCategory,
     NotificationSeverity,
     ReturnJob,
     ReturnJobStatus,
 )
+
 from app.services.notification_service import (
     create_committed_notification_for_tenant,
 )
@@ -29,19 +33,19 @@ from app.services.return_job_service import (
     save_wms_processing_failed,
     save_wms_task_id,
 )
-
 from app.services.wms_client import (
     WMSRetryableError,
     WMSNonRetryableError,
     call_wms_inspection_result_api,
 )
-
+from app.services.restock_service import (create_restock_proposal_for_rejected_job,)
 from app.services.dlq_service import push_inspection_failure_to_dlq
 
 logger = logging.getLogger(__name__)
 
 TASK_NAME = "app.worker.process_inspection"
 WMS_TASK_NAME = "app.worker.process_wms_action"
+RESTOCK_PROPOSAL_TASK_NAME = ("app.worker.process_restock_proposal")
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 5
 
@@ -384,7 +388,191 @@ def handle_inspection_failure(
         retry_count=retry_count,
     )
 
-    
+def dispatch_restock_proposal_task_safely(
+    return_job: ReturnJob,
+) -> None:
+    """
+    최종 반려된 검수 작업에 대해 Restock 추천안 생성 Task를 등록한다.
+
+    중복 등록되더라도 order_proposals.return_job_id 유니크 제약과
+    서비스의 기존 추천안 조회로 실제 추천안은 한 번만 생성된다.
+    """
+    if return_job.status != ReturnJobStatus.REJECTED:
+        return
+
+    restock_task_id = str(uuid4())
+
+    try:
+        celery_app.send_task(
+            RESTOCK_PROPOSAL_TASK_NAME,
+            args=[str(return_job.id)],
+            task_id=restock_task_id,
+        )
+
+        logger.info(
+            "Restock proposal task queued. "
+            "restock_task_id=%s return_job_id=%s",
+            restock_task_id,
+            return_job.id,
+        )
+
+    except Exception:
+        # Restock 추천 생성 실패가 이미 완료된 WMS 반려 처리를
+        # FAILED로 바꾸지 않도록 로그만 남긴다.
+        logger.exception(
+            "Restock proposal task dispatch failed. "
+            "return_job_id=%s",
+            return_job.id,
+        )
+
+
+@celery_app.task(
+    bind=True,
+    name=RESTOCK_PROPOSAL_TASK_NAME,
+    max_retries=MAX_RETRIES,
+    default_retry_delay=RETRY_DELAY_SECONDS,
+)
+def process_restock_proposal(
+    self,
+    return_job_id: str,
+) -> dict[str, Any]:
+    """
+    최종 반려된 검수 건의 대체 발주 추천안을 생성한다.
+
+    1. 반려 작업 기준 판매량·가용 재고·반려 수량 조회
+    2. Restock Agent 호출
+    3. OrderProposal 저장
+    4. 관리자 RESTOCK_ALERT 알림 저장 및 SSE 발행
+    """
+    job_id = UUID(return_job_id)
+    task_id = self.request.id
+
+    try:
+        with Session(engine) as session:
+            result = create_restock_proposal_for_rejected_job(
+                session=session,
+                return_job_id=job_id,
+            )
+
+            if result.generation_in_progress:
+                logger.warning(
+                    "Restock Agent generation is in progress. "
+                    "task_id=%s return_job_id=%s",
+                    task_id,
+                    job_id,
+                )
+
+                return {
+                    "task_id": task_id,
+                    "return_job_id": str(job_id),
+                    "created": False,
+                    "generation_in_progress": True,
+                }
+
+            proposal = result.proposal
+            if proposal is None:
+                raise RuntimeError(
+                    "Restock proposal result does not include a proposal."
+                )
+
+            if not result.created:
+                logger.info(
+                    "Restock proposal already exists. "
+                    "task_id=%s return_job_id=%s proposal_id=%s",
+                    task_id,
+                    job_id,
+                    proposal.id,
+                )
+                return {
+                    "task_id": task_id,
+                    "return_job_id": str(job_id),
+                    "proposal_id": str(proposal.id),
+                    "created": False,
+                }
+
+            if proposal.recommended_order_quantity <= 0:
+                logger.info(
+                    "Restock proposal requires no additional order. "
+                    "notification skipped. task_id=%s return_job_id=%s "
+                    "proposal_id=%s",
+                    task_id,
+                    job_id,
+                    proposal.id,
+                )
+
+                return {
+                    "task_id": task_id,
+                    "return_job_id": str(job_id),
+                    "proposal_id": str(proposal.id),
+                    "created": True,
+                    "notification_published": False,
+                }
+
+            book = session.get(Book, proposal.book_id)
+            book_title = book.title if book is not None else str(
+                proposal.book_id
+            )
+
+        tenant_id, event = create_committed_notification_for_tenant(
+            tenant_id=proposal.tenant_id,
+            category=NotificationCategory.RESTOCK_ALERT,
+            severity=NotificationSeverity(proposal.risk_level),
+            title="반려 도서 대체 발주 추천 생성",
+            message=(
+                f"'{book_title}' 반려 건에 대한 대체 발주 추천이 "
+                f"생성되었습니다. 추천 수량: "
+                f"{proposal.recommended_order_quantity}권"
+            ),
+            payload={
+                "order_proposal_id": str(proposal.id),
+                "return_job_id": str(job_id),
+                "book_id": str(proposal.book_id),
+                "recommended_order_quantity": (
+                    proposal.recommended_order_quantity
+                ),
+                "risk_level": proposal.risk_level,
+            },
+        )
+
+        publish_event_safely(
+            event_name="RESTOCK_ALERT",
+            publish_function=publish_tenant_notification_event,
+            tenant_id=tenant_id,
+            event=event,
+        )
+
+        logger.info(
+            "Restock proposal created. "
+            "task_id=%s return_job_id=%s proposal_id=%s",
+            task_id,
+            job_id,
+            proposal.id,
+        )
+
+        return {
+            "task_id": task_id,
+            "return_job_id": str(job_id),
+            "proposal_id": str(proposal.id),
+            "created": True,
+            "notification_published": True,
+        }
+
+    except Exception as error:
+        logger.exception(
+            "Restock proposal processing failed. "
+            "task_id=%s return_job_id=%s error=%s",
+            task_id,
+            job_id,
+            error,
+        )
+
+        if self.request.retries < self.max_retries:
+            raise self.retry(
+                exc=error,
+                countdown=RETRY_DELAY_SECONDS,
+            )
+
+        raise
 
 
 # DB에 저장된 AI 판정 결과를 바탕으로 WMS 승인/반려 API만 실행하는 Celery 작업
@@ -441,6 +629,10 @@ def process_wms_action(
             publish_function=publish_final_event,
             job=job,
             task_id=task_id,
+        )
+
+        dispatch_restock_proposal_task_safely(
+            return_job=job,
         )
 
         logger.info(
@@ -798,5 +990,6 @@ def process_inspection(
             error=error,
             retry_count=self.request.retries,
         )
-
+        
         raise
+
