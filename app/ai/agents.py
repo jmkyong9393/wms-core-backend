@@ -1,7 +1,10 @@
 import json
 from langchain_core.messages import AIMessage
 from .state import WMSInspectionState
-
+from .rag.critic_cases import (
+    CRITIC_PROMPT_VERSION,
+    evaluate_with_precedents,
+)
 
 MIN_VISION_CONFIDENCE = 0.80
 MIN_POLICY_CONFIDENCE = 0.75
@@ -115,24 +118,46 @@ def critic_agent(state: WMSInspectionState) -> WMSInspectionState:
     - 핵심: 검증 실패 시 Policy로 되돌려보냅니다. 여러 번 실패할 경우 HITL(수동 개입)으로 에스컬레이션합니다.
     - 출력: reason_code ("OK", "REJECT"), revision_count 증가
     """
-    print("[Agent] Critic Agent 스켈레톤 로직 실행...")
+    print("[Agent] Critic Agent 실행...")
 
-    revision_count = state.get("revision_count", 0)
+    raw_revision_count = state.get(
+        "revision_count",
+        0,
+    )
+    revision_count_is_valid = (
+        type(raw_revision_count) is int
+        and raw_revision_count >= 0
+    )
+    revision_count = (
+        raw_revision_count
+        if revision_count_is_valid
+        else 0
+    )
+
     is_mint = state.get("is_mint")
     defects = state.get("defects")
-    vision_confidence = state.get("vision_confidence")
+    vision_confidence = state.get(
+        "vision_confidence"
+    )
     ubci_score = state.get("ubci_score")
-    rule_reference = state.get("rule_reference")
-    policy_confidence = state.get("policy_confidence")
+    rule_reference = state.get(
+        "rule_reference"
+    )
+    policy_confidence = state.get(
+        "policy_confidence"
+    )
+
     reason_code = "OK"
     repair_directive = None
     overall_confidence = None
 
     # revision_count 타입 검증
-    raw_revision_count = state.get("revision_count", 0)
-    if type(raw_revision_count) is not int or raw_revision_count < 0:
+    if not revision_count_is_valid:
         reason_code = "QUALITY_ERROR"
-        repair_directive = "revision_count는 0 이상의 정수여야 합니다."
+        repair_directive = (
+            "revision_count는 0 이상의 "
+            "정수여야 합니다."
+        )
 
     # Vision 출력 타입 검증
     elif type(is_mint) is not bool:
@@ -183,9 +208,12 @@ def critic_agent(state: WMSInspectionState) -> WMSInspectionState:
         repair_directive = "Vision 판정 신뢰도가 기준보다 낮습니다."
 
     # UBCI 점수 검증
-    elif reason_code == "OK" and (type(ubci_score) is not int or not 0 <= ubci_score <= 100):
+    elif reason_code == "OK" and (
+        type(ubci_score) not in (int, float)
+        or not 0 <= ubci_score <= 100
+    ):
         reason_code = "UBCI_POLICY_VIOLATION"
-        repair_directive = "ubci_score는 0~100 범위의 정수여야 합니다."
+        repair_directive = "ubci_score는 0~100 범위의 숫자여야 합니다."
 
     # 정책 근거 검증
     elif reason_code == "OK" and (type(rule_reference) is not str or not rule_reference.strip()):
@@ -197,23 +225,76 @@ def critic_agent(state: WMSInspectionState) -> WMSInspectionState:
         reason_code = "UBCI_POLICY_VIOLATION"
         repair_directive = "policy_confidence는 0~1 범위의 숫자여야 합니다."
 
-    elif reason_code == "OK" and policy_confidence < MIN_POLICY_CONFIDENCE:
+    elif (
+        reason_code == "OK"
+        and policy_confidence
+        < MIN_POLICY_CONFIDENCE
+    ):
         reason_code = "POLICY_LOW_CONFIDENCE"
-        repair_directive = "Policy 검색 및 계산 신뢰도가 기준보다 낮습니다."
+        repair_directive = (
+            "Policy 검색 및 계산 신뢰도가 기준보다 낮습니다."
+        )
+
+    # RAG 미실행 기본 결과
+    rag_result = {
+        "reason_code": reason_code,
+        "repair_directive": repair_directive,
+        "critic_rag_used": False,
+        "critic_retrieved_case_ids": [],
+        "critic_retrieval_scores": [],
+        "critic_retrieval_count": 0,
+        "critic_decision_source": "RULE_ONLY",
+        "critic_explanation": (
+            "규칙 검증에서 오류가 발견되어 "
+            "판례 검색을 실행하지 않았습니다."
+        ),
+        "critic_rag_confidence": None,
+        "critic_prompt_version": (
+            CRITIC_PROMPT_VERSION
+        ),
+    }
 
     if reason_code == "OK":
-        overall_confidence = min(vision_confidence, policy_confidence)
+        overall_confidence = min(
+            vision_confidence,
+            policy_confidence,
+        )
+
+        # 기본 규칙 통과 후 판례 RAG 실행
+        rag_result = evaluate_with_precedents(
+            state
+        )
+
+        if rag_result["reason_code"] != "OK":
+            reason_code = rag_result[
+                "reason_code"
+            ]
+            repair_directive = rag_result[
+                "repair_directive"
+            ]
+            overall_confidence = None
+            revision_count += 1
+
     else:
         revision_count += 1
 
     return {
+        **rag_result,
         "reason_code": reason_code,
         "repair_directive": repair_directive,
         "revision_count": revision_count,
-        "overall_confidence": overall_confidence,
+        "overall_confidence": (
+            overall_confidence
+        ),
         "final_report": None,
         "messages": [
-            AIMessage(content=f"[Critic Agent] 검증 결과 - {reason_code}")
+            AIMessage(
+                content=(
+                    "[Critic Agent] 검증 결과 - "
+                    f"{reason_code} / "
+                    f"{rag_result['critic_decision_source']}"
+                )
+            )
         ],
     }
 
