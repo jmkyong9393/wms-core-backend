@@ -73,6 +73,7 @@ CREATE TABLE inbound_items (
     id UUID PRIMARY KEY,
     inbound_job_id UUID NOT NULL REFERENCES inbound_jobs(id),
     book_id UUID NOT NULL REFERENCES books(id),
+    location_id UUID,
     quantity INTEGER NOT NULL,
     lpn_barcode VARCHAR UNIQUE,
     certificate_token VARCHAR UNIQUE,
@@ -98,6 +99,10 @@ CREATE TABLE locations (
     CONSTRAINT ck_locations_barcode_components
         CHECK (barcode = zone || '-' || rack || '-' || shelf)
 );
+
+ALTER TABLE inbound_items
+    ADD CONSTRAINT inbound_items_location_id_fkey
+    FOREIGN KEY (location_id) REFERENCES locations(id);
 
 CREATE TABLE inventory (
     id UUID PRIMARY KEY,

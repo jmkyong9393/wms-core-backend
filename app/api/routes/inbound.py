@@ -120,7 +120,7 @@ def create_new_stock_inbound(
                 raise RuntimeError(
                     "Existing new stock intake is missing lifecycle records"
                 )
-            existing_inventory_row = session.exec(
+            existing_inventory_query = (
                 select(Inventory, Location)
                 .join(Location, Inventory.location_id == Location.id)
                 .where(
@@ -128,7 +128,16 @@ def create_new_stock_inbound(
                     Location.zone == "A",
                     Location.is_active.is_(True),
                 )
-                .order_by(Inventory.created_at, Inventory.id)
+            )
+            if existing_item.location_id is not None:
+                existing_inventory_query = existing_inventory_query.where(
+                    Inventory.location_id == existing_item.location_id,
+                )
+            existing_inventory_row = session.exec(
+                existing_inventory_query.order_by(
+                    Inventory.created_at,
+                    Inventory.id,
+                )
             ).first()
             if existing_inventory_row is None:
                 raise RuntimeError("Existing new stock inventory was not found")
@@ -189,7 +198,10 @@ def create_new_stock_inbound(
         location = assign_new_stock_location(
             session=session,
             book=book,
+            quantity=request.quantity,
         )
+        inbound_item.location_id = location.id
+        session.add(inbound_item)
         inventory = admit_new_stock(
             session=session,
             inbound_item=inbound_item,

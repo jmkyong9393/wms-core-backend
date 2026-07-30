@@ -30,11 +30,17 @@ NEW_STOCK_ZONE = "A"
 def assign_new_stock_location(
     session: Session,
     book: Book,
+    quantity: int,
 ) -> Location:
+    if quantity > SHELF_CAPACITY:
+        raise NoAvailableLocationError(
+            f"New stock intake quantity exceeds shelf capacity {SHELF_CAPACITY}"
+        )
+
     rack = rack_for_category(book.category)
     _lock_zone_rack(session, NEW_STOCK_ZONE, rack)
 
-    existing_location = session.exec(
+    existing_locations = session.exec(
         select(Location)
         .join(Inventory, Inventory.location_id == Location.id)
         .where(
@@ -44,14 +50,20 @@ def assign_new_stock_location(
         )
         .order_by(Inventory.created_at, Inventory.id)
         .with_for_update(of=Inventory)
-    ).first()
-    if existing_location is not None:
-        return existing_location
+    ).all()
+    for existing_location in existing_locations:
+        occupancy = _count_location_occupancy(
+            session=session,
+            location=existing_location,
+        )
+        if occupancy + quantity <= SHELF_CAPACITY:
+            return existing_location
 
     return _assign_available_location(
         session=session,
         zone=NEW_STOCK_ZONE,
         rack=rack,
+        required_capacity=quantity,
     )
 
 
@@ -67,6 +79,7 @@ def assign_graded_inventory_location(
         session=session,
         zone=zone,
         rack=rack,
+        required_capacity=1,
     )
 
 
@@ -74,6 +87,7 @@ def _assign_available_location(
     session: Session,
     zone: str,
     rack: str,
+    required_capacity: int,
 ) -> Location:
     shelf_locations: dict[str, Location] = {}
     shelf_occupancies: dict[str, int] = {}
@@ -89,7 +103,10 @@ def _assign_available_location(
             location=location,
         )
 
-    selected_shelf = _select_first_available_shelf(shelf_occupancies)
+    selected_shelf = _select_first_available_shelf(
+        shelf_occupancies,
+        required_capacity,
+    )
     if selected_shelf is None:
         raise NoAvailableLocationError(
             f"No available shelf for warehouse zone {zone}, rack {rack}"
@@ -177,12 +194,13 @@ def _count_location_occupancy(
 
 def _select_first_available_shelf(
     shelf_occupancies: dict[str, int],
+    required_capacity: int,
 ) -> str | None:
     for shelf_number in range(1, SHELF_COUNT_PER_RACK + 1):
         shelf = str(shelf_number)
         if (
             shelf in shelf_occupancies
-            and shelf_occupancies[shelf] < SHELF_CAPACITY
+            and shelf_occupancies[shelf] + required_capacity <= SHELF_CAPACITY
         ):
             return shelf
     return None

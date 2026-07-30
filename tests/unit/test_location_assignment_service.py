@@ -10,7 +10,10 @@ def test_selects_first_shelf_with_remaining_capacity():
         "3": 0,
     }
 
-    assert _select_first_available_shelf(occupancies) == "2"
+    assert (
+        _select_first_available_shelf(occupancies, required_capacity=1)
+        == "2"
+    )
 
 
 def test_reuses_earlier_shelf_after_stock_leaves():
@@ -20,7 +23,10 @@ def test_reuses_earlier_shelf_after_stock_leaves():
         "3": 0,
     }
 
-    assert _select_first_available_shelf(occupancies) == "1"
+    assert (
+        _select_first_available_shelf(occupancies, required_capacity=1)
+        == "1"
+    )
 
 
 def test_does_not_compact_stock_from_later_shelves():
@@ -30,7 +36,10 @@ def test_does_not_compact_stock_from_later_shelves():
         "3": 0,
     }
 
-    assert _select_first_available_shelf(occupancies) == "2"
+    assert (
+        _select_first_available_shelf(occupancies, required_capacity=1)
+        == "2"
+    )
 
 
 def test_returns_none_when_every_shelf_is_full():
@@ -39,7 +48,10 @@ def test_returns_none_when_every_shelf_is_full():
         for shelf in range(1, 11)
     }
 
-    assert _select_first_available_shelf(occupancies) is None
+    assert (
+        _select_first_available_shelf(occupancies, required_capacity=1)
+        is None
+    )
 
 
 def test_skips_inactive_or_unavailable_shelf_entries():
@@ -48,4 +60,32 @@ def test_skips_inactive_or_unavailable_shelf_entries():
         "3": 0,
     }
 
-    assert _select_first_available_shelf(occupancies) == "2"
+    assert (
+        _select_first_available_shelf(occupancies, required_capacity=1)
+        == "2"
+    )
+
+
+def test_selects_first_shelf_that_fits_entire_inbound_batch():
+    occupancies = {
+        "1": 17,
+        "2": 18,
+        "3": 0,
+    }
+
+    assert (
+        _select_first_available_shelf(occupancies, required_capacity=5)
+        == "3"
+    )
+
+
+def test_returns_none_instead_of_splitting_inbound_batch():
+    occupancies = {
+        str(shelf): 16
+        for shelf in range(1, 11)
+    }
+
+    assert (
+        _select_first_available_shelf(occupancies, required_capacity=5)
+        is None
+    )
