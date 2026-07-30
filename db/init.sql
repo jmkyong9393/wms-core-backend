@@ -16,6 +16,12 @@ CREATE TYPE book_category AS ENUM (
 );
 CREATE TYPE order_type AS ENUM ('B2B_ORDER', 'AUTO_PO');
 CREATE TYPE order_status AS ENUM ('PENDING', 'PICKING', 'SHIPPED', 'RETURN_REQUESTED');
+CREATE TYPE orderproposalstatus AS ENUM (
+    'PENDING',
+    'APPROVED',
+    'REJECTED',
+    'NOT_REQUIRED'
+);
 CREATE TYPE return_job_status AS ENUM ('PENDING', 'PROCESSING', 'APPROVED', 'REJECTED', 'HITL_REQUIRED', 'RECHECK_REQUIRED', 'FAILED');
 CREATE TYPE inspection_mode AS ENUM ('RETURN', 'USED_PURCHASE');
 CREATE TYPE inventory_transaction_type AS ENUM ('INBOUND', 'OUTBOUND', 'RETURN_RESTOCK', 'DISCARD');
@@ -297,6 +303,50 @@ CREATE TABLE users (
 CREATE INDEX ix_users_tenant_id ON users(tenant_id);
 CREATE UNIQUE INDEX ix_users_employee_id ON users(employee_id);
 CREATE UNIQUE INDEX ix_users_email ON users(email);
+
+CREATE TABLE order_proposals (
+    id UUID PRIMARY KEY,
+    tenant_id UUID NOT NULL REFERENCES tenants(id),
+    book_id UUID NOT NULL REFERENCES books(id),
+    return_job_id UUID NOT NULL REFERENCES return_jobs(id),
+    recent_sales_quantity INTEGER NOT NULL,
+    current_stock INTEGER NOT NULL,
+    pending_auto_po_quantity INTEGER NOT NULL DEFAULT 0,
+    rejected_quantity INTEGER NOT NULL,
+    rejection_reason_code VARCHAR NOT NULL,
+    recommended_order_quantity INTEGER NOT NULL,
+    reason_summary VARCHAR NOT NULL,
+    evidence JSONB NOT NULL,
+    risk_level VARCHAR NOT NULL,
+    status orderproposalstatus NOT NULL,
+    auto_po_order_id UUID REFERENCES orders(id),
+    reviewer_id UUID REFERENCES users(id),
+    reviewed_at TIMESTAMP,
+    review_comment VARCHAR(1000),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_order_proposals_return_job UNIQUE (return_job_id),
+    CONSTRAINT ck_order_proposals_pending_auto_po_nonnegative
+        CHECK (pending_auto_po_quantity >= 0)
+);
+
+CREATE INDEX ix_order_proposals_tenant_id
+    ON order_proposals(tenant_id);
+
+CREATE INDEX ix_order_proposals_book_id
+    ON order_proposals(book_id);
+
+CREATE INDEX ix_order_proposals_return_job_id
+    ON order_proposals(return_job_id);
+
+CREATE INDEX ix_order_proposals_status
+    ON order_proposals(status);
+
+CREATE INDEX ix_order_proposals_auto_po_order_id
+    ON order_proposals(auto_po_order_id);
+
+CREATE INDEX ix_order_proposals_reviewer_id
+    ON order_proposals(reviewer_id);
 
 CREATE TABLE notifications (
     id UUID PRIMARY KEY,
