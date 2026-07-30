@@ -295,7 +295,7 @@ def create_picking_instruction(
                             order_item_id=order_item.id,
                             book_id=inventory.book_id,
                             quantity=reserved_quantity,
-                            condition_grade=ConditionGrade.MINT,
+                            condition_grade=None,
                         ),
                     )
                 )
@@ -473,7 +473,7 @@ def confirm_shipment(
                 InventoryLog(
                     transaction_type=InventoryTransactionType.OUTBOUND,
                     book_id=inventory.book_id,
-                    condition_grade=ConditionGrade.MINT,
+                    condition_grade=None,
                     quantity_change=-allocation.quantity,
                     picked_location=picked_location,
                 )

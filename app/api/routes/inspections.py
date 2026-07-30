@@ -22,7 +22,6 @@ from app.models.wms import (
     InboundStatus,
     InboundType,
     InspectionMode,
-    Location,
     ReturnJob,
     ReturnJobStatus,
     User,
@@ -43,6 +42,10 @@ from app.services.hitl_task_service import (
     create_hitl_task_id,
     dispatch_hitl_followup_task,
 )
+from app.services.inspection_image_service import (
+    InspectionImageValidationError,
+    normalize_cloudfront_image_urls,
+)
 from app.services.inspection_task_service import enqueue_inspection
 from app.services.sse_ticket_service import issue_sse_ticket
 from app.services.redis_pubsub import publish_return_job_event
@@ -60,8 +63,25 @@ class CreateInspectionRequest(BaseModel):
     inbound_item_id: UUID
     book_id: UUID
     mode: InspectionMode
-    location_barcode: str = Field(min_length=1)
-    image_paths: list[str] = Field(min_length=1)
+    image_paths: list[str] = Field(
+        min_length=1,
+        description=(
+            "S3 업로드 완료 후 조회 가능한 CloudFront 이미지 URL 목록. "
+            "도서 한 권의 대표·측면·내지·결함 이미지를 촬영 순서대로 전달합니다."
+        ),
+        examples=[
+            [
+                (
+                    "https://d3j61tpuly7r0p.cloudfront.net/"
+                    "uploads/cover.jpg"
+                ),
+                (
+                    "https://d3j61tpuly7r0p.cloudfront.net/"
+                    "uploads/inside-1.jpg"
+                ),
+            ]
+        ],
+    )
 
 
 class CreateInspectionResponse(BaseModel):
@@ -79,6 +99,13 @@ class InspectionStatusResponse(BaseModel):
     ubci_score: float | None
     condition_grade: ConditionGrade | None
     final_report: str | None
+    original_image_urls: list[str] = Field(
+        default_factory=list,
+        description=(
+            "검수 또는 재검수 요청에 사용되어 DB에 저장된 "
+            "CloudFront 이미지 URL 목록"
+        ),
+    )
 
 class StreamTicketResponse(BaseModel):
     ticket: str
@@ -88,7 +115,23 @@ class StreamTicketResponse(BaseModel):
 class RecheckInspectionRequest(BaseModel):
     image_paths: list[str] = Field(
         min_length=1,
-        description="재촬영한 도서 이미지 경로 목록",
+        description=(
+            "S3 재업로드 완료 후 조회 가능한 CloudFront 이미지 URL 목록. "
+            "기존 검수 이미지를 대체할 대표·측면·내지·결함 이미지를 "
+            "촬영 순서대로 전달합니다."
+        ),
+        examples=[
+            [
+                (
+                    "https://d3j61tpuly7r0p.cloudfront.net/"
+                    "uploads/recheck-cover.jpg"
+                ),
+                (
+                    "https://d3j61tpuly7r0p.cloudfront.net/"
+                    "uploads/recheck-defect-1.jpg"
+                ),
+            ]
+        ],
     )
 
 class RecheckInspectionResponse(BaseModel):
@@ -122,12 +165,35 @@ def get_inspection_progress(
     "",
     response_model=CreateInspectionResponse,
     status_code=status.HTTP_202_ACCEPTED,
+    operation_id="createInspection",
+    summary="중고·반품 도서 AI 검수 요청",
+    description=(
+        "LPN이 발급된 입고 품목과 여러 CloudFront 이미지 URL을 검증하여 "
+        "검수 작업을 생성하고, Celery 비동기 AI 파이프라인에 등록합니다. "
+        "생성된 작업의 상태는 조회 API 또는 SSE로 확인할 수 있습니다."
+    ),
+    responses={
+        404: {"description": "입고 품목 또는 로케이션을 찾을 수 없음"},
+        409: {"description": "입고·검수 상태 또는 요청 정보가 충돌함"},
+        422: {"description": "CloudFront 이미지 URL 형식이 올바르지 않음"},
+        503: {"description": "검수 작업을 비동기 큐에 등록하지 못함"},
+    },
 )
 def create_inspection(
     request: CreateInspectionRequest,
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> CreateInspectionResponse:
+    try:
+        normalized_image_paths = normalize_cloudfront_image_urls(
+            request.image_paths
+        )
+    except InspectionImageValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
+
     inbound_item = session.exec(
         select(InboundItem)
         .where(InboundItem.id == request.inbound_item_id)
@@ -180,27 +246,12 @@ def create_inspection(
             detail="Inbound item already has an inspection job",
         )
 
-    location = session.exec(
-        select(Location).where(Location.barcode == request.location_barcode)
-    ).first()
-    if location is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Location barcode not found",
-        )
-    if not location.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Location is inactive",
-        )
-
     return_job = ReturnJob(
         tenant_id=current_user.tenant_id,
         book_id=request.book_id,
         inbound_item_id=inbound_item.id,
-        target_location_id=location.id,
         mode=request.mode,
-        image_paths=request.image_paths,
+        image_paths=normalized_image_paths,
         status=ReturnJobStatus.PENDING,
     )
 
@@ -238,6 +289,15 @@ def create_inspection(
 @router.get(
     "/{job_id}",
     response_model=InspectionStatusResponse,
+    operation_id="getInspectionStatus",
+    summary="AI 검수 상태 및 결과 조회",
+    description=(
+        "검수 작업의 진행 상태, 진행률, UBCI 점수, 품질 등급, "
+        "최종 리포트와 검수에 사용된 CloudFront 이미지 URL 목록을 조회합니다."
+    ),
+    responses={
+        404: {"description": "현재 사용자의 검수 작업을 찾을 수 없음"},
+    },
 )
 def get_inspection_status(
     job_id: UUID,
@@ -273,6 +333,10 @@ def get_inspection_status(
         ubci_score=return_job.ubci_score,
         condition_grade=return_job.condition_grade,
         final_report=return_job.final_report,
+        original_image_urls=[
+            str(image_url)
+            for image_url in (return_job.image_paths or [])
+        ],
     )
 
 # 재촬영 이미지 등록 API
@@ -280,6 +344,19 @@ def get_inspection_status(
     "/{job_id}/recheck",
     response_model=RecheckInspectionResponse,
     status_code=status.HTTP_202_ACCEPTED,
+    operation_id="recheckInspection",
+    summary="재촬영 이미지 등록 및 AI 재검수 요청",
+    description=(
+        "재촬영이 요구된 검수 작업에 새로운 CloudFront 이미지 URL 목록을 "
+        "등록합니다. 기존 이미지 목록을 교체하고 작업을 PENDING으로 되돌린 뒤 "
+        "Celery 비동기 AI 재검수 파이프라인에 등록합니다."
+    ),
+    responses={
+        404: {"description": "재검수 대상 작업을 찾을 수 없음"},
+        409: {"description": "현재 상태에서 재검수를 요청할 수 없음"},
+        422: {"description": "CloudFront 이미지 URL 형식이 올바르지 않음"},
+        503: {"description": "재검수 작업을 비동기 큐에 등록하지 못함"},
+    },
 )
 def recheck_inspection(
     job_id: UUID,
@@ -287,6 +364,16 @@ def recheck_inspection(
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> RecheckInspectionResponse:
+    try:
+        normalized_image_paths = normalize_cloudfront_image_urls(
+            request.image_paths
+        )
+    except InspectionImageValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
+
     statement = (
         select(ReturnJob)
         .where(
@@ -314,7 +401,7 @@ def recheck_inspection(
         )
 
     # 기존 이미지를 재촬영 이미지로 교체
-    return_job.image_paths = request.image_paths
+    return_job.image_paths = normalized_image_paths
 
     # 새 Celery 작업을 등록하기 전 대기 상태로 변경
     return_job.status = ReturnJobStatus.PENDING
@@ -424,9 +511,21 @@ def recheck_inspection(
 
 # ADMIN이 HITL_REQUIRED 검수 작업에 최종 판단을 내리는 API
 @router.post(
-        "/{job_id}/hitl",
-        response_model=HITLDecisionResponse,
-        status_code= status.HTTP_202_ACCEPTED,
+    "/{job_id}/hitl",
+    response_model=HITLDecisionResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    operation_id="resolveInspectionHitl",
+    summary="관리자 검수 판정 및 후속 처리 요청",
+    description=(
+        "AI가 자동 판정하지 못한 검수 작업에 관리자가 승인, 등급 하향, "
+        "반송, 폐기 또는 재촬영 결정을 제출합니다. 판정 결과를 저장하고 "
+        "필요한 WMS 후속 작업을 비동기 큐에 등록합니다."
+    ),
+    responses={
+        404: {"description": "관리 대상 검수 작업을 찾을 수 없음"},
+        409: {"description": "검수 상태와 관리자 판정 요청이 충돌함"},
+        503: {"description": "관리자 판정 후속 작업을 등록하지 못함"},
+    },
 )
 def resolve_hitl_inspection(
     job_id: UUID,
@@ -570,6 +669,15 @@ def resolve_hitl_inspection(
 @router.post(
     "/{job_id}/stream-ticket",
     response_model=StreamTicketResponse,
+    operation_id="createInspectionStreamTicket",
+    summary="검수 상태 SSE 구독 티켓 발급",
+    description=(
+        "현재 사용자가 소유한 검수 작업의 실시간 상태를 SSE로 구독할 수 있도록 "
+        "일회성 티켓과 티켓이 포함된 스트림 URL, 만료 시간을 반환합니다."
+    ),
+    responses={
+        404: {"description": "현재 사용자의 검수 작업을 찾을 수 없음"},
+    },
 )
 async def create_stream_ticket(
     job_id: UUID,

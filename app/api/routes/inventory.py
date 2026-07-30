@@ -1,8 +1,8 @@
 from datetime import datetime
-from typing import List
+from typing import List, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
@@ -21,7 +21,12 @@ class InventoryBookResponse(BaseModel):
 class InventoryListItemResponse(BaseModel):
     id: UUID = Field(description="묶음 재고 또는 중고 단품 재고 ID")
     book: InventoryBookResponse = Field(description="재고 도서 정보")
-    grade: ConditionGrade = Field(description="재고의 상태 등급")
+    stock_type: Literal["NEW_STOCK", "USED_ITEM"] = Field(
+        description="신간 묶음 재고 또는 중고·반품 단품 재고 구분",
+    )
+    grade: ConditionGrade | None = Field(
+        description="중고·반품 품질 등급. 신간은 null",
+    )
     zone: str = Field(description="재고가 보관된 로케이션")
     quantity: int = Field(
         description="재고 수량. 중고 단품 재고는 항상 1",
@@ -51,24 +56,39 @@ def _format_location(location: Location) -> str:
     summary="단품 및 묶음 재고 통합 조회",
     description=(
         "정상 신간 묶음 재고와 중고·반품 LPN 단품 재고를 하나의 목록으로 "
-        "조회합니다. 이 API는 재고를 변경하지 않습니다."
+        "조회합니다. ISBN을 전달하면 해당 도서의 로케이션별 재고만 조회합니다. "
+        "이 API는 재고를 변경하지 않습니다."
     ),
 )
-def list_inventory(session: Session = Depends(get_session)):
-    new_stock_rows = session.exec(
+def list_inventory(
+    isbn: str | None = Query(
+        default=None,
+        min_length=10,
+        max_length=13,
+        description="특정 ISBN의 로케이션별 재고만 조회",
+    ),
+    session: Session = Depends(get_session),
+):
+    new_stock_query = (
         select(Inventory, Book, Location)
         .join(Book, Inventory.book_id == Book.id)
         .join(Location, Inventory.location_id == Location.id)
         .where(Inventory.quantity > 0)
         .order_by(Inventory.updated_at.desc())
-    ).all()
-
-    used_item_rows = session.exec(
+    )
+    used_item_query = (
         select(InventoryUsedItem, Book, Location)
         .join(Book, InventoryUsedItem.book_id == Book.id)
         .join(Location, InventoryUsedItem.location_id == Location.id)
         .order_by(InventoryUsedItem.updated_at.desc())
-    ).all()
+    )
+
+    if isbn is not None:
+        new_stock_query = new_stock_query.where(Book.isbn == isbn)
+        used_item_query = used_item_query.where(Book.isbn == isbn)
+
+    new_stock_rows = session.exec(new_stock_query).all()
+    used_item_rows = session.exec(used_item_query).all()
 
     inventory_items: list[InventoryListItemResponse] = []
 
@@ -77,7 +97,8 @@ def list_inventory(session: Session = Depends(get_session)):
             InventoryListItemResponse(
                 id=inventory.id,
                 book=InventoryBookResponse(title=book.title, isbn=book.isbn),
-                grade=ConditionGrade.MINT,
+                stock_type="NEW_STOCK",
+                grade=None,
                 zone=_format_location(location),
                 quantity=inventory.quantity,
                 date=inventory.updated_at,
@@ -89,6 +110,7 @@ def list_inventory(session: Session = Depends(get_session)):
             InventoryListItemResponse(
                 id=used_item.id,
                 book=InventoryBookResponse(title=book.title, isbn=book.isbn),
+                stock_type="USED_ITEM",
                 grade=used_item.condition_grade,
                 zone=_format_location(location),
                 quantity=1,

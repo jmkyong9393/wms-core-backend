@@ -9,6 +9,7 @@ from app.api.routes import outbound
 from app.models.wms import (
     ConditionGrade,
     Inventory,
+    InventoryLog,
     InventoryUsedItem,
     Location,
     Order,
@@ -175,6 +176,14 @@ def test_confirm_new_stock_shipment_deducts_quantity_and_reservation():
     assert inventory.quantity == 1
     assert inventory.reserved_quantity == 0
     assert book.virtual_stock == 4
+    inventory_logs = [
+        item
+        for item in session.added_items
+        if isinstance(item, InventoryLog)
+    ]
+    assert len(inventory_logs) == 1
+    assert inventory_logs[0].condition_grade is None
+    assert inventory_logs[0].target_lpn is None
     assert session.committed is True
 
 

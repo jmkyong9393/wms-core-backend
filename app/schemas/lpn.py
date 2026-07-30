@@ -4,7 +4,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.wms import ConditionGrade, UsedInventoryStatus
+from app.models.wms import (
+    ConditionGrade,
+    UsedInventoryStatus,
+)
 
 
 class LpnBookDetail(BaseModel):

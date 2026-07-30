@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import Session, select
 
 from app.core.database import get_session
-from app.models.wms import Book
+from app.models.wms import Book, BookCategory
 
 router = APIRouter()
 
@@ -18,6 +18,7 @@ class BookLookupResponse(BaseModel):
                 "title": "해리포터와 마법사의 돌",
                 "original_price": "15000.00",
                 "publisher": "문학수첩",
+                "category": "NOVEL",
             }
         }
     )
@@ -26,6 +27,7 @@ class BookLookupResponse(BaseModel):
     title: str = Field(description="도서명")
     original_price: Decimal = Field(description="도서 기준 판매가")
     publisher: str | None = Field(default=None, description="출판사명")
+    category: BookCategory = Field(description="로케이션 Rack 배정용 도서 카테고리")
 
 
 @router.get(
@@ -66,4 +68,5 @@ def get_book_by_isbn(
         title=book.title,
         original_price=book.base_price,
         publisher=book.publisher,
+        category=book.category,
     )
