@@ -229,3 +229,44 @@ def logout(
             session.commit()
 
     delete_refresh_token_cookie(response)
+
+# 현재 비밀번호 확인 후 새 비밀번호로 변경
+@router.patch(
+    "/password",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def update_password(
+    request: PasswordChangeRequest,
+    current_user: User = Depends(get_authenticated_user),
+    session: Session = Depends(get_session),
+) -> None:
+    user = session.get(User, current_user.id)
+
+    if user is None:
+        raise UserNotFoundException()
+
+    change_password(
+        session=session,
+        user=user,
+        current_password=request.current_password,
+        new_password=request.new_password,
+    )
+
+
+# 현재 로그인한 사용자 정보 반환
+@router.get(
+    "/me",
+    response_model=UserResponse,
+)
+def get_me(
+    current_user: User = Depends(get_current_user),
+) -> UserResponse:
+    return UserResponse(
+        id=current_user.id,
+        employee_id=current_user.employee_id,
+        email=current_user.email,
+        name=current_user.name,
+        role=current_user.role,
+        status=current_user.status,
+        must_change_password=current_user.must_change_password,
+    )
