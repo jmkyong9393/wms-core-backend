@@ -132,6 +132,8 @@ CREATE TABLE inventory_used_items (
     return_job_id UUID UNIQUE,
     lpn_barcode VARCHAR NOT NULL UNIQUE,
     ubci_score NUMERIC(5, 2),
+    discount_rate NUMERIC(5, 4),
+    sale_price NUMERIC(12, 2),
     condition_grade condition_grade NOT NULL,
     status used_inventory_status NOT NULL DEFAULT 'AVAILABLE',
     certificate_url VARCHAR,
@@ -139,7 +141,16 @@ CREATE TABLE inventory_used_items (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT ck_inventory_used_items_sellable_grade
-        CHECK (condition_grade IN ('MINT', 'EXCELLENT', 'NORMAL'))
+        CHECK (condition_grade IN ('MINT', 'EXCELLENT', 'NORMAL')),
+    CONSTRAINT ck_inventory_used_items_discount_rate
+        CHECK (
+            discount_rate IS NULL
+            OR (discount_rate >= 0 AND discount_rate < 1)
+        ),
+    CONSTRAINT ck_inventory_used_items_sale_price_positive
+        CHECK (sale_price IS NULL OR sale_price > 0),
+    CONSTRAINT ck_inventory_used_items_pricing_pair
+        CHECK ((discount_rate IS NULL) = (sale_price IS NULL))
 );
 
 CREATE TABLE orders (

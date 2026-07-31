@@ -257,6 +257,19 @@ class InventoryUsedItem(SQLModel, table=True):
             "condition_grade IN ('MINT', 'EXCELLENT', 'NORMAL')",
             name="ck_inventory_used_items_sellable_grade",
         ),
+        CheckConstraint(
+            "discount_rate IS NULL OR "
+            "(discount_rate >= 0 AND discount_rate < 1)",
+            name="ck_inventory_used_items_discount_rate",
+        ),
+        CheckConstraint(
+            "sale_price IS NULL OR sale_price > 0",
+            name="ck_inventory_used_items_sale_price_positive",
+        ),
+        CheckConstraint(
+            "(discount_rate IS NULL) = (sale_price IS NULL)",
+            name="ck_inventory_used_items_pricing_pair",
+        ),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
@@ -271,6 +284,14 @@ class InventoryUsedItem(SQLModel, table=True):
     ubci_score: Optional[Decimal] = Field(
         default=None,
         sa_column=Column(Numeric(5, 2)),
+    )
+    discount_rate: Optional[Decimal] = Field(
+        default=None,
+        sa_column=Column(Numeric(5, 4)),
+    )
+    sale_price: Optional[Decimal] = Field(
+        default=None,
+        sa_column=Column(Numeric(12, 2)),
     )
     condition_grade: ConditionGrade = Field(nullable=False)
     status: UsedInventoryStatus = Field(

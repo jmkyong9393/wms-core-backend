@@ -49,3 +49,46 @@ class DynamicPricingContextResponse(BaseModel):
     condition_grade: ConditionGrade = Field(
         description="UBCI 등급 정책으로 확정되어 저장된 품질 등급"
     )
+
+
+class DynamicPricingResultRequest(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "lpn_barcode": "LPN-12345678123456781234567812345678",
+                "discount_rate": "0.1500",
+                "final_price": "15300.00",
+            }
+        }
+    )
+
+    lpn_barcode: str = Field(
+        min_length=1,
+        description="가격 산정 대상 중고·반품 단품의 LPN 바코드",
+    )
+    discount_rate: Decimal = Field(
+        ge=0,
+        lt=1,
+        max_digits=5,
+        decimal_places=4,
+        description="Agent가 산정한 할인율. 0 이상 1 미만의 소수",
+    )
+    final_price: Decimal = Field(
+        gt=0,
+        max_digits=12,
+        decimal_places=2,
+        description="Agent가 산정한 해당 LPN의 판매가격",
+    )
+
+
+class DynamicPricingResultResponse(BaseModel):
+    inventory_used_item_id: UUID = Field(
+        description="가격이 저장된 중고·반품 단품 재고 ID"
+    )
+    lpn_barcode: str = Field(description="가격이 저장된 LPN 바코드")
+    base_price: Decimal = Field(description="도서 마스터의 정가")
+    discount_rate: Decimal = Field(description="저장된 할인율")
+    sale_price: Decimal = Field(description="저장된 LPN 판매가격")
+    pricing_changed: bool = Field(
+        description="이번 요청으로 저장 가격이 변경되었는지 여부"
+    )

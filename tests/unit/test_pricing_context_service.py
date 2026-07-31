@@ -12,6 +12,7 @@ from app.models.wms import (
 from app.services.pricing_context_service import (
     PricingContextIncompleteError,
     PricingContextNotFoundError,
+    apply_dynamic_pricing_result,
     get_dynamic_pricing_context,
 )
 
@@ -87,4 +88,82 @@ def test_rejects_book_without_positive_base_price():
                 (_inventory_item(), _book(base_price=Decimal("0")))
             ),
             "LPN-12345678123456781234567812345678",
+        )
+
+
+def test_saves_dynamic_pricing_result_on_lpn_inventory():
+    book = _book()
+    inventory_item = _inventory_item()
+    inventory_item.book_id = book.id
+    session = _session_returning(inventory_item)
+    session.get.return_value = book
+
+    result = apply_dynamic_pricing_result(
+        session,
+        lpn_barcode=inventory_item.lpn_barcode,
+        discount_rate=Decimal("0.1500"),
+        final_price=Decimal("15300.00"),
+    )
+
+    assert inventory_item.discount_rate == Decimal("0.1500")
+    assert inventory_item.sale_price == Decimal("15300.00")
+    assert result.pricing_changed is True
+    session.add.assert_called_once_with(inventory_item)
+
+
+def test_same_pricing_result_is_idempotent():
+    book = _book()
+    inventory_item = _inventory_item()
+    inventory_item.book_id = book.id
+    inventory_item.discount_rate = Decimal("0.1500")
+    inventory_item.sale_price = Decimal("15300.00")
+    session = _session_returning(inventory_item)
+    session.get.return_value = book
+
+    result = apply_dynamic_pricing_result(
+        session,
+        lpn_barcode=inventory_item.lpn_barcode,
+        discount_rate=Decimal("0.1500"),
+        final_price=Decimal("15300.00"),
+    )
+
+    assert result.pricing_changed is False
+    session.add.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("discount_rate", "final_price"),
+    [
+        (Decimal("-0.0001"), Decimal("15300.00")),
+        (Decimal("1.0000"), Decimal("15300.00")),
+        (Decimal("0.1500"), Decimal("0")),
+        (Decimal("0.1500"), Decimal("18000.01")),
+    ],
+)
+def test_rejects_pricing_result_outside_inventory_policy(
+    discount_rate,
+    final_price,
+):
+    book = _book()
+    inventory_item = _inventory_item()
+    inventory_item.book_id = book.id
+    session = _session_returning(inventory_item)
+    session.get.return_value = book
+
+    with pytest.raises(PricingContextIncompleteError):
+        apply_dynamic_pricing_result(
+            session,
+            lpn_barcode=inventory_item.lpn_barcode,
+            discount_rate=discount_rate,
+            final_price=final_price,
+        )
+
+
+def test_rejects_pricing_result_for_unknown_lpn():
+    with pytest.raises(PricingContextNotFoundError):
+        apply_dynamic_pricing_result(
+            _session_returning(None),
+            lpn_barcode="LPN-UNKNOWN",
+            discount_rate=Decimal("0.1500"),
+            final_price=Decimal("15300.00"),
         )
