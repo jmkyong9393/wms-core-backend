@@ -132,6 +132,8 @@ CREATE TABLE inventory_used_items (
     return_job_id UUID UNIQUE,
     lpn_barcode VARCHAR NOT NULL UNIQUE,
     ubci_score NUMERIC(5, 2),
+    discount_rate NUMERIC(5, 4),
+    sale_price NUMERIC(12, 2),
     condition_grade condition_grade NOT NULL,
     status used_inventory_status NOT NULL DEFAULT 'AVAILABLE',
     certificate_url VARCHAR,
@@ -139,7 +141,16 @@ CREATE TABLE inventory_used_items (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT ck_inventory_used_items_sellable_grade
-        CHECK (condition_grade IN ('MINT', 'EXCELLENT', 'NORMAL'))
+        CHECK (condition_grade IN ('MINT', 'EXCELLENT', 'NORMAL')),
+    CONSTRAINT ck_inventory_used_items_discount_rate
+        CHECK (
+            discount_rate IS NULL
+            OR (discount_rate >= 0 AND discount_rate < 1)
+        ),
+    CONSTRAINT ck_inventory_used_items_sale_price_positive
+        CHECK (sale_price IS NULL OR sale_price > 0),
+    CONSTRAINT ck_inventory_used_items_pricing_pair
+        CHECK ((discount_rate IS NULL) = (sale_price IS NULL))
 );
 
 CREATE TABLE orders (
@@ -295,6 +306,9 @@ CREATE TABLE users (
     role user_role NOT NULL,
     status user_status NOT NULL DEFAULT 'ACTIVE',
     must_change_password BOOLEAN NOT NULL DEFAULT TRUE,
+    refresh_token_hash VARCHAR UNIQUE,
+    refresh_token_expires_at TIMESTAMP,
+    auth_version INTEGER NOT NULL DEFAULT 0,
     last_login TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -303,6 +317,8 @@ CREATE TABLE users (
 CREATE INDEX ix_users_tenant_id ON users(tenant_id);
 CREATE UNIQUE INDEX ix_users_employee_id ON users(employee_id);
 CREATE UNIQUE INDEX ix_users_email ON users(email);
+CREATE INDEX ix_users_refresh_token_expires_at
+    ON users(refresh_token_expires_at);
 
 CREATE TABLE order_proposals (
     id UUID PRIMARY KEY,

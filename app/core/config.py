@@ -17,6 +17,11 @@ class Settings(BaseSettings):
 
     OPENAI_API_KEY: str = ""
 
+    # ISBN 기반 도서 메타데이터 조회용 알라딘 OpenAPI 설정
+    ALADIN_TTB_KEY: str = ""
+    ALADIN_API_BASE_URL: str = "https://www.aladin.co.kr/ttb/api"
+    ALADIN_REQUEST_TIMEOUT_SECONDS: float = 5.0
+
     # 자동 발주 추천 Agent에서 사용할 임시 OpenAI 모델 설정
     # TODO:
     # 팀에서 사용할 모델과 비용 정책이 확정되면 모델명을 변경한다.
