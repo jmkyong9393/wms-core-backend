@@ -4,6 +4,7 @@ from uuid import UUID
 
 from fastapi import HTTPException, status
 
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 
@@ -20,6 +21,7 @@ from app.schemas.admin_inspection import (
     InspectionDetailResponse,
     InspectionErrorDetail,
     InspectionHistoryRow,
+    InspectionHistoryListResponse,
 )
 
 VALID_FINAL_GRADES = {
@@ -176,6 +178,49 @@ def _build_agent_steps(
 
     return steps
 
+def _apply_inspection_history_filters(
+    statement,
+    tenant_id: UUID,
+    status: ReturnJobStatus | None = None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+    keyword: str | None = None,
+):
+    """
+    검수 이력 목록과 전체 건수 조회에 공통으로 적용할 필터를 구성한다.
+
+    목록 조회와 COUNT 조회가 서로 다른 필터를 사용하면
+    total 값과 실제 items 수가 달라질 수 있으므로 공통 함수로 관리한다.
+    """
+    statement = statement.where(
+        ReturnJob.tenant_id == tenant_id,
+    )
+
+    if status is not None:
+        statement = statement.where(
+            ReturnJob.status == status,
+        )
+
+    if start_date is not None:
+        statement = statement.where(
+            ReturnJob.created_at >= start_date,
+        )
+
+    if end_date is not None:
+        statement = statement.where(
+            ReturnJob.created_at <= end_date,
+        )
+
+    normalized_keyword = (keyword or "").strip()
+
+    if normalized_keyword:
+        statement = statement.where(
+            Book.title.contains(normalized_keyword),
+        )
+
+    return statement
+
+
 def get_inspection_history(
     session: Session,
     tenant_id: UUID,
@@ -183,24 +228,38 @@ def get_inspection_history(
     start_date: datetime | None = None,
     end_date: datetime | None = None,
     keyword: str | None = None,
-) -> list[InspectionHistoryRow]:
+    page: int = 1,
+    size: int = 20,
+) -> InspectionHistoryListResponse:
     """
-    해당 테넌트의 검수 이력을 조회한다.
+    테넌트별 검수 이력을 서버 페이지네이션 방식으로 조회한다.
 
-    status:
-        검수 상태 필터
-
-    start_date / end_date:
-        검수 요청 기간 필터
-
-    keyword:
-        도서명 검색 키워드
-
-    TODO:
-    현재는 프론트 Export를 위해 목록 데이터를 제공하는 구조이며,
-    CSV/XLSX 생성은 프론트에서 처리한다.
+    필터가 적용된 전체 건수(total)를 먼저 조회한 뒤,
+    같은 필터 조건으로 현재 페이지에 필요한 데이터만 DB에서 가져온다.
     """
-    statement = (
+    count_statement = (
+        select(func.count())
+        .select_from(ReturnJob)
+        .join(
+            Book,
+            ReturnJob.book_id == Book.id,
+        )
+    )
+
+    count_statement = _apply_inspection_history_filters(
+        statement=count_statement,
+        tenant_id=tenant_id,
+        status=status,
+        start_date=start_date,
+        end_date=end_date,
+        keyword=keyword,
+    )
+
+    total = session.exec(count_statement).one()
+
+    offset = (page - 1) * size
+
+    history_statement = (
         select(
             ReturnJob,
             Book.title,
@@ -209,39 +268,26 @@ def get_inspection_history(
             Book,
             ReturnJob.book_id == Book.id,
         )
-        .where(
-            ReturnJob.tenant_id == tenant_id,
-        )
-        .order_by(
-            ReturnJob.created_at.desc(),
-        )
     )
 
-    # 상태 필터
-    if status:
-        statement = statement.where(
-            ReturnJob.status == status
+    history_statement = _apply_inspection_history_filters(
+        statement=history_statement,
+        tenant_id=tenant_id,
+        status=status,
+        start_date=start_date,
+        end_date=end_date,
+        keyword=keyword,
+    )
+
+    rows = session.exec(
+        history_statement
+        .order_by(
+            ReturnJob.created_at.desc(),
+            ReturnJob.id.desc(),
         )
-
-
-    # 날짜 필터
-    if start_date:
-        statement = statement.where(
-            ReturnJob.created_at >= start_date
-        )
-
-    if end_date:
-        statement = statement.where(
-            ReturnJob.created_at <= end_date
-        )
-
-    # 도서명 검색 키워드 필터
-    if keyword:
-        statement = statement.where(
-            Book.title.contains(keyword)
-        )
-
-    rows = session.exec(statement).all()
+        .offset(offset)
+        .limit(size)
+    ).all()
 
     inspection_history: list[InspectionHistoryRow] = []
 
@@ -253,32 +299,37 @@ def get_inspection_history(
                 id=return_job.id,
                 book_id=return_job.book_id,
                 book_title=book_title,
-
                 final_grade=_extract_final_grade(logs),
-
-                # AutoRefund Agent 실행 여부
                 is_fast_track=(
                     logs.get("is_fast_track") is True
                 ),
-
                 status=return_job.status,
                 ubci_score=return_job.ubci_score,
                 final_report=_extract_final_report_summary(
                     return_job.final_report,
                 ),
-                reason_codes=_extract_reason_codes(
-                    logs,
-                ),
-                # 프론트 검수 상세 모달용 Agent 실행 이력
+                reason_codes=_extract_reason_codes(logs),
                 steps=_build_agent_steps(
-                    logs.get("steps")
+                    logs.get("steps"),
                 ),
                 inspected_at=return_job.created_at,
                 updated_at=return_job.updated_at,
             )
         )
 
-    return inspection_history
+    total_pages = (
+        (total + size - 1) // size
+        if total > 0
+        else 0
+    )
+
+    return InspectionHistoryListResponse(
+        items=inspection_history,
+        total=total,
+        page=page,
+        size=size,
+        total_pages=total_pages,
+    )
 
 def _parse_final_report(
     final_report: str | None,
