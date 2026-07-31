@@ -46,7 +46,7 @@ def lookup_aladin_book_by_isbn(
     ttb_key: str | None = None,
     client: httpx.Client | None = None,
 ) -> AladinBookMetadata:
-    normalized_isbn = _normalize_isbn(isbn)
+    normalized_isbn = normalize_isbn(isbn)
     api_key = ttb_key if ttb_key is not None else settings.ALADIN_TTB_KEY
     if not api_key.strip():
         raise AladinConfigurationError("ALADIN_TTB_KEY is not configured")
@@ -95,7 +95,7 @@ def lookup_aladin_book_by_isbn(
             request_client.close()
 
 
-def _normalize_isbn(isbn: str) -> str:
+def normalize_isbn(isbn: str) -> str:
     normalized_isbn = isbn.replace("-", "").strip()
     if (
         len(normalized_isbn) not in {10, 13}
