@@ -1,3 +1,4 @@
+from typing import Literal
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
@@ -37,6 +38,18 @@ class Settings(BaseSettings):
     JWT_SECRET_KEY: str = "local-development-secret-key"
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30 #현재는 30분 설정
+
+    # Refresh Token 설정
+    # 개발 환경에서는 HTTP 접속을 위해 False,
+    # 운영 HTTPS 환경에서는 반드시 True로 설정한다.
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    REFRESH_TOKEN_COOKIE_NAME: str = "refresh_token"
+    REFRESH_TOKEN_COOKIE_SECURE: bool = False
+    REFRESH_TOKEN_COOKIE_SAMESITE: Literal[
+        "lax",
+        "strict",
+        "none",
+    ] = "lax"
 
     # SSE 티켓 설정
     REDIS_URL: str = "redis://localhost:6379/0"
