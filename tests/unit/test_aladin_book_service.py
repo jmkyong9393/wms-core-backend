@@ -10,6 +10,7 @@ from app.services.aladin_book_service import (
     AladinUpstreamError,
     lookup_aladin_book_by_isbn,
 )
+from app.models.wms import BookCategory
 
 
 def _client_with_response(
@@ -61,6 +62,7 @@ def test_looks_up_isbn13_and_normalizes_aladin_metadata():
     assert result.base_price == Decimal("15000")
     assert result.category_id == 50919
     assert result.category_name == "국내도서>소설/시/희곡>한국소설"
+    assert result.category == BookCategory.NOVEL
     assert captured_request is not None
     assert captured_request.url.params["ttbkey"] == "test-key"
     assert captured_request.url.params["itemIdType"] == "ISBN13"

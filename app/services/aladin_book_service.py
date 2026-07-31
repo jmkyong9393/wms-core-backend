@@ -5,6 +5,8 @@ from typing import Any
 import httpx
 
 from app.core.config import settings
+from app.domain.aladin_category_policy import map_aladin_category
+from app.models.wms import BookCategory
 
 
 class AladinBookServiceError(Exception):
@@ -35,6 +37,7 @@ class AladinBookMetadata:
     base_price: Decimal
     category_id: int | None
     category_name: str
+    category: BookCategory
 
 
 def lookup_aladin_book_by_isbn(
@@ -160,6 +163,7 @@ def _parse_book_metadata(
         base_price=base_price,
         category_id=category_id,
         category_name=category_name,
+        category=map_aladin_category(category_name),
     )
 
 
