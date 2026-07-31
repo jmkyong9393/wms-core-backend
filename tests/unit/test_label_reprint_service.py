@@ -1,5 +1,6 @@
 from decimal import Decimal
 from types import SimpleNamespace
+from uuid import UUID
 
 import pytest
 from fastapi import HTTPException
@@ -45,6 +46,19 @@ def build_inventory_item(
         condition_grade=ConditionGrade.EXCELLENT,
         ubci_score=ubci_score,
         status=status,
+        return_job_id=UUID(
+            "00000000-0000-4000-8000-000000000010"
+        ),
+    )
+
+
+def build_return_job(
+    final_report: str | None = (
+        '{"message": "AI inspection completed."}'
+    ),
+):
+    return SimpleNamespace(
+        final_report=final_report,
     )
 
 
@@ -71,7 +85,12 @@ def test_builds_lpn_reprint_zpl_from_inbound_item(
     )
 
     result = label_reprint_service.build_label_reprint_zpl(
-        session=FakeSession([build_inbound_item()]),
+        session=FakeSession(
+            [
+                build_inbound_item(),
+                None,
+            ]
+        ),
         lpn_barcode="LPN-TEST-0001",
         label_type=LabelType.LPN,
     )
@@ -116,6 +135,7 @@ def test_builds_ubci_reprint_zpl_from_sellable_inventory(
             [
                 build_inbound_item(),
                 build_inventory_item(),
+                build_return_job(),
             ]
         ),
         lpn_barcode="LPN-TEST-0001",
@@ -158,7 +178,7 @@ def test_rejects_ubci_reprint_before_inventory_is_created():
     assert exc_info.value.status_code == 409
 
 
-def test_rejects_ubci_reprint_for_shipped_item():
+def test_rejects_lpn_reprint_for_shipped_item():
     with pytest.raises(HTTPException) as exc_info:
         label_reprint_service.build_label_reprint_zpl(
             session=FakeSession(
@@ -170,7 +190,7 @@ def test_rejects_ubci_reprint_for_shipped_item():
                 ]
             ),
             lpn_barcode="LPN-TEST-0001",
-            label_type=LabelType.UBCI,
+            label_type=LabelType.LPN,
         )
 
     assert exc_info.value.status_code == 409
@@ -183,6 +203,23 @@ def test_rejects_ubci_reprint_without_confirmed_score():
                 [
                     build_inbound_item(),
                     build_inventory_item(ubci_score=None),
+                ]
+            ),
+            lpn_barcode="LPN-TEST-0001",
+            label_type=LabelType.UBCI,
+        )
+
+    assert exc_info.value.status_code == 409
+
+
+def test_rejects_ubci_reprint_until_public_certificate_is_ready():
+    with pytest.raises(HTTPException) as exc_info:
+        label_reprint_service.build_label_reprint_zpl(
+            session=FakeSession(
+                [
+                    build_inbound_item(),
+                    build_inventory_item(),
+                    build_return_job(final_report=None),
                 ]
             ),
             lpn_barcode="LPN-TEST-0001",

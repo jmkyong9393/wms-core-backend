@@ -23,11 +23,22 @@ def build_inventory_item():
     )
 
 
+def build_return_job(
+    final_report: str | None = (
+        '{"message": "AI inspection completed."}'
+    ),
+):
+    return SimpleNamespace(
+        final_report=final_report,
+    )
+
+
 def test_returns_sent_when_ubci_label_is_transmitted(
     monkeypatch,
 ):
     inbound_item = build_inbound_item()
     inventory_item = build_inventory_item()
+    return_job = build_return_job()
     captured_arguments = {}
 
     def fake_build_ubci_label_zpl(
@@ -65,6 +76,7 @@ def test_returns_sent_when_ubci_label_is_transmitted(
         inspection_inventory._try_print_ubci_label(
             inbound_item=inbound_item,
             inventory_item=inventory_item,
+            return_job=return_job,
         )
     )
 
@@ -83,6 +95,7 @@ def test_returns_skipped_when_ubci_printer_is_disabled(
 ):
     inbound_item = build_inbound_item()
     inventory_item = build_inventory_item()
+    return_job = build_return_job()
 
     def fake_send_zpl_to_label_printer(_zpl):
         return SimpleNamespace(skipped=True)
@@ -97,6 +110,7 @@ def test_returns_skipped_when_ubci_printer_is_disabled(
         inspection_inventory._try_print_ubci_label(
             inbound_item=inbound_item,
             inventory_item=inventory_item,
+            return_job=return_job,
         )
     )
 
@@ -104,11 +118,45 @@ def test_returns_skipped_when_ubci_printer_is_disabled(
     assert label_print_error is None
 
 
+def test_skips_ubci_print_until_public_certificate_is_ready(
+    monkeypatch,
+):
+    inbound_item = build_inbound_item()
+    inventory_item = build_inventory_item()
+    return_job = build_return_job(final_report=None)
+
+    def fail_if_printer_is_called(_zpl):
+        raise AssertionError(
+            "Printer should not be called before certificate readiness"
+        )
+
+    monkeypatch.setattr(
+        inspection_inventory,
+        "send_zpl_to_label_printer",
+        fail_if_printer_is_called,
+    )
+
+    label_print_status, label_print_error = (
+        inspection_inventory._try_print_ubci_label(
+            inbound_item=inbound_item,
+            inventory_item=inventory_item,
+            return_job=return_job,
+        )
+    )
+
+    assert label_print_status == LabelPrintStatus.SKIPPED
+    assert label_print_error == (
+        "공개 품질보증서가 아직 준비되지 않아 "
+        "UBCI 라벨 출력을 보류했습니다."
+    )
+
+
 def test_returns_failed_without_raising_when_ubci_print_fails(
     monkeypatch,
 ):
     inbound_item = build_inbound_item()
     inventory_item = build_inventory_item()
+    return_job = build_return_job()
 
     def fail_to_send_zpl(_zpl):
         raise OSError("Printer connection refused")
@@ -123,6 +171,7 @@ def test_returns_failed_without_raising_when_ubci_print_fails(
         inspection_inventory._try_print_ubci_label(
             inbound_item=inbound_item,
             inventory_item=inventory_item,
+            return_job=return_job,
         )
     )
 
