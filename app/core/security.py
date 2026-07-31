@@ -6,6 +6,7 @@ from typing import Any
 import jwt
 from jwt import InvalidTokenError
 from pwdlib import PasswordHash
+import hashlib
 
 from app.core.config import settings
 
@@ -57,11 +58,12 @@ def verify_password(plain_password:str, hashed_password: str) -> bool:
         hashed_password,
     )
 
-# 사용자가 ID와 권한을 포함한 JWT Access Token을 생성한다. 
+# 사용자 ID·권한·테넌트·인증 버전을 포함한 JWT Access Token 생성
 def create_access_token(
     subject: str,
     role: str,
     tenant_id: str,
+    auth_version: int,
     expiration_minutes: int | None = None,
 ) -> str:
     expiration_minutes = (
@@ -71,13 +73,16 @@ def create_access_token(
     )
 
     expires_at = datetime.now(timezone.utc) + timedelta(
-        minutes = expiration_minutes
+        minutes=expiration_minutes
     )
 
     payload: dict[str, Any] = {
         "sub": subject,
         "role": role,
         "tenant_id": tenant_id,
+        # 현재 사용자 인증 버전.
+        # DB User.auth_version과 다르면 즉시 무효화한다.
+        "auth_version": auth_version,
         "type": "access",
         "exp": expires_at,
     }
@@ -103,4 +108,16 @@ def decode_access_token(token: str) -> dict[str,Any] | None:
         return None
     
     return payload
+
+# Refresh Token은 JWT가 아닌 충분히 긴 난수 문자열로 생성한다.
+# 원본 토큰은 HttpOnly Cookie에만 전달하고 DB에는 저장하지 않는다.
+def generate_refresh_token() -> str:
+    return secrets.token_urlsafe(48)
+
+
+# DB에는 원본 Refresh Token 대신 SHA-256 해시값만 저장한다.
+def hash_refresh_token(refresh_token: str) -> str:
+    return hashlib.sha256(
+        refresh_token.encode("utf-8")
+    ).hexdigest()
     
