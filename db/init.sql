@@ -306,6 +306,9 @@ CREATE TABLE users (
     role user_role NOT NULL,
     status user_status NOT NULL DEFAULT 'ACTIVE',
     must_change_password BOOLEAN NOT NULL DEFAULT TRUE,
+    refresh_token_hash VARCHAR UNIQUE,
+    refresh_token_expires_at TIMESTAMP,
+    auth_version INTEGER NOT NULL DEFAULT 0,
     last_login TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -314,6 +317,8 @@ CREATE TABLE users (
 CREATE INDEX ix_users_tenant_id ON users(tenant_id);
 CREATE UNIQUE INDEX ix_users_employee_id ON users(employee_id);
 CREATE UNIQUE INDEX ix_users_email ON users(email);
+CREATE INDEX ix_users_refresh_token_expires_at
+    ON users(refresh_token_expires_at);
 
 CREATE TABLE order_proposals (
     id UUID PRIMARY KEY,
