@@ -114,7 +114,12 @@ def _parse_book_metadata(
         raise AladinInvalidResponseError(
             "Aladin OpenAPI response must be a JSON object"
         )
-    if payload.get("errorCode") is not None:
+    error_code = payload.get("errorCode")
+    if str(error_code) == "8":
+        raise AladinBookNotFoundError(
+            f"Book was not found for ISBN {fallback_isbn}"
+        )
+    if error_code is not None:
         raise AladinInvalidResponseError(
             f"Aladin OpenAPI error: {payload.get('errorMessage', 'unknown')}"
         )

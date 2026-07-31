@@ -88,6 +88,21 @@ def test_reports_book_not_found_for_empty_item_list():
             )
 
 
+def test_reports_book_not_found_for_aladin_error_code_8():
+    with _client_with_response(
+        payload={
+            "errorCode": 8,
+            "errorMessage": "키에 해당하는 상품이 존재하지 않습니다.",
+        }
+    ) as client:
+        with pytest.raises(AladinBookNotFoundError):
+            lookup_aladin_book_by_isbn(
+                "9788912345678",
+                ttb_key="test-key",
+                client=client,
+            )
+
+
 def test_rejects_invalid_standard_price():
     with _client_with_response(
         payload={
