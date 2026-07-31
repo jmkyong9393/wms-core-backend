@@ -1,7 +1,7 @@
 import os
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
-
+from app.schemas.hitl import HITLAction, HITLReasonCode
 from .state import WMSInspectionState
 from .agents import (
     MIN_VISION_CONFIDENCE,
@@ -41,19 +41,51 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
     if type(revision_count) is not int or revision_count < 0:
         return _route("human_node", "잘못된 revision_count")
 
-    if revision_count >= MAX_REVISIONS:
-        return _route("human_node", "최대 재시도 횟수 도달")
-
     reason_code = state.get("reason_code")
     human_feedback = state.get("human_feedback")
 
-    # 관리자 입력은 반드시 human_node에서 한 번 처리된 뒤 결과에 반영합니다.
+    # Resume 이후 관리자 결정 우선 처리
     if human_feedback is not None:
-        if human_feedback == "APPROVE" and reason_code == "OK":
-            return _route("report_agent", "관리자 승인")
-        if human_feedback == "REJECT" and reason_code is not None:
-            return _route("report_agent", "관리자 반려")
-        return _route("human_node", "관리자 입력 처리 필요")
+        if human_feedback == "RE_CHECK":
+            return _route(
+                "vision_agent",
+                "관리자 재검수 요청",
+            )
+
+        if human_feedback == "APPROVE_NORMAL":
+            return _route(
+                "report_agent",
+                "관리자 정상 승인",
+            )
+
+        if human_feedback == "APPROVE_DOWNGRADE":
+            if state.get("target_grade") not in {"A", "B"}:
+                return _route(
+                    "human_node",
+                    "하향 승인 등급 누락",
+                )
+
+            return _route(
+                "report_agent",
+                "관리자 등급 하향 승인",
+            )
+
+        if human_feedback in {
+            "REJECT_RETURN",
+            "REJECT_DISCARD",
+        }:
+            return _route(
+                "report_agent",
+                f"관리자 반려: {human_feedback}",
+            )
+
+        return _route(
+            "human_node",
+            "허용되지 않은 관리자 입력",
+        )
+
+    if revision_count >= MAX_REVISIONS:
+        return _route("human_node", "최대 재시도 횟수 도달")
 
     if (
         state.get("is_mint") is None
@@ -69,12 +101,28 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
         return _route("policy_agent", reason_code)
 
     if reason_code == "OK":
+        if (
+            state.get("primary_reason_code") is not None
+            and state.get("human_feedback") is None
+        ):
+            return _route(
+                "human_node",
+                "재촬영 결과 관리자 재확인 필요",
+            )
         return _route("report_agent", "Critic 검증 통과")
 
     if reason_code is not None:
         return _route("human_node", f"처리할 수 없는 Reason Code: {reason_code}")
 
-    if state.get("is_mint") is True and not state.get("defects"):
+    if (
+        state.get("is_mint") is True
+        and state.get("defects") == []
+        and state.get("ubci_score") is None
+        and state.get("predicted_grade") is None
+        and state.get("rule_reference") is None
+        and state.get("policy_confidence") is None
+        and state.get("primary_reason_code") is None
+    ):
         vision_confidence = state.get("vision_confidence")
         if (
             type(vision_confidence) not in (int, float)
@@ -157,8 +205,132 @@ def build_supervisor_graph():
     graph = builder.compile(checkpointer=memory, interrupt_before=["human_node"])
     return graph
 
-# 전역 그래프 인스턴스 (현재는 NotImplementedError가 발생합니다)
+# 전역 그래프 인스턴스
 try:
     app_graph = build_supervisor_graph()
 except NotImplementedError:
     app_graph = None
+
+
+TARGET_GRADE_ALIASES = {
+    "A": "A",
+    "EXCELLENT": "A",
+    "B": "B",
+    "NORMAL": "B",
+}
+
+def resume_hitl(
+    thread_id: str,
+    human_feedback: str,
+    primary_reason_code: str,
+    target_grade: str | None = None,
+) -> WMSInspectionState:
+    """중단된 체크포인트에 관리자 결정을 반영."""
+
+    if app_graph is None:
+        raise RuntimeError(
+            "Supervisor 그래프가 생성되지 않았습니다."
+        )
+
+    if not isinstance(thread_id, str) or not thread_id.strip():
+        raise ValueError("thread_id가 필요합니다.")
+
+    raw_decision = getattr(
+        human_feedback,
+        "value",
+        human_feedback,
+    )
+    raw_reason = getattr(
+        primary_reason_code,
+        "value",
+        primary_reason_code,
+    )
+    raw_target_grade = getattr(
+        target_grade,
+        "value",
+        target_grade,
+    )
+
+    try:
+        decision = HITLAction(raw_decision).value
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"허용되지 않은 관리자 결정: {raw_decision!r}"
+        ) from None
+
+    try:
+        reason = HITLReasonCode(raw_reason).value
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"허용되지 않은 관리자 사유: {raw_reason!r}"
+        ) from None
+
+    normalized_target_grade = (
+        TARGET_GRADE_ALIASES.get(raw_target_grade)
+        if raw_target_grade is not None
+        else None
+    )
+
+    if (
+        decision == "APPROVE_DOWNGRADE"
+        and normalized_target_grade is None
+    ):
+        raise ValueError(
+            "APPROVE_DOWNGRADE에는 A/B 또는 "
+            "EXCELLENT/NORMAL target_grade가 필요합니다."
+        )
+
+    if (
+        decision != "APPROVE_DOWNGRADE"
+        and raw_target_grade is not None
+    ):
+        raise ValueError(
+            "target_grade는 APPROVE_DOWNGRADE에서만 사용합니다."
+        )
+
+    config = {
+        "configurable": {
+            "thread_id": thread_id,
+        }
+    }
+    snapshot = app_graph.get_state(config)
+
+    if "human_node" not in snapshot.next:
+        raise ValueError(
+            "HITL Pause 상태가 아니거나 체크포인트가 없습니다."
+        )
+
+    update = {
+        "human_feedback": decision,
+        "primary_reason_code": reason,
+        "target_grade": normalized_target_grade,
+        "revision_count": 0,
+        "final_grade": None,
+        "final_report": None,
+    }
+
+    if decision == "RE_CHECK":
+        update.update({
+            "is_mint": None,
+            "defects": None,
+            "vision_confidence": None,
+            "ubci_score": None,
+            "predicted_grade": None,
+            "score_breakdown": None,
+            "rule_reference": None,
+            "policy_confidence": None,
+            "reason_code": None,
+            "repair_directive": "관리자 재촬영 요청",
+            "overall_confidence": None,
+        })
+
+    app_graph.update_state(
+        config,
+        update,
+        as_node="human_node",
+    )
+
+    return app_graph.invoke(
+        None,
+        config=config,
+    )
