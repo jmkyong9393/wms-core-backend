@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from app.schemas.used_inbound import UsedBookInboundRequest
 from app.services.lpn_service import (
+    build_label_scan_qr_url,
     build_certificate_api_path,
     build_public_qr_url,
     generate_certificate_token,
@@ -64,3 +65,14 @@ def test_used_inbound_request_rejects_new_stock():
             inbound_type="NEW_STOCK",
             book_id="00000000-0000-4000-8000-000000000001",
         )
+
+def test_build_label_scan_qr_url_from_certificate_token():
+    certificate_token = "public-certificate-token"
+
+    assert build_label_scan_qr_url(
+        certificate_token,
+        public_web_base_url="https://wms.example.com/",
+    ) == (
+        "https://wms.example.com/"
+        "scan/public-certificate-token"
+    )

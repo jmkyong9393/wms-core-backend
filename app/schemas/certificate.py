@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -21,6 +22,7 @@ class CertificateResponse(BaseModel):
                     "publisher": "김영사",
                 },
                 "condition_grade": "EXCELLENT",
+                "ubci_score": "92.00",
                 "report_summary": (
                     "경미한 모서리 찍힘이 있으나 전체 상태는 우수합니다."
                 ),
@@ -34,6 +36,11 @@ class CertificateResponse(BaseModel):
     )
     condition_grade: ConditionGrade = Field(
         description="검수 완료 후 확정된 품질 등급",
+    )
+    ubci_score: Decimal = Field(
+        ge=0,
+        le=100,
+        description="AI 검수로 확정된 UBCI 품질 점수",
     )
     report_summary: str = Field(
         min_length=1,

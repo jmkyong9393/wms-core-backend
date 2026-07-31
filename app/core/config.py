@@ -51,6 +51,26 @@ class Settings(BaseSettings):
         "none",
     ] = "lax"
 
+    # 네트워크 라벨 프린터 설정
+    # 개발·테스트 환경에서는 False로 두어 프린터 연결 실패가
+    # 입고·검수 DB 처리 실패로 이어지지 않게 한다.
+    LABEL_PRINTER_ENABLED: bool = False
+
+    # Xprinter XP-423B LAN Raw TCP 설정.
+    # 실제 장비의 고정 IP는 .env에서 주입한다.
+    LABEL_PRINTER_HOST: str = ""
+    LABEL_PRINTER_PORT: int = 9100
+    LABEL_PRINTER_TIMEOUT_SECONDS: float = 5.0
+
+    # XP-423B: 203 DPI(약 8 dots/mm), 라벨 50mm × 30mm
+    LABEL_PRINTER_DPI: int = 203
+    LABEL_PRINTER_LABEL_WIDTH_MM: int = 50
+    LABEL_PRINTER_LABEL_HEIGHT_MM: int = 30
+
+    # ZPL 문자열 전송 인코딩.
+    # 실제 프린터 한글 설정에 따라 utf-8 또는 euc-kr로 조정 가능하다.
+    LABEL_PRINTER_ENCODING: str = "utf-8"
+
     # SSE 티켓 설정
     REDIS_URL: str = "redis://localhost:6379/0"
     SSE_TICKET_EXPIRE_SECONDS: int = 300
