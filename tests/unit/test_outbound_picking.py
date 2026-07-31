@@ -90,7 +90,7 @@ def build_order_item(
         book_id=BOOK_ID,
         quantity=quantity,
         unit_price=Decimal("15000"),
-        final_price=Decimal("15000"),
+        final_price=Decimal("15000") * quantity,
         condition_grade=condition_grade,
     )
 
@@ -128,6 +128,9 @@ def build_used_inventory():
         book_id=BOOK_ID,
         location_id=LOCATION_ID,
         lpn_barcode="LPN-TEST-0001",
+        ubci_score=Decimal("97.00"),
+        discount_rate=Decimal("0.1000"),
+        sale_price=Decimal("13500.00"),
         condition_grade=ConditionGrade.MINT,
         status=UsedInventoryStatus.AVAILABLE,
     )
@@ -185,6 +188,7 @@ def test_new_stock_picking_reserves_inventory_without_deducting_quantity():
     ]
 
     assert response.status == OrderStatus.PICKING
+    assert response.total_price == Decimal("30000.00")
     assert order.status == OrderStatus.PICKING
     assert inventory.quantity == 3
     assert inventory.reserved_quantity == 2
@@ -192,6 +196,9 @@ def test_new_stock_picking_reserves_inventory_without_deducting_quantity():
     assert allocations[0].order_item_id == ORDER_ITEM_ID
     assert allocations[0].inventory_id == INVENTORY_ID
     assert allocations[0].quantity == 2
+    picked_item = response.picking_groups[0].racks[0].shelves[0].items[0]
+    assert picked_item.condition_grade is None
+    assert picked_item.lpn_barcode is None
     assert session.committed is True
 
 
@@ -234,11 +241,55 @@ def test_used_lpn_picking_reserves_lpn_and_creates_allocation(monkeypatch):
     ]
 
     assert response.status == OrderStatus.PICKING
+    assert response.total_price == Decimal("13500.00")
     assert used_inventory.status == UsedInventoryStatus.RESERVED
     assert len(allocations) == 1
     assert allocations[0].order_item_id == ORDER_ITEM_ID
     assert allocations[0].inventory_used_item_id == USED_INVENTORY_ID
+    assert order_item.unit_price == Decimal("15000")
+    assert order_item.final_price == Decimal("13500.00")
+    assert order.total_price == Decimal("13500.00")
     assert session.committed is True
+
+
+def test_picking_recalculates_total_from_new_and_used_order_items(monkeypatch):
+    order = build_order()
+    new_order_item = build_order_item(quantity=2)
+    used_order_item = build_order_item(
+        condition_grade=ConditionGrade.MINT,
+    )
+    used_order_item.id = UUID("00000000-0000-4000-8000-000000000007")
+    new_order_item.final_price = Decimal("30000.00")
+    used_inventory = build_used_inventory()
+    location = build_location()
+    inventory = build_inventory(quantity=2)
+
+    monkeypatch.setattr(
+        outbound,
+        "select_fifo_lpn_candidate",
+        lambda **kwargs: FifoLpnCandidate(
+            inventory_used_item=used_inventory,
+            picked_location=location.barcode,
+        ),
+    )
+
+    session = FakeSession(
+        results=[
+            FakeQueryResult(row=order),
+            FakeQueryResult(rows=[new_order_item, used_order_item]),
+            FakeQueryResult(rows=[inventory]),
+        ],
+        locations={LOCATION_ID: location},
+    )
+
+    outbound.create_picking_instruction(
+        outbound.PickRequest(order_id=ORDER_ID),
+        session=session,
+    )
+
+    assert new_order_item.final_price == Decimal("30000.00")
+    assert used_order_item.final_price == Decimal("13500.00")
+    assert order.total_price == Decimal("43500.00")
 
 
 def test_picking_instruction_rejects_non_pending_order():

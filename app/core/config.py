@@ -1,3 +1,4 @@
+from typing import Literal
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
@@ -5,10 +6,21 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql://admin:password@localhost:5432/wms_db"
     PUBLIC_WEB_BASE_URL: str = "http://localhost:3000"
 
+    # 검수 이미지 조회에 허용할 CloudFront 배포 도메인과 객체 경로
+    CLOUDFRONT_IMAGE_BASE_URL: str = (
+        "https://d3j61tpuly7r0p.cloudfront.net"
+    )
+    CLOUDFRONT_IMAGE_PATH_PREFIX: str = "/uploads/"
+
     CHROMA_SERVER_HOST: str = "localhost"
     CHROMA_SERVER_PORT: int = 8001
 
     OPENAI_API_KEY: str = ""
+
+    # ISBN 기반 도서 메타데이터 조회용 알라딘 OpenAPI 설정
+    ALADIN_TTB_KEY: str = ""
+    ALADIN_API_BASE_URL: str = "https://www.aladin.co.kr/ttb/api"
+    ALADIN_REQUEST_TIMEOUT_SECONDS: float = 5.0
 
     # 자동 발주 추천 Agent에서 사용할 임시 OpenAI 모델 설정
     # TODO:
@@ -26,6 +38,38 @@ class Settings(BaseSettings):
     JWT_SECRET_KEY: str = "local-development-secret-key"
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30 #현재는 30분 설정
+
+    # Refresh Token 설정
+    # 개발 환경에서는 HTTP 접속을 위해 False,
+    # 운영 HTTPS 환경에서는 반드시 True로 설정한다.
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    REFRESH_TOKEN_COOKIE_NAME: str = "refresh_token"
+    REFRESH_TOKEN_COOKIE_SECURE: bool = False
+    REFRESH_TOKEN_COOKIE_SAMESITE: Literal[
+        "lax",
+        "strict",
+        "none",
+    ] = "lax"
+
+    # 네트워크 라벨 프린터 설정
+    # 개발·테스트 환경에서는 False로 두어 프린터 연결 실패가
+    # 입고·검수 DB 처리 실패로 이어지지 않게 한다.
+    LABEL_PRINTER_ENABLED: bool = False
+
+    # Xprinter XP-423B LAN Raw TCP 설정.
+    # 실제 장비의 고정 IP는 .env에서 주입한다.
+    LABEL_PRINTER_HOST: str = ""
+    LABEL_PRINTER_PORT: int = 9100
+    LABEL_PRINTER_TIMEOUT_SECONDS: float = 5.0
+
+    # XP-423B: 203 DPI(약 8 dots/mm), 라벨 50mm × 30mm
+    LABEL_PRINTER_DPI: int = 203
+    LABEL_PRINTER_LABEL_WIDTH_MM: int = 50
+    LABEL_PRINTER_LABEL_HEIGHT_MM: int = 30
+
+    # ZPL 문자열 전송 인코딩.
+    # 실제 프린터 한글 설정에 따라 utf-8 또는 euc-kr로 조정 가능하다.
+    LABEL_PRINTER_ENCODING: str = "utf-8"
 
     # SSE 티켓 설정
     REDIS_URL: str = "redis://localhost:6379/0"

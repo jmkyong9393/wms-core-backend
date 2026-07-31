@@ -4,8 +4,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.models.wms import ConditionGrade, UsedInventoryStatus
+from app.models.wms import ConditionGrade
 from app.schemas.hitl import HITLReasonCode
+from app.schemas.label import LabelPrintStatus
 
 InspectionDecision = Literal["APPROVE", "REJECT"]
 
@@ -28,7 +29,6 @@ class InspectionInventoryRequest(BaseModel):
                         "ratio": 0.03,
                     }
                 ],
-                "location_id": "00000000-0000-4000-8000-000000000002",
                 "admin_decision_code": "FP_SHADOW",
                 "final_grade": "NORMAL",
                 "rejection_disposition": None,
@@ -50,11 +50,6 @@ class InspectionInventoryRequest(BaseModel):
         default_factory=list,
         description="등급 정책의 치명적 결함 판정에 사용할 결함 목록",
     )
-    location_id: UUID | None = Field(
-        default=None,
-        description="승인된 LPN을 적재할 활성 로케이션 ID",
-    )
-
     admin_decision_code: HITLReasonCode | None = Field(
         default=None,
         description="관리자 HITL 판정 사유 코드",
@@ -68,7 +63,7 @@ class InspectionInventoryRequest(BaseModel):
         description="반려 도서 처리 방식",
     )
     @model_validator(mode="after")
-    def validate_approved_location(self):
+    def validate_approved_result(self):
         if (
             self.decision == "APPROVE"
             and self.ubci_score is None
@@ -77,8 +72,6 @@ class InspectionInventoryRequest(BaseModel):
             raise ValueError(
                 "ubci_score or final_grade is required for approval"
             )
-        if self.decision == "APPROVE" and self.location_id is None:
-            raise ValueError("location_id is required for approval")
         return self
 
 
@@ -88,14 +81,27 @@ class InspectionInventoryResponse(BaseModel):
     decision: InspectionDecision = Field(description="적용된 승인 또는 반려 결정")
     condition_grade: ConditionGrade = Field(description="UBCI 정책으로 확정된 등급")
     lpn_barcode: str = Field(description="검수 대상 단품 LPN")
+    location_id: UUID = Field(description="등급과 카테고리로 확정된 로케이션 ID")
+    location_barcode: str = Field(description="확정된 로케이션 바코드")
     inventory_used_item_id: UUID | None = Field(
-        default=None,
-        description="승인 시 생성된 중고 단품 재고 ID",
+        description="판매 가능 중고·반품 단품 재고 ID",
     )
-    inventory_status: UsedInventoryStatus | None = Field(
-        default=None,
-        description="승인된 단품 재고 상태",
+    rejected_item_id: UUID | None = Field(
+        description="REJECT 판정 도서의 폐기 대기 레코드 ID",
     )
-    inventory_changed: bool = Field(
-        description="이번 요청에서 신규 재고 편입이 발생했는지 여부",
+    inventory_changed: bool = Field(description="재고 또는 폐기 대기 기록 생성 여부")
+    label_print_status: LabelPrintStatus = Field(
+        description=(
+            "이번 검수 결과 요청에서의 UBCI 라벨 전송 결과. "
+            "SENT=프린터 전송 완료, "
+            "SKIPPED=반려 건 또는 기존 처리 재요청, "
+            "FAILED=프린터 전송 실패"
+        )
+    )
+    label_print_error: str | None = Field(
+        default=None,
+        description=(
+            "UBCI 라벨 전송 실패 시 작업자에게 표시할 안내 메시지. "
+            "프린터 IP 등 내부 설정 정보는 포함하지 않는다."
+        ),
     )

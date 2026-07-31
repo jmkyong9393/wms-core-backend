@@ -5,7 +5,7 @@ from decimal import Decimal
 from enum import Enum
 from typing import Optional
 
-from sqlalchemy import CheckConstraint, Column, UniqueConstraint
+from sqlalchemy import CheckConstraint, Column, Index, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import Numeric
 from sqlmodel import Field, SQLModel
@@ -32,6 +32,19 @@ class ConditionGrade(str, Enum):
     EXCELLENT = "EXCELLENT"
     NORMAL = "NORMAL"
     REJECT = "REJECT"
+
+
+class BookCategory(str, Enum):
+    COMIC = "COMIC"
+    STUDY_GUIDE = "STUDY_GUIDE"
+    NOVEL = "NOVEL"
+    HUMANITIES = "HUMANITIES"
+    SOCIAL_SCIENCE = "SOCIAL_SCIENCE"
+    BUSINESS_ECONOMICS = "BUSINESS_ECONOMICS"
+    SCIENCE_TECHNOLOGY = "SCIENCE_TECHNOLOGY"
+    CHILDREN = "CHILDREN"
+    LANGUAGE = "LANGUAGE"
+    ART_LIFESTYLE = "ART_LIFESTYLE"
 
 
 class OrderType(str, Enum):
@@ -72,6 +85,11 @@ class UsedInventoryStatus(str, Enum):
     AVAILABLE = "AVAILABLE"
     RESERVED = "RESERVED"
     SHIPPED = "SHIPPED"
+
+
+class RejectedItemStatus(str, Enum):
+    REJECT_HOLD = "REJECT_HOLD"
+    DISCARDED = "DISCARDED"
 
 
 class UserRole(str, Enum):
@@ -142,6 +160,7 @@ class Book(SQLModel, table=True):
     title: str = Field(nullable=False)
     isbn: Optional[str] = Field(default=None, unique=True)
     publisher: Optional[str] = Field(default=None)
+    category: BookCategory = Field(nullable=False)
     standard_size: Optional[StandardSize] = Field(default=None)
     thickness_mm: Optional[int] = Field(default=None)
     base_price: Decimal = Field(
@@ -170,21 +189,44 @@ class InboundItem(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     inbound_job_id: uuid.UUID = Field(foreign_key="inbound_jobs.id")
     book_id: uuid.UUID = Field(foreign_key="books.id")
+    location_id: Optional[uuid.UUID] = Field(
+        default=None,
+        foreign_key="locations.id",
+    )
     quantity: int = Field(nullable=False)
     lpn_barcode: Optional[str] = Field(default=None, unique=True)
     certificate_token: Optional[str] = Field(default=None, unique=True)
+    condition_grade: Optional[ConditionGrade] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class Location(SQLModel, table=True):
     __tablename__ = "locations"
+    __table_args__ = (
+        CheckConstraint(
+            "zone IN ('A', 'B', 'C')",
+            name="ck_locations_zone",
+        ),
+        CheckConstraint(
+            "rack ~ '^[1-9][0-9]*$'",
+            name="ck_locations_rack_positive_integer",
+        ),
+        CheckConstraint(
+            "shelf ~ '^([1-9]|10)$'",
+            name="ck_locations_shelf_range",
+        ),
+        CheckConstraint(
+            "barcode = zone || '-' || rack || '-' || shelf",
+            name="ck_locations_barcode_components",
+        ),
+    )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     zone: str = Field(nullable=False)
     rack: str = Field(nullable=False)
     shelf: str = Field(nullable=False)
-    barcode: Optional[str] = Field(default=None, unique=True)
+    barcode: str = Field(unique=True, nullable=False)
     is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -210,6 +252,25 @@ class Inventory(SQLModel, table=True):
 
 class InventoryUsedItem(SQLModel, table=True):
     __tablename__ = "inventory_used_items"
+    __table_args__ = (
+        CheckConstraint(
+            "condition_grade IN ('MINT', 'EXCELLENT', 'NORMAL')",
+            name="ck_inventory_used_items_sellable_grade",
+        ),
+        CheckConstraint(
+            "discount_rate IS NULL OR "
+            "(discount_rate >= 0 AND discount_rate < 1)",
+            name="ck_inventory_used_items_discount_rate",
+        ),
+        CheckConstraint(
+            "sale_price IS NULL OR sale_price > 0",
+            name="ck_inventory_used_items_sale_price_positive",
+        ),
+        CheckConstraint(
+            "(discount_rate IS NULL) = (sale_price IS NULL)",
+            name="ck_inventory_used_items_pricing_pair",
+        ),
+    )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     book_id: uuid.UUID = Field(foreign_key="books.id")
@@ -223,6 +284,14 @@ class InventoryUsedItem(SQLModel, table=True):
     ubci_score: Optional[Decimal] = Field(
         default=None,
         sa_column=Column(Numeric(5, 2)),
+    )
+    discount_rate: Optional[Decimal] = Field(
+        default=None,
+        sa_column=Column(Numeric(5, 4)),
+    )
+    sale_price: Optional[Decimal] = Field(
+        default=None,
+        sa_column=Column(Numeric(12, 2)),
     )
     condition_grade: ConditionGrade = Field(nullable=False)
     status: UsedInventoryStatus = Field(
@@ -363,10 +432,6 @@ class ReturnJob(SQLModel, table=True):
         default=None,
         foreign_key="inbound_items.id",
     )
-    target_location_id: Optional[uuid.UUID] = Field(
-        default=None,
-        foreign_key="locations.id",
-    )
 
     task_id: Optional[str] = Field(default=None)
 
@@ -393,13 +458,55 @@ class ReturnJob(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class RejectedItem(SQLModel, table=True):
+    __tablename__ = "rejected_items"
+    __table_args__ = (
+        Index(
+            "ix_rejected_items_status_location",
+            "status",
+            "location_id",
+        ),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    inbound_item_id: uuid.UUID = Field(
+        foreign_key="inbound_items.id",
+        unique=True,
+        nullable=False,
+    )
+    return_job_id: Optional[uuid.UUID] = Field(
+        default=None,
+        foreign_key="return_jobs.id",
+        unique=True,
+    )
+    book_id: uuid.UUID = Field(foreign_key="books.id", nullable=False)
+    location_id: uuid.UUID = Field(foreign_key="locations.id", nullable=False)
+    lpn_barcode: str = Field(nullable=False, unique=True)
+    ubci_score: Optional[Decimal] = Field(
+        default=None,
+        sa_column=Column(Numeric(5, 2)),
+    )
+    rejection_reason: Optional[dict] = Field(
+        default=None,
+        sa_column=Column(JSONB),
+    )
+    status: RejectedItemStatus = Field(
+        default=RejectedItemStatus.REJECT_HOLD,
+        nullable=False,
+    )
+    rejected_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+    discarded_at: Optional[datetime] = Field(default=None)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class InventoryLog(SQLModel, table=True):
     __tablename__ = "inventory_logs"
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     transaction_type: InventoryTransactionType = Field(nullable=False)
     book_id: uuid.UUID = Field(foreign_key="books.id")
-    condition_grade: ConditionGrade = Field(nullable=False)
+    condition_grade: Optional[ConditionGrade] = Field(default=None)
     quantity_change: int = Field(nullable=False)
     target_lpn: Optional[str] = Field(default=None)
     picked_location: Optional[str] = Field(default=None)
@@ -465,6 +572,10 @@ class User(SQLModel, table=True):
 
     # 관리자가 직원 계정 만들면 True -> 직원이 임시 비밀번호를 새 비밀번호로 변경하면 False
     must_change_password: bool = Field(default=True)
+
+    refresh_token_hash: Optional[str] = Field(default=None, unique=True,)
+    refresh_token_expires_at: Optional[datetime] = Field(default=None,index=True,)
+    auth_version: int = Field(default=0, nullable=False,)
 
     last_login: Optional[datetime] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)

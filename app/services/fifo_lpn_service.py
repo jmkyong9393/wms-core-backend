@@ -41,6 +41,8 @@ def select_fifo_lpn_candidate(
         InventoryUsedItem.book_id == order_item.book_id,
         InventoryUsedItem.condition_grade == condition_grade,
         InventoryUsedItem.status == UsedInventoryStatus.AVAILABLE,
+        InventoryUsedItem.discount_rate.is_not(None),
+        InventoryUsedItem.sale_price.is_not(None),
     )
     if excluded_inventory_ids:
         statement = statement.where(

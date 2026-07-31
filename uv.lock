@@ -3838,6 +3838,7 @@ dependencies = [
     { name = "email-validator" },
     { name = "fastapi" },
     { name = "gevent" },
+    { name = "httpx" },
     { name = "langchain" },
     { name = "langchain-chroma" },
     { name = "langchain-community" },
@@ -3858,7 +3859,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "pytest" },
 ]
 
@@ -3869,6 +3869,7 @@ requires-dist = [
     { name = "email-validator", specifier = ">=2.0.0" },
     { name = "fastapi", specifier = ">=0.111.0" },
     { name = "gevent", specifier = ">=26.5.0" },
+    { name = "httpx", specifier = ">=0.27.0" },
     { name = "langchain", specifier = ">=0.2.6" },
     { name = "langchain-chroma", specifier = ">=0.1.0" },
     { name = "langchain-community", specifier = ">=0.4.2" },
@@ -3888,10 +3889,7 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [
-    { name = "httpx", specifier = ">=0.27.0" },
-    { name = "pytest", specifier = ">=8.2.2" },
-]
+dev = [{ name = "pytest", specifier = ">=8.2.2" }]
 
 [[package]]
 name = "xxhash"

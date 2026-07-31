@@ -304,19 +304,61 @@ def auto_refund_agent(state: WMSInspectionState) -> WMSInspectionState:
     TODO: MINT 등급의 새 책에 대한 환불 승인 사유서(JSON)를 작성하세요.
     - 출력: final_report (str, JSON format)
     """
-    print("[Agent] Auto Refund Agent 스켈레톤 로직 실행...")
-    dummy_report = {
+    print("[Agent] Auto Refund Agent 실행...")
+
+    is_mint = state.get("is_mint")
+    defects = state.get("defects")
+    vision_confidence = state.get("vision_confidence")
+
+    # Vision MINT 입력 검증
+    if (
+        is_mint is not True
+        or type(defects) is not list
+        or defects
+    ):
+        raise ValueError(
+            "Auto Refund는 결함 없는 MINT 도서만 "
+            "처리할 수 있습니다."
+        )
+
+    # Vision 신뢰도 검증
+    if (
+        type(vision_confidence) not in (int, float)
+        or not MIN_VISION_CONFIDENCE
+        <= vision_confidence
+        <= 1
+    ):
+        raise ValueError(
+            "Auto Refund에는 기준 이상의 "
+            "vision_confidence가 필요합니다."
+        )
+
+    overall_confidence = float(vision_confidence)
+
+    report = {
         "result": "AUTO_REFUND_APPROVED",
-        "reason": "MINT 자동 승인",
-        "vision_confidence": state.get("vision_confidence"),
+        "decision": "AI_FAST_TRACK",
+        "is_mint": True,
+        "defects": [],
+        "vision_confidence": overall_confidence,
+        "overall_confidence": overall_confidence,
+        "message": (
+            "외관상 확인된 결함이 없고 Vision 신뢰도가 기준 이상이어서 "
+            "MINT 자동 환불 승인 처리되었습니다."
+        ),
     }
 
     return {
-        "final_report": json.dumps(dummy_report, ensure_ascii=False),
-        "overall_confidence": state.get("vision_confidence"),
+        "final_report": json.dumps(
+            report,
+            ensure_ascii=False,
+        ),
+        "overall_confidence": overall_confidence,
         "human_feedback": None,
         "messages": [
-            AIMessage(content="[Auto Refund Agent] 자동 환불 승인 리포트 생성 완료")
+            AIMessage(
+                content="[Auto Refund Agent] MINT 자동 환불 승인 사유서 생성 완료"
+            )
         ],
     }
 
@@ -327,20 +369,79 @@ def report_agent(state: WMSInspectionState) -> WMSInspectionState:
     - 핵심: 파이썬 단순 문자열 조합이 아닌, 결함의 심각도(가벼운 오염 vs 심각한 파손)에 따라 동적으로 다정한 위로나 단호한 매입 불가 안내를 작성해야 LLM을 사용하는 명분이 생깁니다.
     - 출력: final_report (str, JSON format)
     """
-    print("[Agent] Report Agent 스켈레톤 로직 실행...")
+
+    print("[Agent] Report Agent 실행...")
+
     human_feedback = state.get("human_feedback")
-    result = {
-        "APPROVE": "HUMAN_APPROVED",
-        "REJECT": "HUMAN_REJECTED",
-    }.get(human_feedback, "INSPECTION_COMPLETED")
-    message = {
-        "APPROVE": "관리자 승인 완료",
-        "REJECT": "관리자 반려 완료",
-    }.get(human_feedback, "검수 완료")
-    dummy_report = {
+    predicted_grade = state.get("predicted_grade")
+    target_grade = state.get("target_grade")
+    primary_reason_code = state.get("primary_reason_code")
+
+    if human_feedback is None:
+        result = "INSPECTION_COMPLETED"
+        decision = "AI_INSPECTION"
+        message = "AI 검수 완료"
+        final_grade = predicted_grade
+
+    else:
+        if not primary_reason_code:
+            raise ValueError(
+                "관리자 결정에는 primary_reason_code가 필요합니다."
+            )
+
+        if human_feedback == "APPROVE_NORMAL":
+            result = "HUMAN_APPROVED_NORMAL"
+            decision = human_feedback
+            message = "관리자 정상 승인 완료"
+            final_grade = "S"
+
+        elif human_feedback == "APPROVE_DOWNGRADE":
+            if target_grade not in {"A", "B"}:
+                raise ValueError(
+                    "등급 하향 승인에는 A/B target_grade가 필요합니다."
+                )
+
+            result = "HUMAN_APPROVED_DOWNGRADE"
+            decision = human_feedback
+            message = (
+                f"관리자 등급 하향 승인 완료: "
+                f"{target_grade}등급"
+            )
+            final_grade = target_grade
+
+        elif human_feedback in {
+            "REJECT_RETURN",
+            "REJECT_DISCARD",
+        }:
+            result = (
+                "HUMAN_REJECTED_RETURN"
+                if human_feedback == "REJECT_RETURN"
+                else "HUMAN_REJECTED_DISCARD"
+            )
+            decision = human_feedback
+            message = (
+                "관리자 반품 결정 완료"
+                if human_feedback == "REJECT_RETURN"
+                else "관리자 폐기 결정 완료"
+            )
+            final_grade = "REJECT"
+
+        else:
+            raise ValueError(
+                "Report에서 처리할 수 없는 관리자 결정: "
+                f"{human_feedback!r}"
+            )
+
+    report = {
         "result": result,
+        "decision": decision,
         "defects": state.get("defects") or [],
         "ubci_score": state.get("ubci_score"),
+        "predicted_grade": predicted_grade,
+        "final_grade": final_grade,
+        "score_breakdown": state.get("score_breakdown") or [],
+        "primary_reason_code": primary_reason_code,
+        "target_grade": target_grade,
         "rule_reference": state.get("rule_reference"),
         "reason_code": state.get("reason_code"),
         "vision_confidence": state.get("vision_confidence"),
@@ -350,12 +451,17 @@ def report_agent(state: WMSInspectionState) -> WMSInspectionState:
     }
 
     return {
-        "final_report": json.dumps(dummy_report, ensure_ascii=False),
+        "final_grade": final_grade,
+        "final_report": json.dumps(
+            report,
+            ensure_ascii=False,
+        ),
         "human_feedback": None,
         "messages": [
             AIMessage(content=f"[Report Agent] {message}")
         ],
     }
+
 
 def human_node(state: WMSInspectionState) -> WMSInspectionState:
     """
@@ -363,58 +469,5 @@ def human_node(state: WMSInspectionState) -> WMSInspectionState:
     TODO: Critic이 반복해서 Policy를 반려하거나 확신할 수 없는 예외 케이스(Outlier)일 경우, 관리자의 수동 개입을 대기합니다.
     - 주의: 이 노드는 MemorySaver에 의해 일시 정지(Pause)를 유발하는 용도이므로 빈 상태로 둡니다.
     """
-    print("[Agent] HITL 노드 진입 - 관리자의 수동 개입(승인/수정) 대기 중")
-    human_feedback = state.get("human_feedback")
-
-    if human_feedback == "APPROVE":
-        return {
-            "reason_code": "OK",
-            "repair_directive": None,
-            "revision_count": 0,
-            "final_report": None,
-            "messages": [
-                AIMessage(content="[Human Node] 관리자 승인 완료 - revision_count 초기화")
-            ],
-        }
-
-    if human_feedback == "REJECT":
-        return {
-            "reason_code": state.get("reason_code") or "QUALITY_ERROR",
-            "revision_count": 0,
-            "human_feedback": "REJECT",
-            "final_report": None,
-            "messages": [AIMessage(content="[Human Node] 관리자 반려 완료")],
-        }
-
-    if human_feedback == "RECALCULATE":
-        result = {
-            "reason_code": None,
-            "repair_directive": "관리자 재검수 요청",
-            "revision_count": 0,
-            "overall_confidence": None,
-            "human_feedback": None,
-            "final_report": None,
-        }
-
-        if state.get("reason_code") in {
-            "QUALITY_ERROR",
-            "BBOX_MISMATCH",
-            "VISION_LOW_CONFIDENCE",
-        }:
-            result.update({
-                "is_mint": None,
-                "defects": None,
-                "vision_confidence": None,
-            })
-
-        result.update({
-            "ubci_score": None,
-            "rule_reference": None,
-            "policy_confidence": None,
-            "messages": [
-                AIMessage(content="[Human Node] 관리자 수정 요청 완료 - revision_count 초기화")
-            ],
-        })
-        return result
 
     return {}

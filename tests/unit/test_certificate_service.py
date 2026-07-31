@@ -7,6 +7,7 @@ from fastapi import HTTPException
 
 from app.models.wms import (
     Book,
+    BookCategory,
     ConditionGrade,
     InboundItem,
     InventoryUsedItem,
@@ -69,6 +70,7 @@ def test_get_certificate_by_token_returns_public_certificate():
         title="사피엔스",
         isbn="9781234567890",
         publisher="김영사",
+        category=BookCategory.HUMANITIES,
     )
     inbound_item = InboundItem(
         inbound_job_id=uuid4(),
@@ -110,7 +112,8 @@ def test_get_certificate_by_token_returns_public_certificate():
     assert response.condition_grade == ConditionGrade.EXCELLENT
     assert response.report_summary == "경미한 모서리 찍힘이 있습니다."
     assert response.inspected_at == inspected_at
-    assert "ubci_score" not in response.model_dump()
+    assert response.ubci_score == Decimal("91.50")
+    assert response.model_dump()["ubci_score"] == Decimal("91.50")
 
 
 @pytest.mark.parametrize(
