@@ -15,11 +15,44 @@ from app.schemas.lpn import (
     LpnDetailResponse,
     LpnLocationDetail,
 )
+from app.schemas.lpn_scan import LpnScanResponse
+from app.services.lpn_scan_service import get_lpn_scan_detail
 from app.services.lpn_service import build_public_qr_url
 
 
 router = APIRouter()
 
+@router.get(
+    "/scan/{certificate_token}",
+    response_model=LpnScanResponse,
+    operation_id="getLpnScanDetail",
+    summary="작업자용 LPN QR 스캔 상세 조회",
+    description=(
+        "작업자 모바일 앱이 LPN 라벨 QR의 스캔 토큰으로 "
+        "입고·검수·재촬영·재고 편입 상태와 현재 로케이션을 조회합니다."
+    ),
+    responses={
+        401: {"description": "인증 토큰이 없거나 유효하지 않음"},
+        403: {"description": "WMS 작업자 권한이 없음"},
+        404: {"description": "LPN 스캔 토큰을 찾을 수 없음"},
+    },
+)
+def get_lpn_scan(
+    certificate_token: str = Path(
+        min_length=32,
+        max_length=128,
+        description="LPN QR에 포함된 공개 스캔 토큰",
+    ),
+    session: Session = Depends(get_session),
+    _: User = Depends(require_wms_operator),
+) -> LpnScanResponse:
+    """
+    작업자 앱이 동일 LPN QR을 반복 스캔해도 최신 업무 상태를 반환한다.
+    """
+    return get_lpn_scan_detail(
+        session=session,
+        certificate_token=certificate_token,
+    )
 
 @router.get(
     "/{lpn_barcode}",

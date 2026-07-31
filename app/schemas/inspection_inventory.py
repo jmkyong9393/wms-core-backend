@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.wms import ConditionGrade
 from app.schemas.hitl import HITLReasonCode
+from app.schemas.label import LabelPrintStatus
 
 InspectionDecision = Literal["APPROVE", "REJECT"]
 
@@ -89,3 +90,18 @@ class InspectionInventoryResponse(BaseModel):
         description="REJECT 판정 도서의 폐기 대기 레코드 ID",
     )
     inventory_changed: bool = Field(description="재고 또는 폐기 대기 기록 생성 여부")
+    label_print_status: LabelPrintStatus = Field(
+        description=(
+            "이번 검수 결과 요청에서의 UBCI 라벨 전송 결과. "
+            "SENT=프린터 전송 완료, "
+            "SKIPPED=반려 건 또는 기존 처리 재요청, "
+            "FAILED=프린터 전송 실패"
+        )
+    )
+    label_print_error: str | None = Field(
+        default=None,
+        description=(
+            "UBCI 라벨 전송 실패 시 작업자에게 표시할 안내 메시지. "
+            "프린터 IP 등 내부 설정 정보는 포함하지 않는다."
+        ),
+    )

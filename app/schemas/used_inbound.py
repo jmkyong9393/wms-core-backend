@@ -5,11 +5,14 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.wms import InboundStatus, InboundType
 
+from app.schemas.label import LabelPrintStatus
+
 
 UsedInboundType = Literal[
     InboundType.USED_PURCHASE,
     InboundType.CUSTOMER_RETURN,
 ]
+
 
 
 class UsedBookInboundRequest(BaseModel):
@@ -42,7 +45,29 @@ class UsedBookInboundResponse(BaseModel):
     lpn_barcode: str = Field(description="검수 전 발급된 단품 추적 LPN")
     certificate_url: str = Field(
         description=(
-            "라벨 QR에 인코딩할 공개 토큰 기반 품질보증서 URL. "
-            "URL은 입고 시 고정되며 보증서 내용은 검수 완료 후 제공"
+            "일반 소비자가 품질보증서를 직접 조회하는 공개 URL. "
+            "검수 완료 전에는 품질보증서를 조회할 수 없다."
         )
+    )
+    label_scan_url: str = Field(
+        description=(
+            "실제 LPN 라벨 QR에 인코딩하는 공통 스캔 URL. "
+            "작업자 앱은 내부 LPN 상세 화면으로, 일반 브라우저는 "
+            "공개 품질보증서 화면으로 분기한다."
+        )
+    )
+    label_print_status: LabelPrintStatus = Field(
+        description=(
+            "이번 요청에서의 라벨 전송 결과. "
+            "SENT=프린터 전송 완료, "
+            "SKIPPED=프린터 비활성화 또는 중복 입고 요청, "
+            "FAILED=프린터 전송 실패"
+        )
+    )
+    label_print_error: str | None = Field(
+        default=None,
+        description=(
+            "라벨 전송 실패 시 작업자에게 표시할 안내 메시지. "
+            "프린터 IP 등 내부 설정 정보는 포함하지 않는다."
+        ),
     )

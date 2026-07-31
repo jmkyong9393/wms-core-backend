@@ -1,4 +1,5 @@
 from uuid import UUID, uuid4
+import logging
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import text
@@ -6,19 +7,67 @@ from sqlmodel import Session, select
 
 from app.core.database import get_session
 from app.models.wms import Book, InboundItem, InboundJob, InboundStatus
+from app.schemas.label import LabelPrintStatus
 from app.schemas.used_inbound import (
     UsedBookInboundRequest,
     UsedBookInboundResponse,
 )
+from app.services.label_printer_service import (
+    send_zpl_to_label_printer,
+)
 from app.services.lpn_service import (
+    build_label_scan_qr_url,
     build_public_qr_url,
     generate_certificate_token,
     generate_lpn_barcode,
 )
-
+from app.services.zpl_label_service import build_lpn_label_zpl
 
 router = APIRouter()
 
+logger = logging.getLogger(__name__)
+
+
+def _try_print_initial_lpn_label(
+    inbound_item: InboundItem,
+) -> tuple[LabelPrintStatus, str | None]:
+    """
+    최초 입고가 DB에 저장된 뒤 LPN QR 라벨 전송을 시도한다.
+
+    프린터 오류는 이미 완료된 입고 트랜잭션을 롤백하지 않는다.
+    오류 상세는 서버 로그에 남기고, 응답에는 작업자용 안내만 반환한다.
+    """
+    try:
+        if inbound_item.lpn_barcode is None:
+            raise RuntimeError(
+                "Inbound item does not have an LPN barcode"
+            )
+        if inbound_item.certificate_token is None:
+            raise RuntimeError(
+                "Inbound item does not have a certificate token"
+            )
+
+        zpl = build_lpn_label_zpl(
+            lpn_barcode=inbound_item.lpn_barcode,
+            certificate_token=inbound_item.certificate_token,
+        )
+        print_result = send_zpl_to_label_printer(zpl)
+
+        if print_result.skipped:
+            return LabelPrintStatus.SKIPPED, None
+
+        return LabelPrintStatus.SENT, None
+
+    except Exception:
+        logger.exception(
+            "Failed to print initial LPN label. "
+            "inbound_item_id=%s",
+            inbound_item.id,
+        )
+        return (
+            LabelPrintStatus.FAILED,
+            "LPN 라벨 출력에 실패했습니다. 수동 출력이 필요합니다.",
+        )
 
 def _lock_intake_request(session: Session, request_id: UUID) -> None:
     session.exec(
@@ -33,6 +82,8 @@ def _lock_intake_request(session: Session, request_id: UUID) -> None:
 def _build_response(
     inbound_job: InboundJob,
     inbound_item: InboundItem,
+    label_print_status: LabelPrintStatus = "SKIPPED",
+    label_print_error: str | None = None,
 ) -> UsedBookInboundResponse:
     if inbound_item.lpn_barcode is None:
         raise RuntimeError("Used inbound item does not have an LPN barcode")
@@ -47,6 +98,11 @@ def _build_response(
         book_id=inbound_item.book_id,
         lpn_barcode=inbound_item.lpn_barcode,
         certificate_url=build_public_qr_url(inbound_item.certificate_token),
+        label_scan_url=build_label_scan_qr_url(
+            inbound_item.certificate_token
+        ),
+        label_print_status=label_print_status,
+        label_print_error=label_print_error,
     )
 
 
@@ -60,8 +116,9 @@ def _build_response(
         "중고 매입 또는 고객 반품 도서 1권을 검수 대기 상태로 접수하고 "
         "물리적 단품 추적용 LPN을 발급합니다. 이 단계에서는 판매 가능 "
         "재고에 편입하지 않습니다. 동일 Idempotency-Key 재요청은 기존 "
-        "입고 품목과 LPN을 반환합니다. 응답의 certificate_url은 라벨 QR에 "
-        "인코딩할 공개 품질보증서 URL입니다."
+        "입고 품목과 LPN을 반환합니다."
+        "응답의 label_scan_url이 실제 물리 라벨 QR에 인코딩된다."
+        "certificate_url은 소비자용 품질보증서 직접 조회 URL이다."
     ),
     responses={
         404: {"description": "도서 마스터를 찾을 수 없음"},
@@ -134,4 +191,15 @@ def create_used_book_inbound(
         session.rollback()
         raise
 
-    return _build_response(inbound_job, inbound_item)
+    # DB commit이 끝난 뒤에만 실제 프린터 전송을 시도한다.
+    # 출력 실패는 입고·LPN 발급 결과를 롤백하지 않는다.
+    label_print_status, label_print_error = (
+        _try_print_initial_lpn_label(inbound_item)
+    )
+
+    return _build_response(
+        inbound_job,
+        inbound_item,
+        label_print_status=label_print_status,
+        label_print_error=label_print_error,
+    )
