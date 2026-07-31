@@ -21,6 +21,7 @@ from app.api.routes import (
     notifications,
     orders,
     outbound,
+    pricing,
     rejected_items,
     stream,
     used_inbound,
@@ -64,6 +65,10 @@ WMS_OPENAPI_TAGS = [
     {
         "name": "Outbound",
         "description": "신간 묶음 재고와 중고 LPN 단품 재고의 피킹 및 출고 처리 API",
+    },
+    {
+        "name": "Pricing",
+        "description": "동적 가격 Agent 연동용 LPN 가격 책정 컨텍스트 API",
     },
 ]
 
@@ -128,6 +133,11 @@ app.include_router(orders.router, prefix="/api/v1/orders", tags=["Orders"])
 app.include_router(inventory.v1_router, prefix="/api/v1/inventory", tags=["Inventory"])
 app.include_router(lpn.router, prefix="/api/v1/lpn", tags=["LPN"])
 app.include_router(outbound.router, prefix="/api/v1/outbound", tags=["Outbound"])
+app.include_router(
+    pricing.router,
+    prefix="/api/v1/internal/pricing",
+    tags=["Pricing"],
+)
 app.include_router(certificates.router, prefix="/api/v1/certificate", tags=["Certificate"])
 app.include_router(
     rejected_items.router,
