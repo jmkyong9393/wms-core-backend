@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -70,6 +71,7 @@ class PickingZoneGroup(BaseModel):
 class PickResponse(BaseModel):
     order_id: UUID
     status: OrderStatus
+    total_price: Decimal
     recommended_box: str
     picking_groups: list[PickingZoneGroup]
 
@@ -214,9 +216,21 @@ def create_picking_instruction(
 
                 selected_used_inventory_ids.add(inventory_used_item.id)
 
+                if (
+                    inventory_used_item.discount_rate is None
+                    or inventory_used_item.sale_price is None
+                ):
+                    raise RuntimeError(
+                        "FIFO selected an LPN without completed pricing"
+                    )
+
                 inventory_used_item.status = UsedInventoryStatus.RESERVED
                 inventory_used_item.updated_at = datetime.utcnow()
                 session.add(inventory_used_item)
+
+                order_item.final_price = inventory_used_item.sale_price
+                order_item.updated_at = datetime.utcnow()
+                session.add(order_item)
 
                 session.add(
                     OrderItemLpnAllocation(
@@ -312,6 +326,10 @@ def create_picking_instruction(
                     },
                 )
 
+        order.total_price = sum(
+            (order_item.final_price for order_item in order_items),
+            start=Decimal("0"),
+        )
         order.status = OrderStatus.PICKING
         order.updated_at = datetime.utcnow()
         session.add(order)
@@ -325,6 +343,7 @@ def create_picking_instruction(
     return PickResponse(
         order_id=order.id,
         status=order.status,
+        total_price=order.total_price,
         recommended_box="MEDIUM",
         picking_groups=build_picking_groups(picking_rows),
     )
