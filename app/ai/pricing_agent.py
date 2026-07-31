@@ -1,7 +1,11 @@
 import logging
 import os
 
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import (
+    Decimal,
+    ROUND_CEILING,
+    ROUND_HALF_UP,
+)
 
 from dotenv import load_dotenv
 from langchain_core.messages import (
@@ -90,6 +94,44 @@ def round_to_hundred(
         rounded * Decimal("100")
     )
 
+def calculate_discount_rate(
+    base_price: Decimal,
+    final_price: int,
+) -> int:
+    """정가 대비 정수 할인율 계산."""
+
+    final_price_decimal = Decimal(
+        final_price
+    )
+
+    # 잘못된 가격 관계 차단
+    if (
+        base_price <= 0
+        or final_price < 0
+        or final_price_decimal > base_price
+    ):
+        raise ValueError(
+            "최종 가격은 0 이상이며 "
+            "정가 이하여야 합니다."
+        )
+
+    discount_rate = (
+        (
+            base_price
+            - final_price_decimal
+        )
+        / base_price
+        * Decimal("100")
+    )
+
+    # 백엔드 요구에 따른 정수 할인율 올림
+    return int(
+        discount_rate.quantize(
+            Decimal("1"),
+            rounding=ROUND_CEILING,
+        )
+    )
+
 def calculate_condition_retention(
     ubci_score: float,
 ) -> Decimal:
@@ -143,8 +185,10 @@ def calculate_final_price(
 ) -> tuple[int, Decimal, str]:
     """카테고리와 UBCI 기반 최종 가격 계산."""
 
+    category_key = request.category
+
     category_label, category_retention = (
-        CATEGORY_POLICY[request.category]
+        CATEGORY_POLICY[category_key]
     )
 
     # UBCI 등급 구간 기반 상태 보존계수 계산
@@ -176,7 +220,7 @@ def calculate_final_price(
         "raw_price=%s, final_price=%s",
         PRICING_POLICY_VERSION,
         request.base_price,
-        request.category,
+        category_key,
         category_retention,
         request.ubci_score,
         condition_retention,
@@ -275,7 +319,7 @@ def generate_pricing_reason(
                 "2. 소비자와 관리자가 이해할 수 있는 "
                 "한국어 두 문장으로 작성하세요.\n"
                 "3. 지정된 JSON Schema 형식으로만 "
-                "응답하세요."
+                "응답하세요.\n"
                 "4. UBCI 점수를 높음 또는 낮음으로 새롭게 평가하지 말고 "
                 "제공된 숫자를 그대로 표현하세요.\n"
                 "5. 가격을 직접 결정했다는 표현 대신 Python 정책 계산으로 "
@@ -287,7 +331,8 @@ def generate_pricing_reason(
                 "[검증된 가격 정보]\n"
                 f"- 카테고리: {category_label}\n"
                 f"- UBCI 점수: {request.ubci_score:g}\n"
-                f"- 품질 등급: {request.condition_grade}\n"
+                f"- 품질 등급: "
+                f"{request.condition_grade.value}\n"
                 f"- 확정 최종 가격: {final_price:,}원\n\n"
                 "위 정보만 사용하여 가격 선정 사유를 "
                 "한국어 두 문장으로 작성하세요."
@@ -328,6 +373,11 @@ def pricing_agent(
         calculate_final_price(request)
     )
 
+    discount_rate = calculate_discount_rate(
+        request.base_price,
+        final_price,
+    )
+
     pricing_reason = generate_pricing_reason(
         request,
         category_label,
@@ -336,13 +386,15 @@ def pricing_agent(
 
     response = PricingRecommendationResponse(
         final_price=final_price,
+        discount_rate=discount_rate,
         pricing_reason=pricing_reason,
     )
 
     logger.info(
         "Pricing Agent 실행 완료 "
-        "- final_price=%s",
+        "- final_price=%s, discount_rate=%s",
         response.final_price,
+        response.discount_rate,
     )
 
     return response

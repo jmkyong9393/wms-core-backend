@@ -7,6 +7,8 @@ from pydantic import (
     Field,
 )
 
+from app.models.wms import ConditionGrade
+
 
 # 백엔드 BookCategory와 동일한 카테고리 값
 BookCategory = Literal[
@@ -26,17 +28,17 @@ BookCategory = Literal[
 class PricingRecommendationRequest(BaseModel):
     """백엔드 Context 기반 가격 책정 입력값."""
 
-    # 정의되지 않은 입력 필드 차단 및 문자열 공백 제거
+    # 정의되지 않은 입력 필드 차단
     model_config = ConfigDict(
         extra="forbid",
         str_strip_whitespace=True,
     )
 
     base_price: Decimal = Field(
-        gt=0,
+        ge=100,
         max_digits=12,
         decimal_places=2,
-        description="감가 적용 전 기준가격",
+        description="할인 적용 전 도서 정가",
     )
 
     category: BookCategory = Field(
@@ -49,10 +51,7 @@ class PricingRecommendationRequest(BaseModel):
         description="가격 책정 가능한 도서의 UBCI 점수",
     )
 
-    condition_grade: str = Field(
-        min_length=1,
-        max_length=20,
-        pattern=r"^[A-Z][A-Z0-9_]*$",
+    condition_grade: ConditionGrade = Field(
         description="가격 설명용 품질 등급",
     )
 
@@ -60,7 +59,7 @@ class PricingRecommendationRequest(BaseModel):
 class PricingReason(BaseModel):
     """LLM 가격 선정 사유 출력값."""
 
-    # LLM의 예상하지 않은 출력 필드 차단
+    # 예상하지 않은 LLM 출력 필드 차단
     model_config = ConfigDict(
         extra="forbid",
         str_strip_whitespace=True,
@@ -85,6 +84,15 @@ class PricingRecommendationResponse(BaseModel):
         ge=100,
         multiple_of=100,
         description="100원 단위 최종 판매가격",
+    )
+
+    discount_rate: int = Field(
+        ge=0,
+        le=100,
+        description=(
+            "정가 대비 정수 할인율. "
+            "34는 34퍼센트를 의미"
+        ),
     )
 
     pricing_reason: str = Field(

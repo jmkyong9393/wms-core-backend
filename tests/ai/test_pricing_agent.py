@@ -191,6 +191,7 @@ def test_pricing_agent_returns_llm_reason(
     )
 
     assert result.final_price == 12000
+    assert result.discount_rate == 34
     assert "UBCI 91.5점" in result.pricing_reason
 
 
@@ -209,6 +210,7 @@ def test_missing_api_key_uses_fallback(
     )
 
     assert result.final_price == 12000
+    assert result.discount_rate == 34
     assert "소설·시·희곡" in result.pricing_reason
     assert "12,000원" in result.pricing_reason
 
@@ -242,4 +244,54 @@ def test_invalid_ubci_score_is_rejected(
     ):
         make_request(
             ubci_score=ubci_score,
+        )
+
+@pytest.mark.parametrize(
+    (
+        "base_price",
+        "final_price",
+        "expected",
+    ),
+    [
+        (
+            Decimal("18000"),
+            12000,
+            34,
+        ),
+        (
+            Decimal("20000"),
+            15000,
+            25,
+        ),
+        (
+            Decimal("10000"),
+            10000,
+            0,
+        ),
+    ],
+)
+def test_calculate_discount_rate(
+    base_price,
+    final_price,
+    expected,
+):
+    """정가 대비 정수 할인율 검증."""
+
+    assert (
+        pricing_module.calculate_discount_rate(
+            base_price,
+            final_price,
+        )
+        == expected
+    )
+
+
+def test_invalid_base_price_is_rejected():
+    """정가 최소 범위 검증."""
+
+    with pytest.raises(
+        ValidationError,
+    ):
+        make_request(
+            base_price=Decimal("99"),
         )
