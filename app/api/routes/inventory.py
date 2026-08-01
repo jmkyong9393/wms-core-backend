@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
@@ -10,6 +10,7 @@ from sqlalchemy import (
     cast,
     func,
     literal,
+    or_,
     union_all,
 )
 from sqlmodel import Session, select
@@ -157,6 +158,30 @@ def list_inventory(
         max_length=13,
         description="특정 ISBN의 로케이션별 재고만 조회",
     ),
+    keyword: str | None = Query(
+        default=None,
+        description="도서명 또는 ISBN 부분 검색",
+    ),
+    grade: ConditionGrade | None = Query(
+        default=None,
+        description=(
+            "재고 등급 필터. 신간 묶음 재고는 MINT로 조회된다."
+        ),
+    ),
+    zone: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=20,
+        description="보관 구역 필터 예: A, B, C",
+    ),
+    start_date: date | None = Query(
+        default=None,
+        description="마지막 변경일 기준 조회 시작일(YYYY-MM-DD)",
+    ),
+    end_date: date | None = Query(
+        default=None,
+        description="마지막 변경일 기준 조회 종료일(YYYY-MM-DD)",
+    ),
     page: int = Query(
         default=1,
         ge=1,
@@ -183,9 +208,8 @@ def list_inventory(
             Book.title.label("book_title"),
             Book.isbn.label("book_isbn"),
             literal("NEW_STOCK").label("stock_type"),
-            cast(
-                literal(None),
-                String,
+            literal(
+                ConditionGrade.MINT.value,
             ).label("grade"),
             Location.barcode.label("barcode"),
             Location.zone.label("location_zone"),
@@ -271,6 +295,61 @@ def list_inventory(
         )
         used_item_statement = used_item_statement.where(
             Book.isbn == isbn,
+        )
+
+    normalized_keyword = (keyword or "").strip()
+
+    if normalized_keyword:
+        keyword_condition = or_(
+            Book.title.ilike(
+                f"%{normalized_keyword}%",
+            ),
+            Book.isbn.ilike(
+                f"%{normalized_keyword}%",
+            ),
+        )
+        new_stock_statement = new_stock_statement.where(
+            keyword_condition,
+        )
+        used_item_statement = used_item_statement.where(
+            keyword_condition,
+        )
+
+    if grade is not None:
+        used_item_statement = used_item_statement.where(
+            InventoryUsedItem.condition_grade == grade,
+        )
+
+        # 신간 묶음 재고는 항상 MINT로 취급한다.
+        if grade != ConditionGrade.MINT:
+            new_stock_statement = new_stock_statement.where(
+                literal(False),
+            )
+
+    normalized_zone = (zone or "").strip().upper()
+
+    if normalized_zone:
+        new_stock_statement = new_stock_statement.where(
+            Location.zone == normalized_zone,
+        )
+        used_item_statement = used_item_statement.where(
+            Location.zone == normalized_zone,
+        )
+
+    if start_date is not None:
+        new_stock_statement = new_stock_statement.where(
+            func.date(Inventory.updated_at) >= start_date,
+        )
+        used_item_statement = used_item_statement.where(
+            func.date(InventoryUsedItem.updated_at) >= start_date,
+        )
+
+    if end_date is not None:
+        new_stock_statement = new_stock_statement.where(
+            func.date(Inventory.updated_at) <= end_date,
+        )
+        used_item_statement = used_item_statement.where(
+            func.date(InventoryUsedItem.updated_at) <= end_date,
         )
 
     inventory_union = union_all(

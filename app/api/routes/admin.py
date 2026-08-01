@@ -7,7 +7,12 @@ from sqlmodel import Session, select
 
 from app.core.database import get_session
 from app.api.dependencies.auth import require_admin_or_master
-from app.models.wms import ReturnJob, ReturnJobStatus, User
+from app.models.wms import (
+    ConditionGrade,
+    ReturnJob,
+    ReturnJobStatus,
+    User,
+)
 from app.schemas.admin_inspection import (
     InspectionDetailResponse,
     InspectionHistoryListResponse,
@@ -117,6 +122,22 @@ def get_admin_inspection_history(
         default=None,
         description="도서명 검색 키워드",
     ),
+    grade: ConditionGrade | None = Query(
+        default=None,
+        description="확정 검수 등급 필터(MINT, EXCELLENT, NORMAL, REJECT)",
+    ),
+    fast_track: bool | None = Query(
+        default=None,
+        description=(
+            "Fast Track 여부 필터. true면 Fast Track 건만, "
+            "false면 일반 검수 건만 조회"
+        ),
+    ),
+    reason_code: str | None = Query(
+        default=None,
+        min_length=1,
+        description="AI 판정 사유 코드 필터",
+    ),
     page: int = Query(
         default=1,
         ge=1,
@@ -141,6 +162,9 @@ def get_admin_inspection_history(
         start_date=start_date,
         end_date=end_date,
         keyword=keyword,
+        grade=grade,
+        fast_track=fast_track,
+        reason_code=reason_code,
         page=page,
         size=size,
     )

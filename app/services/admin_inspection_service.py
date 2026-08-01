@@ -10,6 +10,7 @@ from sqlmodel import Session, select
 
 from app.models.wms import (
     Book,
+    ConditionGrade,
     ReturnJob,
     ReturnJobStatus,
 )
@@ -42,6 +43,20 @@ def _extract_final_grade(
 
     return None
 
+def _resolve_final_grade(
+    condition_grade: ConditionGrade | None,
+    agent_logs: dict | None,
+) -> str | None:
+    """
+    목록 표시와 필터의 등급 기준을 맞춘다.
+
+    최근 검수 건은 ReturnJob.condition_grade를 확정 등급으로 사용하고,
+    해당 값이 없는 과거 데이터만 agent_logs의 final_grade를 보조로 사용한다.
+    """
+    if condition_grade is not None:
+        return condition_grade.value
+
+    return _extract_final_grade(agent_logs)
 
 def _extract_final_report_summary(
     final_report: str | None,
@@ -185,6 +200,9 @@ def _apply_inspection_history_filters(
     start_date: datetime | None = None,
     end_date: datetime | None = None,
     keyword: str | None = None,
+    grade: ConditionGrade | None = None,
+    fast_track: bool | None = None,
+    reason_code: str | None = None,
 ):
     """
     검수 이력 목록과 전체 건수 조회에 공통으로 적용할 필터를 구성한다.
@@ -218,6 +236,30 @@ def _apply_inspection_history_filters(
             Book.title.contains(normalized_keyword),
         )
 
+    if grade is not None:
+        statement = statement.where(
+            ReturnJob.condition_grade == grade,
+        )
+
+    if fast_track is not None:
+        statement = statement.where(
+            func.coalesce(
+                ReturnJob.agent_logs["is_fast_track"]
+                .as_boolean(),
+                False,
+            )
+            == fast_track,
+        )
+
+    normalized_reason_code = (reason_code or "").strip()
+
+    if normalized_reason_code:
+        statement = statement.where(
+            ReturnJob.agent_logs["reason_code"]
+            .as_string()
+            == normalized_reason_code,
+        )
+
     return statement
 
 
@@ -228,6 +270,9 @@ def get_inspection_history(
     start_date: datetime | None = None,
     end_date: datetime | None = None,
     keyword: str | None = None,
+    grade: ConditionGrade | None = None,
+    fast_track: bool | None = None,
+    reason_code: str | None = None,
     page: int = 1,
     size: int = 20,
 ) -> InspectionHistoryListResponse:
@@ -253,6 +298,9 @@ def get_inspection_history(
         start_date=start_date,
         end_date=end_date,
         keyword=keyword,
+        grade=grade,
+        fast_track=fast_track,
+        reason_code=reason_code,
     )
 
     total = session.exec(count_statement).one()
@@ -277,6 +325,9 @@ def get_inspection_history(
         start_date=start_date,
         end_date=end_date,
         keyword=keyword,
+        grade=grade,
+        fast_track=fast_track,
+        reason_code=reason_code,
     )
 
     rows = session.exec(
@@ -299,7 +350,14 @@ def get_inspection_history(
                 id=return_job.id,
                 book_id=return_job.book_id,
                 book_title=book_title,
-                final_grade=_extract_final_grade(logs),
+                final_grade=_resolve_final_grade(
+                    condition_grade=getattr(
+                        return_job,
+                        "condition_grade",
+                        None,
+                    ),
+                    agent_logs=logs,
+                ),
                 is_fast_track=(
                     logs.get("is_fast_track") is True
                 ),
