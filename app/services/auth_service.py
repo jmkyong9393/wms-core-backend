@@ -1,7 +1,7 @@
 from datetime import date, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlmodel import Session, select
 
 from app.core.exceptions import (
@@ -24,7 +24,11 @@ from app.core.security import (
     verify_password,
 )
 from app.models.wms import User, UserRole, UserStatus
-from app.schemas.auth import EmployeeCreateRequest
+from app.schemas.auth import (
+    EmployeeCreateRequest,
+    EmployeeListItemResponse,
+    EmployeeListResponse,
+)
 
 EMPLOYEE_ID_PREFIX = "AV"
 MAX_DAILY_EMPLOYEE_SEQUENCE = 99
@@ -50,6 +54,121 @@ def get_user_by_email(
         User.email == email
     )
     return session.exec(statement).first()
+
+def _apply_employee_list_filters(
+    statement,
+    tenant_id: UUID,
+    keyword: str | None = None,
+    role: UserRole | None = None,
+    status: UserStatus | None = None,
+):
+    """
+    직원 목록과 전체 건수 조회에 공통으로 적용할 조건을 구성한다.
+
+    목록 조회와 COUNT 조회의 조건이 다르면 페이지 수와 실제 목록이
+    달라질 수 있으므로, 테넌트·검색·역할·상태 필터를 한 곳에서 관리한다.
+    """
+    statement = statement.where(
+        User.tenant_id == tenant_id,
+    )
+
+    normalized_keyword = (keyword or "").strip()
+
+    if normalized_keyword:
+        search_pattern = f"%{normalized_keyword}%"
+
+        statement = statement.where(
+            or_(
+                User.employee_id.ilike(search_pattern),
+                User.name.ilike(search_pattern),
+                User.email.ilike(search_pattern),
+            )
+        )
+
+    if role is not None:
+        statement = statement.where(
+            User.role == role,
+        )
+
+    if status is not None:
+        statement = statement.where(
+            User.status == status,
+        )
+
+    return statement
+
+
+def list_employees(
+    session: Session,
+    tenant_id: UUID,
+    keyword: str | None = None,
+    role: UserRole | None = None,
+    status: UserStatus | None = None,
+    page: int = 1,
+    size: int = 20,
+) -> EmployeeListResponse:
+    """
+    현재 테넌트의 직원 계정을 서버 페이지네이션 방식으로 조회한다.
+
+    반환 행의 id는 권한·상태 변경 API 경로에 사용하는 User UUID다.
+    비밀번호나 Refresh Token 관련 민감 정보는 반환하지 않는다.
+    """
+    count_statement = _apply_employee_list_filters(
+        statement=select(func.count()).select_from(User),
+        tenant_id=tenant_id,
+        keyword=keyword,
+        role=role,
+        status=status,
+    )
+    total = session.exec(count_statement).one()
+
+    offset = (page - 1) * size
+
+    list_statement = _apply_employee_list_filters(
+        statement=select(User),
+        tenant_id=tenant_id,
+        keyword=keyword,
+        role=role,
+        status=status,
+    )
+
+    users = session.exec(
+        list_statement
+        .order_by(
+            User.created_at.desc(),
+            User.id.desc(),
+        )
+        .offset(offset)
+        .limit(size)
+    ).all()
+
+    items = [
+        EmployeeListItemResponse(
+            id=user.id,
+            employee_id=user.employee_id,
+            email=user.email,
+            name=user.name,
+            role=user.role,
+            status=user.status,
+            must_change_password=user.must_change_password,
+            created_at=user.created_at,
+        )
+        for user in users
+    ]
+
+    total_pages = (
+        (total + size - 1) // size
+        if total > 0
+        else 0
+    )
+
+    return EmployeeListResponse(
+        items=items,
+        total=total,
+        page=page,
+        size=size,
+        total_pages=total_pages,
+    )
 
 # 사용자 조회 중복 제거
 def get_user_or_raise(
