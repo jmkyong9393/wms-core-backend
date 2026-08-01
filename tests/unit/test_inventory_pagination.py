@@ -1,8 +1,11 @@
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 
 from app.api.routes.inventory import list_inventory
-from app.models.wms import UsedInventoryStatus
+from app.models.wms import (
+    ConditionGrade,
+    UsedInventoryStatus,
+)
 
 
 class FakeCountResult:
@@ -89,6 +92,11 @@ def test_returns_new_and_used_inventory_availability_fields():
 
     response = list_inventory(
         isbn=None,
+        keyword=None,
+        grade=None,
+        zone=None,
+        start_date=None,
+        end_date=None,
         page=1,
         size=20,
         current_admin=None,
@@ -123,6 +131,11 @@ def test_applies_requested_offset_and_limit_to_inventory_query():
 
     response = list_inventory(
         isbn=None,
+        keyword=None,
+        grade=None,
+        zone=None,
+        start_date=None,
+        end_date=None,
         page=3,
         size=10,
         current_admin=None,
@@ -146,6 +159,11 @@ def test_applies_isbn_filter_to_new_and_used_inventory_query():
 
     list_inventory(
         isbn="9790000000001",
+        keyword=None,
+        grade=None,
+        zone=None,
+        start_date=None,
+        end_date=None,
         page=1,
         size=20,
         current_admin=None,
@@ -168,6 +186,11 @@ def test_excludes_shipped_lpn_from_inventory_query():
 
     list_inventory(
         isbn=None,
+        keyword=None,
+        grade=None,
+        zone=None,
+        start_date=None,
+        end_date=None,
         page=1,
         size=20,
         current_admin=None,
@@ -187,6 +210,11 @@ def test_returns_zero_total_pages_when_inventory_is_empty():
 
     response = list_inventory(
         isbn=None,
+        keyword=None,
+        grade=None,
+        zone=None,
+        start_date=None,
+        end_date=None,
         page=1,
         size=20,
         current_admin=None,
@@ -196,3 +224,56 @@ def test_returns_zero_total_pages_when_inventory_is_empty():
     assert response.items == []
     assert response.total == 0
     assert response.total_pages == 0
+
+def test_applies_grid_filters_to_inventory_count_and_list_queries():
+    session = FakeSession(
+        total=0,
+        rows=[],
+    )
+
+    list_inventory(
+        isbn=None,
+        keyword="테스트",
+        grade=ConditionGrade.EXCELLENT,
+        zone="b",
+        start_date=date(2026, 7, 1),
+        end_date=date(2026, 7, 31),
+        page=1,
+        size=20,
+        current_admin=None,
+        session=session,
+    )
+
+    for statement in (
+        session.count_statement,
+        session.list_statement,
+    ):
+        parameters = statement.compile().params.values()
+        statement_sql = str(statement).lower()
+
+        # 도서명·ISBN 검색 조건이 신간/중고 양쪽에 적용된다.
+        assert list(parameters).count("%테스트%") == 2
+
+        # 입력 구역은 대문자로 정규화되어 양쪽 쿼리에 적용된다.
+        assert list(parameters).count("B") == 2
+
+        # 시작일·종료일이 신간/중고의 updated_at 기준으로 적용된다.
+        assert list(parameters).count(
+            date(2026, 7, 1)
+        ) == 2
+        assert list(parameters).count(
+            date(2026, 7, 31)
+        ) == 2
+        assert "date(inventory.updated_at)" in statement_sql
+        assert (
+            "date(inventory_used_items.updated_at)"
+            in statement_sql
+        )
+
+        # EXCELLENT는 중고 단품 등급 조건으로 적용되고,
+        # 신간(MINT)은 결과에서 제외된다.
+        assert any(
+            getattr(value, "value", value) == "EXCELLENT"
+            for value in parameters
+        )
+        assert False in parameters
