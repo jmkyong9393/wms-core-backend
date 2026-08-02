@@ -95,7 +95,7 @@ class WMSInspectionState(TypedDict, total=False):
     # 1. Vision Agent (2차 검토)
     reviewed_candidates: Optional[list[dict]] # CONFIRMED ,REJECTED, UNCERTAIN 결과를 모두 포함
     rejected_candidates: Optional[list[dict]] # 오탐으로 판단한 후보
-    uncetain_candidates: Optional[list[dict]] # VLM도 확정하지 못해 HITL로 넘겨야하는 후보
+    uncertain_candidates: Optional[list[dict]] # VLM도 확정하지 못해 HITL로 넘겨야하는 후보
     defects: Optional[list[dict]] # VLM이 최종 승인한 실제 결함 목록
     image_quality_ok: Optional[bool] # 입력 사진 전체가 판독 가능한 품질인지 표시
     vision_confidence: Optional[float]  # 전체 Vision 판독 신뢰도, 0~1

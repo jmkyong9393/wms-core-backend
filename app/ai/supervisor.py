@@ -360,6 +360,25 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
         <= 1
     )
 
+    # 최초 Vision MINT 결과의 Fast-track
+    initial_mint_fast_track = (
+        state.get("is_mint") is True
+        and state.get("defects") == []
+        and state.get("ubci_score") is None
+        and state.get("predicted_grade") is None
+        and state.get("rule_reference") is None
+        and state.get("policy_confidence") is None
+        and state.get(
+            "primary_reason_code"
+        ) is None
+    )
+
+    if initial_mint_fast_track:
+        return route(
+            "auto_refund_agent",
+            "최초 Vision MINT Fast-track",
+        )
+
     # Vision 뒤에는 반드시 Policy
     if not policy_output_complete:
         return route(
@@ -385,29 +404,16 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
             "비정상인데 결함이 없음",
         )
 
-    # Policy가 확정한 MINT만 Fast-track
-    if is_mint is True:
+    if reason_code == "OK":
         if (
-            state.get("ubci_score")
-            != 100.0
-            or state.get(
-                "predicted_grade"
-            ) != "S"
-            or state.get(
-                "score_breakdown"
-            ) != []
+            state.get("primary_reason_code")
+            is not None
         ):
             return route(
                 "human_node",
-                "MINT 결과가 100점/S와 모순",
+                "재촬영 결과 관리자 재확인 필요",
             )
 
-        return route(
-            "auto_refund_agent",
-            "Policy 확정 MINT Fast-track",
-        )
-
-    if reason_code == "OK":
         return route(
             "report_agent",
             "Critic 검증 통과",

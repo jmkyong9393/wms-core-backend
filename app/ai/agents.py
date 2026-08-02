@@ -127,44 +127,33 @@ class CandidateReview(BaseModel):
     morphology_severe: bool = False
 
     @model_validator(mode="after")
-    def validate_review(self):
+    def normalize_review(self):
+        # CONFIRMED 출력의 필수값 검증
+        confirmed_is_valid = (
+            self.confirmed_type is not None
+            and self.location is not None
+            and self.reject_reason is None
+            and self.ratio > 0
+        )
+
+        if (
+            self.decision == "CONFIRMED"
+            and confirmed_is_valid
+        ):
+            return self
+
+        # 불완전한 CONFIRMED 출력의 HITL 전환
         if self.decision == "CONFIRMED":
-            if (
-                self.confirmed_type is None
-                or self.location is None
-            ):
-                raise ValueError(
-                    "승인 후보에는 결함 유형과 위치가 필요합니다."
-                )
+            self.decision = "UNCERTAIN"
 
-            if self.reject_reason is not None:
-                raise ValueError(
-                    "승인 후보에는 reject_reason을 사용할 수 없습니다."
-                )
-
-            if self.ratio <= 0:
-                raise ValueError(
-                    "승인 후보의 ratio는 0보다 커야 합니다."
-                )
-
-        else:
-            if (
-                self.confirmed_type is not None
-                or self.location is not None
-            ):
-                raise ValueError(
-                    "거절·보류 후보에는 결함 유형을 지정하지 않습니다."
-                )
-
-            if self.ratio != 0:
-                raise ValueError(
-                    "거절·보류 후보의 ratio는 0이어야 합니다."
-                )
-
-            if self.reject_reason is None:
-                raise ValueError(
-                    "거절·보류 후보에는 reject_reason이 필요합니다."
-                )
+        # REJECTED·UNCERTAIN 출력 정규화
+        self.confirmed_type = None
+        self.location = None
+        self.ratio = 0.0
+        self.reject_reason = (
+            self.reject_reason
+            or "INSUFFICIENT_EVIDENCE"
+        )
 
         return self
 
@@ -243,7 +232,10 @@ YOLO_MODEL_SPECS = (
         role="DOODLE_SPECIALIST",
         confidence=0.20,
         class_mapping={
-            "doodle_scribble": "WRITING",
+        # 기존 Doodle 모델의 실제 클래스명
+        "item": "WRITING",
+        # 클래스명 변경 모델과의 호환
+        "doodle_scribble": "WRITING",
         },
     ),
 )
@@ -869,7 +861,12 @@ def vision_agent(state: WMSInspectionState) -> WMSInspectionState:
         "policy_confidence": None,
         "overall_confidence": None,
         "human_feedback": None,
-        "primary_reason_code": None,
+        "primary_reason_code": (
+            state.get("primary_reason_code")
+            if state.get("human_feedback")
+            == "RE_CHECK"
+            else None
+        ),
         "target_grade": None,
         "final_grade": None,
         "final_report": None,
@@ -1252,23 +1249,29 @@ decision 규칙:
                     and item.confirmed_type
                     != proposed_type
                 ):
-                    uncertain_candidates.append({
-                        **safe_candidate,
-                        "vlm_review": {
-                            **review_payload,
-                            "decision": (
-                                "UNCERTAIN"
-                            ),
-                            "confirmed_type": None,
-                            "location": None,
-                            "ratio": 0.0,
-                            "reject_reason": (
-                                "MODEL_CLASS_CONFLICT"
-                            ),
-                        },
-                    })
+                    uncertain_payload = {
+                        **review_payload,
+                        "decision": "UNCERTAIN",
+                        "confirmed_type": None,
+                        "location": None,
+                        "ratio": 0.0,
+                        "reject_reason": (
+                            "MODEL_CLASS_CONFLICT"
+                        ),
+                    }
 
-                    missed_defect_suspected = True
+                    uncertain_record = {
+                        **safe_candidate,
+                        "vlm_review": uncertain_payload,
+                    }
+
+                    # 전체 검토 목록과 보류 목록의 상태 통일
+                    reviewed_candidates[-1] = (
+                        uncertain_record
+                    )
+                    uncertain_candidates.append(
+                        uncertain_record
+                    )
                     continue
 
                 defect = DefectOutput(
@@ -1382,6 +1385,12 @@ decision 규칙:
 
     result = {
         **downstream_reset,
+        # 승인된 결함이 없는 완료 결과의 MINT 판정
+        "is_mint": (
+            not final_defects
+            if vision_status == "COMPLETED"
+            else None
+        ),
         "yolo_model_manifest": (
             model_manifest
         ),
@@ -1679,7 +1688,7 @@ def calculate_ubci_grade(
         or not 0 <= ubci_score <= 100
     ):
         raise ValueError(
-            "ubci_score는 0~100 범위의 정수여야 합니다."
+            "ubci_score는 0~100 범위의 숫자여야 합니다."
         )
     
     ubci_score = float(ubci_score)
