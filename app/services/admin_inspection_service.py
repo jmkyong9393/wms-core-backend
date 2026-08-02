@@ -4,11 +4,13 @@ from uuid import UUID
 
 from fastapi import HTTPException, status
 
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 
 from app.models.wms import (
     Book,
+    ConditionGrade,
     ReturnJob,
     ReturnJobStatus,
 )
@@ -20,8 +22,41 @@ from app.schemas.admin_inspection import (
     InspectionDetailResponse,
     InspectionErrorDetail,
     InspectionHistoryRow,
+    InspectionHistoryListResponse,
 )
 
+VALID_FINAL_GRADES = {
+    "MINT",
+    "EXCELLENT",
+    "NORMAL",
+    "REJECT",
+}
+
+
+def _extract_final_grade(
+    agent_logs: dict | None,
+) -> str | None:
+    value = (agent_logs or {}).get("final_grade")
+
+    if value in VALID_FINAL_GRADES:
+        return value
+
+    return None
+
+def _resolve_final_grade(
+    condition_grade: ConditionGrade | None,
+    agent_logs: dict | None,
+) -> str | None:
+    """
+    목록 표시와 필터의 등급 기준을 맞춘다.
+
+    최근 검수 건은 ReturnJob.condition_grade를 확정 등급으로 사용하고,
+    해당 값이 없는 과거 데이터만 agent_logs의 final_grade를 보조로 사용한다.
+    """
+    if condition_grade is not None:
+        return condition_grade.value
+
+    return _extract_final_grade(agent_logs)
 
 def _extract_final_report_summary(
     final_report: str | None,
@@ -158,6 +193,76 @@ def _build_agent_steps(
 
     return steps
 
+def _apply_inspection_history_filters(
+    statement,
+    tenant_id: UUID,
+    status: ReturnJobStatus | None = None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+    keyword: str | None = None,
+    grade: ConditionGrade | None = None,
+    fast_track: bool | None = None,
+    reason_code: str | None = None,
+):
+    """
+    검수 이력 목록과 전체 건수 조회에 공통으로 적용할 필터를 구성한다.
+
+    목록 조회와 COUNT 조회가 서로 다른 필터를 사용하면
+    total 값과 실제 items 수가 달라질 수 있으므로 공통 함수로 관리한다.
+    """
+    statement = statement.where(
+        ReturnJob.tenant_id == tenant_id,
+    )
+
+    if status is not None:
+        statement = statement.where(
+            ReturnJob.status == status,
+        )
+
+    if start_date is not None:
+        statement = statement.where(
+            ReturnJob.created_at >= start_date,
+        )
+
+    if end_date is not None:
+        statement = statement.where(
+            ReturnJob.created_at <= end_date,
+        )
+
+    normalized_keyword = (keyword or "").strip()
+
+    if normalized_keyword:
+        statement = statement.where(
+            Book.title.contains(normalized_keyword),
+        )
+
+    if grade is not None:
+        statement = statement.where(
+            ReturnJob.condition_grade == grade,
+        )
+
+    if fast_track is not None:
+        statement = statement.where(
+            func.coalesce(
+                ReturnJob.agent_logs["is_fast_track"]
+                .as_boolean(),
+                False,
+            )
+            == fast_track,
+        )
+
+    normalized_reason_code = (reason_code or "").strip()
+
+    if normalized_reason_code:
+        statement = statement.where(
+            ReturnJob.agent_logs["reason_code"]
+            .as_string()
+            == normalized_reason_code,
+        )
+
+    return statement
+
+
 def get_inspection_history(
     session: Session,
     tenant_id: UUID,
@@ -165,24 +270,44 @@ def get_inspection_history(
     start_date: datetime | None = None,
     end_date: datetime | None = None,
     keyword: str | None = None,
-) -> list[InspectionHistoryRow]:
+    grade: ConditionGrade | None = None,
+    fast_track: bool | None = None,
+    reason_code: str | None = None,
+    page: int = 1,
+    size: int = 20,
+) -> InspectionHistoryListResponse:
     """
-    해당 테넌트의 검수 이력을 조회한다.
+    테넌트별 검수 이력을 서버 페이지네이션 방식으로 조회한다.
 
-    status:
-        검수 상태 필터
-
-    start_date / end_date:
-        검수 요청 기간 필터
-
-    keyword:
-        도서명 검색 키워드
-
-    TODO:
-    현재는 프론트 Export를 위해 목록 데이터를 제공하는 구조이며,
-    CSV/XLSX 생성은 프론트에서 처리한다.
+    필터가 적용된 전체 건수(total)를 먼저 조회한 뒤,
+    같은 필터 조건으로 현재 페이지에 필요한 데이터만 DB에서 가져온다.
     """
-    statement = (
+    count_statement = (
+        select(func.count())
+        .select_from(ReturnJob)
+        .join(
+            Book,
+            ReturnJob.book_id == Book.id,
+        )
+    )
+
+    count_statement = _apply_inspection_history_filters(
+        statement=count_statement,
+        tenant_id=tenant_id,
+        status=status,
+        start_date=start_date,
+        end_date=end_date,
+        keyword=keyword,
+        grade=grade,
+        fast_track=fast_track,
+        reason_code=reason_code,
+    )
+
+    total = session.exec(count_statement).one()
+
+    offset = (page - 1) * size
+
+    history_statement = (
         select(
             ReturnJob,
             Book.title,
@@ -191,39 +316,29 @@ def get_inspection_history(
             Book,
             ReturnJob.book_id == Book.id,
         )
-        .where(
-            ReturnJob.tenant_id == tenant_id,
-        )
-        .order_by(
-            ReturnJob.created_at.desc(),
-        )
     )
 
-    # 상태 필터
-    if status:
-        statement = statement.where(
-            ReturnJob.status == status
+    history_statement = _apply_inspection_history_filters(
+        statement=history_statement,
+        tenant_id=tenant_id,
+        status=status,
+        start_date=start_date,
+        end_date=end_date,
+        keyword=keyword,
+        grade=grade,
+        fast_track=fast_track,
+        reason_code=reason_code,
+    )
+
+    rows = session.exec(
+        history_statement
+        .order_by(
+            ReturnJob.created_at.desc(),
+            ReturnJob.id.desc(),
         )
-
-
-    # 날짜 필터
-    if start_date:
-        statement = statement.where(
-            ReturnJob.created_at >= start_date
-        )
-
-    if end_date:
-        statement = statement.where(
-            ReturnJob.created_at <= end_date
-        )
-
-    # 도서명 검색 키워드 필터
-    if keyword:
-        statement = statement.where(
-            Book.title.contains(keyword)
-        )
-
-    rows = session.exec(statement).all()
+        .offset(offset)
+        .limit(size)
+    ).all()
 
     inspection_history: list[InspectionHistoryRow] = []
 
@@ -235,33 +350,44 @@ def get_inspection_history(
                 id=return_job.id,
                 book_id=return_job.book_id,
                 book_title=book_title,
-
-                # UBCI 등급 산정 로직 연동 전까지 null
-                final_grade=None,
-
-                # AutoRefund Agent 실행 여부
+                final_grade=_resolve_final_grade(
+                    condition_grade=getattr(
+                        return_job,
+                        "condition_grade",
+                        None,
+                    ),
+                    agent_logs=logs,
+                ),
                 is_fast_track=(
                     logs.get("is_fast_track") is True
                 ),
-
                 status=return_job.status,
                 ubci_score=return_job.ubci_score,
                 final_report=_extract_final_report_summary(
                     return_job.final_report,
                 ),
-                reason_codes=_extract_reason_codes(
-                    logs,
-                ),
-                # 프론트 검수 상세 모달용 Agent 실행 이력
+                reason_codes=_extract_reason_codes(logs),
                 steps=_build_agent_steps(
-                    logs.get("steps")
+                    logs.get("steps"),
                 ),
                 inspected_at=return_job.created_at,
                 updated_at=return_job.updated_at,
             )
         )
 
-    return inspection_history
+    total_pages = (
+        (total + size - 1) // size
+        if total > 0
+        else 0
+    )
+
+    return InspectionHistoryListResponse(
+        items=inspection_history,
+        total=total,
+        page=page,
+        size=size,
+        total_pages=total_pages,
+    )
 
 def _parse_final_report(
     final_report: str | None,
@@ -392,7 +518,7 @@ def get_inspection_detail(
         ),
         status=return_job.status,
         mode=return_job.mode.value,
-        final_grade=None,
+        final_grade=_extract_final_grade(logs),
         is_fast_track=(
             (return_job.agent_logs or {}).get(
                 "is_fast_track"

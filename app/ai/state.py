@@ -118,6 +118,16 @@ class WMSInspectionState(TypedDict, total=False):
     revision_count: int  # Agent 재시도 횟수. 무한 루프 방지용
     overall_confidence: Optional[float]  # Vision/Policy 중 낮은 신뢰도
 
+    # Critic RAG 판례 검증 결과
+    critic_rag_used: Optional[bool]
+    critic_retrieved_case_ids: Optional[List[str]]
+    critic_retrieval_scores: Optional[List[float]]
+    critic_retrieval_count: Optional[int]
+    critic_decision_source: Optional[str]
+    critic_explanation: Optional[str]
+    critic_rag_confidence: Optional[float]
+    critic_prompt_version: Optional[str]
+
     # 4. Human-In-The-Loop (수동 개입용 - MemorySaver 연동)
     human_feedback: Optional[HumanFeedback]  # 관리자 결정
     primary_reason_code: Optional[PrimaryReasonCode]  # 관리자 사유

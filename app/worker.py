@@ -2,11 +2,26 @@ import logging
 from typing import Any
 from uuid import UUID, uuid4
 
-
+from sqlmodel import Session
 from app.core.celery_app import celery_app
-from app.models.wms import ReturnJob, ReturnJobStatus
+from app.core.database import engine
+
+from app.models.wms import (
+    Book,
+    NotificationCategory,
+    NotificationSeverity,
+    ReturnJob,
+    ReturnJobStatus,
+)
+
+from app.services.notification_service import (
+    create_committed_notification_for_tenant,
+)
 from app.services.langgraph_wrapper import LangGraphInspectionWrapper
-from app.services.redis_pubsub import publish_return_job_event
+from app.services.redis_pubsub import (
+    publish_return_job_event,
+    publish_tenant_notification_event,
+)
 from app.services.return_job_service import (
     WMSTaskMismatchError,
     prepare_processing_job,
@@ -18,19 +33,19 @@ from app.services.return_job_service import (
     save_wms_processing_failed,
     save_wms_task_id,
 )
-
 from app.services.wms_client import (
     WMSRetryableError,
     WMSNonRetryableError,
     call_wms_inspection_result_api,
 )
-
+from app.services.restock_service import (create_restock_proposal_for_rejected_job,)
 from app.services.dlq_service import push_inspection_failure_to_dlq
 
 logger = logging.getLogger(__name__)
 
 TASK_NAME = "app.worker.process_inspection"
 WMS_TASK_NAME = "app.worker.process_wms_action"
+RESTOCK_PROPOSAL_TASK_NAME = ("app.worker.process_restock_proposal")
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 5
 
@@ -96,6 +111,8 @@ def publish_final_event(
             ),
             "lpn_barcode": wms_result.get("lpn_barcode"),
             "inventory_changed": wms_result.get("inventory_changed", False),
+            "rejected_item_id": wms_result.get("rejected_item_id"),
+            "location_barcode": wms_result.get("location_barcode"),
         },
     )
 
@@ -144,7 +161,6 @@ def execute_wms_action(
     decision: str,
     return_job_id: UUID,
     ai_result: dict[str, Any],
-    target_location_id: UUID | None,
 ) -> tuple[str, dict[str, Any], str, int | float | None]:
     
     idempotency_key = f"return-job:{return_job_id}"
@@ -177,11 +193,6 @@ def execute_wms_action(
         decision=decision,
         ubci_score=ubci_score,
         defects=defects,
-        location_id=(
-            str(target_location_id)
-            if target_location_id is not None
-            else None
-        ),
         idempotency_key=idempotency_key,
         admin_decision_code=admin_decision_code,
         final_grade=final_grade,
@@ -221,6 +232,46 @@ def publish_event_safely(
             kwargs,
         )
         return False  
+
+def create_agent_hitl_alert_safely(
+    job: ReturnJob,
+    ai_result: dict[str, Any],
+    task_id: str,
+) -> None:
+    """HITL_REQUIRED 검수 건에 대한 관리자 알림을 저장·발행한다."""
+    reason_code = ai_result.get("reason_code") or "UNKNOWN"
+
+    try:
+        tenant_id, event = create_committed_notification_for_tenant(
+            tenant_id=job.tenant_id,
+            category=NotificationCategory.AGENT_ALERT,
+            severity=NotificationSeverity.MEDIUM,
+            title="AI 검수 결과 관리자 확인 필요",
+            message=(
+                "AI 검수가 자동 확정되지 않아 관리자 검수가 필요합니다. "
+                f"사유 코드: {reason_code}"
+            ),
+            payload={
+                "return_job_id": str(job.id),
+                "inspection_task_id": task_id,
+                "reason_code": reason_code,
+            },
+        )
+    except Exception:
+        logger.exception(
+            "Agent HITL 알림 DB 저장에 실패했습니다. "
+            "job_id=%s task_id=%s",
+            job.id,
+            task_id,
+        )
+        return
+
+    publish_event_safely(
+        event_name="AGENT_ALERT",
+        publish_function=publish_tenant_notification_event,
+        tenant_id=tenant_id,
+        event=event,
+    )
 
 # WMS 후속 Task 등록 실패 정보를 DB에 저장한다.
 # 저장 함수 자체에서 AI 결과는 유지하고 ReturnJob 상태를 FAILED로 변경한다.
@@ -333,7 +384,191 @@ def handle_inspection_failure(
         retry_count=retry_count,
     )
 
-    
+def dispatch_restock_proposal_task_safely(
+    return_job: ReturnJob,
+) -> None:
+    """
+    최종 반려된 검수 작업에 대해 Restock 추천안 생성 Task를 등록한다.
+
+    중복 등록되더라도 order_proposals.return_job_id 유니크 제약과
+    서비스의 기존 추천안 조회로 실제 추천안은 한 번만 생성된다.
+    """
+    if return_job.status != ReturnJobStatus.REJECTED:
+        return
+
+    restock_task_id = str(uuid4())
+
+    try:
+        celery_app.send_task(
+            RESTOCK_PROPOSAL_TASK_NAME,
+            args=[str(return_job.id)],
+            task_id=restock_task_id,
+        )
+
+        logger.info(
+            "Restock proposal task queued. "
+            "restock_task_id=%s return_job_id=%s",
+            restock_task_id,
+            return_job.id,
+        )
+
+    except Exception:
+        # Restock 추천 생성 실패가 이미 완료된 WMS 반려 처리를
+        # FAILED로 바꾸지 않도록 로그만 남긴다.
+        logger.exception(
+            "Restock proposal task dispatch failed. "
+            "return_job_id=%s",
+            return_job.id,
+        )
+
+
+@celery_app.task(
+    bind=True,
+    name=RESTOCK_PROPOSAL_TASK_NAME,
+    max_retries=MAX_RETRIES,
+    default_retry_delay=RETRY_DELAY_SECONDS,
+)
+def process_restock_proposal(
+    self,
+    return_job_id: str,
+) -> dict[str, Any]:
+    """
+    최종 반려된 검수 건의 대체 발주 추천안을 생성한다.
+
+    1. 반려 작업 기준 판매량·가용 재고·반려 수량 조회
+    2. Restock Agent 호출
+    3. OrderProposal 저장
+    4. 관리자 RESTOCK_ALERT 알림 저장 및 SSE 발행
+    """
+    job_id = UUID(return_job_id)
+    task_id = self.request.id
+
+    try:
+        with Session(engine) as session:
+            result = create_restock_proposal_for_rejected_job(
+                session=session,
+                return_job_id=job_id,
+            )
+
+            if result.generation_in_progress:
+                logger.warning(
+                    "Restock Agent generation is in progress. "
+                    "task_id=%s return_job_id=%s",
+                    task_id,
+                    job_id,
+                )
+
+                return {
+                    "task_id": task_id,
+                    "return_job_id": str(job_id),
+                    "created": False,
+                    "generation_in_progress": True,
+                }
+
+            proposal = result.proposal
+            if proposal is None:
+                raise RuntimeError(
+                    "Restock proposal result does not include a proposal."
+                )
+
+            if not result.created:
+                logger.info(
+                    "Restock proposal already exists. "
+                    "task_id=%s return_job_id=%s proposal_id=%s",
+                    task_id,
+                    job_id,
+                    proposal.id,
+                )
+                return {
+                    "task_id": task_id,
+                    "return_job_id": str(job_id),
+                    "proposal_id": str(proposal.id),
+                    "created": False,
+                }
+
+            if proposal.recommended_order_quantity <= 0:
+                logger.info(
+                    "Restock proposal requires no additional order. "
+                    "notification skipped. task_id=%s return_job_id=%s "
+                    "proposal_id=%s",
+                    task_id,
+                    job_id,
+                    proposal.id,
+                )
+
+                return {
+                    "task_id": task_id,
+                    "return_job_id": str(job_id),
+                    "proposal_id": str(proposal.id),
+                    "created": True,
+                    "notification_published": False,
+                }
+
+            book = session.get(Book, proposal.book_id)
+            book_title = book.title if book is not None else str(
+                proposal.book_id
+            )
+
+        tenant_id, event = create_committed_notification_for_tenant(
+            tenant_id=proposal.tenant_id,
+            category=NotificationCategory.RESTOCK_ALERT,
+            severity=NotificationSeverity(proposal.risk_level),
+            title="반려 도서 대체 발주 추천 생성",
+            message=(
+                f"'{book_title}' 반려 건에 대한 대체 발주 추천이 "
+                f"생성되었습니다. 추천 수량: "
+                f"{proposal.recommended_order_quantity}권"
+            ),
+            payload={
+                "order_proposal_id": str(proposal.id),
+                "return_job_id": str(job_id),
+                "book_id": str(proposal.book_id),
+                "recommended_order_quantity": (
+                    proposal.recommended_order_quantity
+                ),
+                "risk_level": proposal.risk_level,
+            },
+        )
+
+        publish_event_safely(
+            event_name="RESTOCK_ALERT",
+            publish_function=publish_tenant_notification_event,
+            tenant_id=tenant_id,
+            event=event,
+        )
+
+        logger.info(
+            "Restock proposal created. "
+            "task_id=%s return_job_id=%s proposal_id=%s",
+            task_id,
+            job_id,
+            proposal.id,
+        )
+
+        return {
+            "task_id": task_id,
+            "return_job_id": str(job_id),
+            "proposal_id": str(proposal.id),
+            "created": True,
+            "notification_published": True,
+        }
+
+    except Exception as error:
+        logger.exception(
+            "Restock proposal processing failed. "
+            "task_id=%s return_job_id=%s error=%s",
+            task_id,
+            job_id,
+            error,
+        )
+
+        if self.request.retries < self.max_retries:
+            raise self.retry(
+                exc=error,
+                countdown=RETRY_DELAY_SECONDS,
+            )
+
+        raise
 
 
 # DB에 저장된 AI 판정 결과를 바탕으로 WMS 승인/반려 API만 실행하는 Celery 작업
@@ -390,6 +625,10 @@ def process_wms_action(
             publish_function=publish_final_event,
             job=job,
             task_id=task_id,
+        )
+
+        dispatch_restock_proposal_task_safely(
+            return_job=job,
         )
 
         logger.info(
@@ -570,6 +809,12 @@ def process_inspection(
                 celery_task_id=task_id,
                 ai_result=ai_result,
             )
+            
+            create_agent_hitl_alert_safely(
+                job=job,
+                ai_result=ai_result,
+                task_id=task_id,
+            )
 
             publish_event_safely(
                 event_name="HITL_REQUIRED",
@@ -719,6 +964,21 @@ def process_inspection(
             error,
         )
 
+        if self.request.retries < self.max_retries:
+            logger.warning(
+                "Retrying AI inspection. "
+                "task_id=%s job_id=%s retry=%s/%s",
+                task_id,
+                job_id,
+                self.request.retries,
+                self.max_retries,
+            )
+
+            raise self.retry(
+                exc=error,
+                countdown=RETRY_DELAY_SECONDS,
+            )
+
         handle_inspection_failure(
             job_id=job_id,
             task_id=task_id,
@@ -726,3 +986,6 @@ def process_inspection(
             error=error,
             retry_count=self.request.retries,
         )
+        
+        raise
+

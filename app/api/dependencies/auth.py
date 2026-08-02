@@ -74,6 +74,19 @@ def get_authenticated_user(
             "인증된 사용자를 찾을 수 없습니다."
         )
 
+    # JWT 발급 시점의 인증 버전과 현재 사용자 인증 버전을 비교한다.
+    # 새 로그인·로그아웃·비밀번호 변경 후에는 기존 Access Token을 즉시 무효화한다.
+    token_auth_version = payload.get("auth_version")
+
+    if (
+        isinstance(token_auth_version, bool)
+        or not isinstance(token_auth_version, int)
+        or token_auth_version != user.auth_version
+    ):
+        raise unauthorized_exception(
+            "만료되었거나 무효화된 토큰입니다."
+        )
+
     if user.tenant_id != token_tenant_id:
         raise unauthorized_exception(
             "토큰의 테넌트 정보가 사용자 소속과 일치하지 않습니다."
@@ -138,4 +151,20 @@ def require_admin_or_master(
 
     return current_user
 
+
+# WMS 내부 재고 및 로케이션 업무를 수행할 수 있는 사용자 확인
+def require_wms_operator(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    if current_user.role not in {
+        UserRole.MASTER,
+        UserRole.ADMIN,
+        UserRole.WORKER,
+    }:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="WMS 작업자 권한이 필요합니다.",
+        )
+
+    return current_user
 

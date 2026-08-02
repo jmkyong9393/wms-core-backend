@@ -1,20 +1,26 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlmodel import Session
 
 from app.api.dependencies.auth import require_master
 from app.core.database import get_session
-from app.models.wms import User
+from app.models.wms import (
+    User,
+    UserRole,
+    UserStatus,
+)
 from app.schemas.auth import (
     EmployeeCreateRequest,
     EmployeeCreateResponse,
+    EmployeeListResponse,
     UserResponse,
     UserRoleUpdateRequest,
     UserStatusUpdateRequest,
 )
 from app.services.auth_service import (
     create_employee,
+    list_employees,
     update_user_role,
     update_user_status,
 )
@@ -33,6 +39,54 @@ def build_user_response(
         role=user.role,
         status=user.status,
         must_change_password=user.must_change_password,
+    )
+
+@router.get(
+    "",
+    response_model=EmployeeListResponse,
+    summary="MASTER 직원 계정 목록 조회",
+)
+def get_employee_accounts(
+    keyword: str | None = Query(
+        default=None,
+        description="사번·이름·이메일 부분 검색",
+    ),
+    role: UserRole | None = Query(
+        default=None,
+        description="역할 필터",
+    ),
+    status: UserStatus | None = Query(
+        default=None,
+        description="계정 상태 필터",
+    ),
+    page: int = Query(
+        default=1,
+        ge=1,
+        description="페이지 번호",
+    ),
+    size: int = Query(
+        default=20,
+        ge=1,
+        le=100,
+        description="페이지당 조회 건수",
+    ),
+    current_master: User = Depends(require_master),
+    session: Session = Depends(get_session),
+) -> EmployeeListResponse:
+    """
+    현재 MASTER와 같은 테넌트에 속한 직원 계정을 조회한다.
+
+    목록의 id는 권한·상태 변경 API에서 사용하는 User UUID이며,
+    비밀번호와 Refresh Token 같은 민감한 인증 정보는 노출하지 않는다.
+    """
+    return list_employees(
+        session=session,
+        tenant_id=current_master.tenant_id,
+        keyword=keyword,
+        role=role,
+        status=status,
+        page=page,
+        size=size,
     )
 
 # MASTER 전용 직원 계정 생성

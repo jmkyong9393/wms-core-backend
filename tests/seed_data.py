@@ -4,9 +4,9 @@ from sqlmodel import Session, SQLModel, text
 from app.core.database import engine
 from app.models.wms import (
     Tenant, Book, Location, Order, OrderItem, ReturnJob, Inventory,
-    InventoryUsedItem, InboundJob, FdsPolicy, 
-    StandardSize, InboundType, InboundStatus, ConditionGrade,
-    OrderType, OrderStatus, ReturnJobStatus, InspectionMode, UsedInventoryStatus
+    InboundItem, InboundJob, FdsPolicy, RejectedItem,
+    StandardSize, InboundType, InboundStatus, ConditionGrade, BookCategory,
+    OrderType, OrderStatus, ReturnJobStatus, InspectionMode
 )
 
 def seed_db():
@@ -27,19 +27,51 @@ def seed_db():
         session.add_all(policies)
 
         # 3. Books
-        book1 = Book(id=uuid.uuid4(), title="Book A", publisher="A출판사", base_price=15000)
-        book2 = Book(id=uuid.uuid4(), title="Book B", publisher="B비전북스", base_price=20000)
+        book1 = Book(
+            id=uuid.uuid4(),
+            title="Book A",
+            publisher="A출판사",
+            category=BookCategory.NOVEL,
+            base_price=15000,
+        )
+        book2 = Book(
+            id=uuid.uuid4(),
+            title="Book B",
+            publisher="B비전북스",
+            category=BookCategory.SCIENCE_TECHNOLOGY,
+            base_price=20000,
+        )
         session.add_all([book1, book2])
         
         # 4. Locations
-        loc1 = Location(id=uuid.uuid4(), zone="Zone_A", rack="R1", shelf="S1")
-        loc2 = Location(id=uuid.uuid4(), zone="Zone_C", rack="R2", shelf="S2")
-        session.add_all([loc1, loc2])
+        loc1 = Location(
+            id=uuid.uuid4(),
+            zone="A",
+            rack="1",
+            shelf="1",
+            barcode="A-1-1",
+        )
+        loc2 = Location(
+            id=uuid.uuid4(),
+            zone="B",
+            rack="2",
+            shelf="2",
+            barcode="B-2-2",
+        )
+        loc3 = Location(
+            id=uuid.uuid4(),
+            zone="C",
+            rack="1",
+            shelf="1",
+            barcode="C-1-1",
+        )
+        session.add_all([loc1, loc2, loc3])
         session.commit()
         
-        # 5. Inventory (for fetch_inventory_stats)
-        inv1 = Inventory(id=uuid.uuid4(), book_id=book1.id, location_id=loc1.id, quantity=100000)
-        inv2 = Inventory(id=uuid.uuid4(), book_id=book2.id, location_id=loc2.id, quantity=45000)
+        # 5. Inventory (for fetch_inventory_stats & auto_po_batch)
+        # Auto-PO 테스트를 위해 재고 수량을 안전재고(10권) 미만으로 설정합니다.
+        inv1 = Inventory(id=uuid.uuid4(), book_id=book1.id, location_id=loc1.id, quantity=3)
+        inv2 = Inventory(id=uuid.uuid4(), book_id=book2.id, location_id=loc2.id, quantity=2)
         session.add_all([inv1, inv2])
         
         # 6. InboundJobs (for fetch_order_stats)
@@ -93,7 +125,7 @@ def seed_db():
         for i in range(4):
             rj = ReturnJob(
                 id=uuid.uuid4(), tenant_id=tenant.id, order_id=order_bad.id, book_id=book1.id, 
-                target_location_id=loc1.id, mode=InspectionMode.RETURN, status=ReturnJobStatus.APPROVED,
+                mode=InspectionMode.RETURN, status=ReturnJobStatus.APPROVED,
                 ubci_score=25.5, final_report="파손", created_at=now - timedelta(days=2)
             )
             bad_returns.append(rj)
@@ -103,7 +135,7 @@ def seed_db():
         for i in range(2):
             rj = ReturnJob(
                 id=uuid.uuid4(), tenant_id=tenant.id, order_id=order_watch.id, book_id=book1.id, 
-                target_location_id=loc2.id, mode=InspectionMode.RETURN, status=ReturnJobStatus.APPROVED,
+                mode=InspectionMode.RETURN, status=ReturnJobStatus.APPROVED,
                 ubci_score=85.0, final_report="단순변심", created_at=now - timedelta(days=5)
             )
             watch_returns.append(rj)
@@ -111,18 +143,39 @@ def seed_db():
         # 이영희: 정상(오주문 1회)
         good_return = ReturnJob(
             id=uuid.uuid4(), tenant_id=tenant.id, order_id=order_good.id, book_id=book2.id, 
-            target_location_id=loc1.id, mode=InspectionMode.RETURN, status=ReturnJobStatus.APPROVED,
+            mode=InspectionMode.RETURN, status=ReturnJobStatus.APPROVED,
             ubci_score=95.0, final_report="오주문", created_at=now - timedelta(days=1)
         )
         
         session.add_all(bad_returns + watch_returns + [good_return])
         
-        # 10. InventoryUsedItem (for REJECT/SCRAP items count)
-        scrap_items = [InventoryUsedItem(
-            id=uuid.uuid4(), book_id=book1.id, location_id=loc1.id, lpn_barcode=f"LPN-{i}", 
-            condition_grade=ConditionGrade.REJECT, status=UsedInventoryStatus.AVAILABLE
-        ) for i in range(45)]
-        session.add_all(scrap_items)
+        # 10. RejectedItem (for REJECT/SCRAP items count)
+        rejected_inbound = InboundJob(
+            inbound_type=InboundType.USED_PURCHASE,
+            status=InboundStatus.COMPLETED,
+            supplier_name="중고 매입",
+        )
+        session.add(rejected_inbound)
+        session.flush()
+        for i in range(45):
+            lpn_barcode = f"LPN-REJECT-{i}"
+            inbound_item = InboundItem(
+                inbound_job_id=rejected_inbound.id,
+                book_id=book1.id,
+                quantity=1,
+                lpn_barcode=lpn_barcode,
+                condition_grade=ConditionGrade.REJECT,
+            )
+            session.add(inbound_item)
+            session.flush()
+            session.add(
+                RejectedItem(
+                    inbound_item_id=inbound_item.id,
+                    book_id=book1.id,
+                    location_id=loc3.id,
+                    lpn_barcode=lpn_barcode,
+                )
+            )
         
         session.commit()
         print("✅ DB Seed Data Insertion Completed!")

@@ -15,6 +15,10 @@ from langchain_openai import ChatOpenAI
 from PIL import Image, ImageDraw
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from ultralytics import YOLO
+from .rag.critic_cases import (
+    CRITIC_PROMPT_VERSION,
+    evaluate_with_precedents,
+)
 
 from .state import Grade, WMSInspectionState
 
@@ -1972,12 +1976,13 @@ def critic_agent(state: WMSInspectionState) -> WMSInspectionState:
         "revision_count",
         0,
     )
+    revision_count_is_valid = (
+        type(raw_revision_count) is int
+        and raw_revision_count >= 0
+    )
     revision_count = (
         raw_revision_count
-        if (
-            type(raw_revision_count) is int
-            and raw_revision_count >= 0
-        )
+        if revision_count_is_valid
         else 0
     )
 
@@ -1998,13 +2003,12 @@ def critic_agent(state: WMSInspectionState) -> WMSInspectionState:
     repair_directive = None
     overall_confidence = None
 
-    if (
-        type(raw_revision_count) is not int
-        or raw_revision_count < 0
-    ):
+    # revision_count 타입 검증
+    if not revision_count_is_valid:
         reason_code = "QUALITY_ERROR"
         repair_directive = (
-            "revision_count는 0 이상의 정수여야 합니다."
+            "revision_count는 0 이상의 "
+            "정수여야 합니다."
         )
 
     # Vision 출력 타입 검증
@@ -2056,7 +2060,10 @@ def critic_agent(state: WMSInspectionState) -> WMSInspectionState:
         repair_directive = "Vision 판정 신뢰도가 기준보다 낮습니다."
 
     # UBCI 점수 검증
-    elif reason_code == "OK" and (type(ubci_score) not in (int,float) or not 0 <= ubci_score <= 100):
+    elif reason_code == "OK" and (
+        type(ubci_score) not in (int, float)
+        or not 0 <= ubci_score <= 100
+    ):
         reason_code = "UBCI_POLICY_VIOLATION"
         repair_directive = "ubci_score는 0~100 범위의 숫자여야 합니다."
 
@@ -2070,23 +2077,76 @@ def critic_agent(state: WMSInspectionState) -> WMSInspectionState:
         reason_code = "UBCI_POLICY_VIOLATION"
         repair_directive = "policy_confidence는 0~1 범위의 숫자여야 합니다."
 
-    elif reason_code == "OK" and policy_confidence < MIN_POLICY_CONFIDENCE:
+    elif (
+        reason_code == "OK"
+        and policy_confidence
+        < MIN_POLICY_CONFIDENCE
+    ):
         reason_code = "POLICY_LOW_CONFIDENCE"
-        repair_directive = "Policy 검색 및 계산 신뢰도가 기준보다 낮습니다."
+        repair_directive = (
+            "Policy 검색 및 계산 신뢰도가 기준보다 낮습니다."
+        )
+
+    # RAG 미실행 기본 결과
+    rag_result = {
+        "reason_code": reason_code,
+        "repair_directive": repair_directive,
+        "critic_rag_used": False,
+        "critic_retrieved_case_ids": [],
+        "critic_retrieval_scores": [],
+        "critic_retrieval_count": 0,
+        "critic_decision_source": "RULE_ONLY",
+        "critic_explanation": (
+            "규칙 검증에서 오류가 발견되어 "
+            "판례 검색을 실행하지 않았습니다."
+        ),
+        "critic_rag_confidence": None,
+        "critic_prompt_version": (
+            CRITIC_PROMPT_VERSION
+        ),
+    }
 
     if reason_code == "OK":
-        overall_confidence = min(vision_confidence, policy_confidence)
+        overall_confidence = min(
+            vision_confidence,
+            policy_confidence,
+        )
+
+        # 기본 규칙 통과 후 판례 RAG 실행
+        rag_result = evaluate_with_precedents(
+            state
+        )
+
+        if rag_result["reason_code"] != "OK":
+            reason_code = rag_result[
+                "reason_code"
+            ]
+            repair_directive = rag_result[
+                "repair_directive"
+            ]
+            overall_confidence = None
+            revision_count += 1
+
     else:
         revision_count += 1
 
     return {
+        **rag_result,
         "reason_code": reason_code,
         "repair_directive": repair_directive,
         "revision_count": revision_count,
-        "overall_confidence": overall_confidence,
+        "overall_confidence": (
+            overall_confidence
+        ),
         "final_report": None,
         "messages": [
-            AIMessage(content=f"[Critic Agent] 검증 결과 - {reason_code}")
+            AIMessage(
+                content=(
+                    "[Critic Agent] 검증 결과 - "
+                    f"{reason_code} / "
+                    f"{rag_result['critic_decision_source']}"
+                )
+            )
         ],
     }
 
@@ -2096,19 +2156,61 @@ def auto_refund_agent(state: WMSInspectionState) -> WMSInspectionState:
     TODO: MINT 등급의 새 책에 대한 환불 승인 사유서(JSON)를 작성하세요.
     - 출력: final_report (str, JSON format)
     """
-    print("[Agent] Auto Refund Agent 스켈레톤 로직 실행...")
-    dummy_report = {
+    print("[Agent] Auto Refund Agent 실행...")
+
+    is_mint = state.get("is_mint")
+    defects = state.get("defects")
+    vision_confidence = state.get("vision_confidence")
+
+    # Vision MINT 입력 검증
+    if (
+        is_mint is not True
+        or type(defects) is not list
+        or defects
+    ):
+        raise ValueError(
+            "Auto Refund는 결함 없는 MINT 도서만 "
+            "처리할 수 있습니다."
+        )
+
+    # Vision 신뢰도 검증
+    if (
+        type(vision_confidence) not in (int, float)
+        or not MIN_VISION_CONFIDENCE
+        <= vision_confidence
+        <= 1
+    ):
+        raise ValueError(
+            "Auto Refund에는 기준 이상의 "
+            "vision_confidence가 필요합니다."
+        )
+
+    overall_confidence = float(vision_confidence)
+
+    report = {
         "result": "AUTO_REFUND_APPROVED",
-        "reason": "MINT 자동 승인",
-        "vision_confidence": state.get("vision_confidence"),
+        "decision": "AI_FAST_TRACK",
+        "is_mint": True,
+        "defects": [],
+        "vision_confidence": overall_confidence,
+        "overall_confidence": overall_confidence,
+        "message": (
+            "외관상 확인된 결함이 없고 Vision 신뢰도가 기준 이상이어서 "
+            "MINT 자동 환불 승인 처리되었습니다."
+        ),
     }
 
     return {
-        "final_report": json.dumps(dummy_report, ensure_ascii=False),
-        "overall_confidence": state.get("vision_confidence"),
+        "final_report": json.dumps(
+            report,
+            ensure_ascii=False,
+        ),
+        "overall_confidence": overall_confidence,
         "human_feedback": None,
         "messages": [
-            AIMessage(content="[Auto Refund Agent] 자동 환불 승인 리포트 생성 완료")
+            AIMessage(
+                content="[Auto Refund Agent] MINT 자동 환불 승인 사유서 생성 완료"
+            )
         ],
     }
 
@@ -2262,6 +2364,7 @@ def report_agent(state: WMSInspectionState) -> WMSInspectionState:
             )
         ],
     }
+
 
 def human_node(state: WMSInspectionState) -> WMSInspectionState:
     """

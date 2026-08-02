@@ -1,3 +1,4 @@
+from datetime import date, datetime
 from datetime import date
 from uuid import UUID
 from typing import Literal
@@ -58,6 +59,37 @@ class UserResponse(AuthSchema):
 # 직원 계정 생성 결과 응답
 class EmployeeCreateResponse(UserResponse):
     temporary_password: str
+
+class EmployeeListItemResponse(AuthSchema):
+    """
+    MASTER 직원 관리 화면의 목록 행.
+
+    권한·상태 변경 API에 사용할 사용자 UUID를 포함한다.
+    비밀번호 해시와 Refresh Token 등 민감한 인증 정보는 반환하지 않는다.
+    """
+
+    id: UUID
+    employee_id: str
+    email: EmailStr | None
+    name: str
+    role: UserRole
+    status: UserStatus
+    must_change_password: bool
+    created_at: datetime
+
+
+class EmployeeListResponse(AuthSchema):
+    """
+    직원 관리 그리드의 서버 페이지네이션 응답.
+    """
+
+    items: list[EmployeeListItemResponse] = Field(
+        default_factory=list,
+    )
+    total: int = Field(ge=0)
+    page: int = Field(ge=1)
+    size: int = Field(ge=1)
+    total_pages: int = Field(ge=0)
 
 # 비밀번호 변경 요청
 class PasswordChangeRequest(BaseModel):

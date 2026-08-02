@@ -1,23 +1,41 @@
-from uuid import UUID
+from fastapi import APIRouter, Depends, Path
+from sqlmodel import Session
 
-from fastapi import APIRouter
-from pydantic import BaseModel
+from app.core.database import get_session
+from app.schemas.certificate import CertificateResponse
+from app.services.certificate_service import get_certificate_by_token
 
 router = APIRouter()
 
 
-class CertificateResponse(BaseModel):
-    book_id: UUID
-    ubci_score: float
-    report_summary: str
-    qr_code_url: str
-
-
-@router.get("/{id}", response_model=CertificateResponse)
-def get_certificate(id: UUID):
-    return CertificateResponse(
-        book_id=UUID("00000000-0000-0000-0000-000000000001"),
-        ubci_score=95,
-        report_summary="낙서 없음, 상태 우수",
-        qr_code_url=f"https://example.com/certificate/{id}",
-    )
+@router.get(
+    "/{token}",
+    response_model=CertificateResponse,
+    operation_id="getCertificateByToken",
+    summary="공개 토큰 기반 UBCI 품질보증서 조회",
+    description=(
+        "LPN 라벨의 QR에 포함된 공개 토큰으로 품질보증서를 조회합니다. "
+        "DB에 저장된 최신 확정 검수 결과를 반환하며, 인증 없이 접근할 수 있는 "
+        "소비자 공개 API입니다. LPN, 로케이션, 내부 작업 로그는 노출하지 않습니다."
+    ),
+    responses={
+        404: {
+            "description": "조회 가능하거나 발급이 완료된 품질보증서가 없음",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Certificate not found"}
+                }
+            },
+        }
+    },
+)
+def get_certificate(
+    token: str = Path(
+        min_length=32,
+        max_length=128,
+        description="입고 시 발급된 공개 품질보증서 토큰",
+        examples=["m7sX0zYV2wF6U3pG8nR4cQ1aK9tB5eHjL0dSxWvNqPo"],
+    ),
+    session: Session = Depends(get_session),
+) -> CertificateResponse:
+    return get_certificate_by_token(session, token)

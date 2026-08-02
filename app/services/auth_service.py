@@ -1,7 +1,7 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlmodel import Session, select
 
 from app.core.exceptions import (
@@ -15,13 +15,20 @@ from app.core.exceptions import (
     SelfStatusChangeNotAllowedException,
     UserNotFoundException,
 )
+from app.core.config import settings
 from app.core.security import (
+    generate_refresh_token,
     generate_temporary_password,
     hash_password,
+    hash_refresh_token,
     verify_password,
 )
 from app.models.wms import User, UserRole, UserStatus
-from app.schemas.auth import EmployeeCreateRequest
+from app.schemas.auth import (
+    EmployeeCreateRequest,
+    EmployeeListItemResponse,
+    EmployeeListResponse,
+)
 
 EMPLOYEE_ID_PREFIX = "AV"
 MAX_DAILY_EMPLOYEE_SEQUENCE = 99
@@ -47,6 +54,121 @@ def get_user_by_email(
         User.email == email
     )
     return session.exec(statement).first()
+
+def _apply_employee_list_filters(
+    statement,
+    tenant_id: UUID,
+    keyword: str | None = None,
+    role: UserRole | None = None,
+    status: UserStatus | None = None,
+):
+    """
+    직원 목록과 전체 건수 조회에 공통으로 적용할 조건을 구성한다.
+
+    목록 조회와 COUNT 조회의 조건이 다르면 페이지 수와 실제 목록이
+    달라질 수 있으므로, 테넌트·검색·역할·상태 필터를 한 곳에서 관리한다.
+    """
+    statement = statement.where(
+        User.tenant_id == tenant_id,
+    )
+
+    normalized_keyword = (keyword or "").strip()
+
+    if normalized_keyword:
+        search_pattern = f"%{normalized_keyword}%"
+
+        statement = statement.where(
+            or_(
+                User.employee_id.ilike(search_pattern),
+                User.name.ilike(search_pattern),
+                User.email.ilike(search_pattern),
+            )
+        )
+
+    if role is not None:
+        statement = statement.where(
+            User.role == role,
+        )
+
+    if status is not None:
+        statement = statement.where(
+            User.status == status,
+        )
+
+    return statement
+
+
+def list_employees(
+    session: Session,
+    tenant_id: UUID,
+    keyword: str | None = None,
+    role: UserRole | None = None,
+    status: UserStatus | None = None,
+    page: int = 1,
+    size: int = 20,
+) -> EmployeeListResponse:
+    """
+    현재 테넌트의 직원 계정을 서버 페이지네이션 방식으로 조회한다.
+
+    반환 행의 id는 권한·상태 변경 API 경로에 사용하는 User UUID다.
+    비밀번호나 Refresh Token 관련 민감 정보는 반환하지 않는다.
+    """
+    count_statement = _apply_employee_list_filters(
+        statement=select(func.count()).select_from(User),
+        tenant_id=tenant_id,
+        keyword=keyword,
+        role=role,
+        status=status,
+    )
+    total = session.exec(count_statement).one()
+
+    offset = (page - 1) * size
+
+    list_statement = _apply_employee_list_filters(
+        statement=select(User),
+        tenant_id=tenant_id,
+        keyword=keyword,
+        role=role,
+        status=status,
+    )
+
+    users = session.exec(
+        list_statement
+        .order_by(
+            User.created_at.desc(),
+            User.id.desc(),
+        )
+        .offset(offset)
+        .limit(size)
+    ).all()
+
+    items = [
+        EmployeeListItemResponse(
+            id=user.id,
+            employee_id=user.employee_id,
+            email=user.email,
+            name=user.name,
+            role=user.role,
+            status=user.status,
+            must_change_password=user.must_change_password,
+            created_at=user.created_at,
+        )
+        for user in users
+    ]
+
+    total_pages = (
+        (total + size - 1) // size
+        if total > 0
+        else 0
+    )
+
+    return EmployeeListResponse(
+        items=items,
+        total=total,
+        page=page,
+        size=size,
+        total_pages=total_pages,
+    )
 
 # 사용자 조회 중복 제거
 def get_user_or_raise(
@@ -195,6 +317,86 @@ def authenticate_user(
 
     return user
 
+# 로그인 성공 시 단일 활성 Refresh Token 세션을 새로 만든다.
+# 새 로그인은 기존 브라우저/기기의 Access Token과 Refresh Token을 무효화한다.
+def create_refresh_session_for_login(
+    user: User,
+) -> str:
+    refresh_token = generate_refresh_token()
+
+    # 새 로그인 시 인증 버전을 증가시켜 기존 Access Token을 즉시 무효화한다.
+    user.auth_version += 1
+    user.refresh_token_hash = hash_refresh_token(
+        refresh_token
+    )
+    user.refresh_token_expires_at = (
+        datetime.utcnow()
+        + timedelta(
+            days=settings.REFRESH_TOKEN_EXPIRE_DAYS
+        )
+    )
+    user.updated_at = datetime.utcnow()
+
+    return refresh_token
+
+
+# Refresh Token으로 인증된 사용자의 세션을 회전한다.
+# 기존 Refresh Token은 즉시 사용할 수 없게 되고 새 Token으로 교체된다.
+def rotate_refresh_session(
+    user: User,
+) -> str:
+    refresh_token = generate_refresh_token()
+
+    user.refresh_token_hash = hash_refresh_token(
+        refresh_token
+    )
+    user.refresh_token_expires_at = (
+        datetime.utcnow()
+        + timedelta(
+            days=settings.REFRESH_TOKEN_EXPIRE_DAYS
+        )
+    )
+    user.updated_at = datetime.utcnow()
+
+    return refresh_token
+
+
+# Cookie로 전달받은 Refresh Token에 연결된 활성 사용자를 조회한다.
+# 원본 Token은 저장하지 않고 해시값으로만 비교한다.
+def get_user_by_refresh_token(
+    session: Session,
+    refresh_token: str,
+) -> User | None:
+    token_hash = hash_refresh_token(refresh_token)
+
+    user = session.exec(
+        select(User)
+        .where(
+            User.refresh_token_hash == token_hash
+        )
+        .with_for_update()
+    ).first()
+
+    if user is None:
+        return None
+
+    if user.refresh_token_expires_at is None:
+        return None
+
+    if user.refresh_token_expires_at <= datetime.utcnow():
+        return None
+
+    return user
+
+
+# 현재 활성 Refresh Token을 제거하고 모든 기존 Access Token도 즉시 무효화한다.
+def revoke_refresh_session(
+    user: User,
+) -> None:
+    user.refresh_token_hash = None
+    user.refresh_token_expires_at = None
+    user.auth_version += 1
+    user.updated_at = datetime.utcnow()
 
 # 현재 비밀번호를 확인하고 새 비밀번호로 변경
 def change_password(
@@ -217,6 +419,9 @@ def change_password(
 
     user.password_hash = hash_password(new_password)
     user.must_change_password = False
+
+    # 비밀번호 변경 후 기존 로그인 세션을 모두 무효화
+    revoke_refresh_session(user)
 
     save_user(
         session=session,

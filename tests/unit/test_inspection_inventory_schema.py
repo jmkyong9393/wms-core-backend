@@ -6,36 +6,33 @@ from pydantic import ValidationError
 from app.schemas.inspection_inventory import InspectionInventoryRequest
 
 
-def test_approve_requires_location_barcode():
+def test_approve_requires_score_or_final_grade():
     with pytest.raises(ValidationError):
         InspectionInventoryRequest(
             return_job_id="00000000-0000-4000-8000-000000000001",
             decision="APPROVE",
-            ubci_score="92.50",
         )
 
 
-def test_reject_does_not_require_location():
+def test_reject_does_not_receive_location():
     request = InspectionInventoryRequest(
         return_job_id="00000000-0000-4000-8000-000000000001",
         decision="REJECT",
         ubci_score="62.75",
     )
 
-    assert request.location_id is None
+    assert "location_id" not in InspectionInventoryRequest.model_fields
     assert request.ubci_score == Decimal("62.75")
 
 
-def test_approve_accepts_score_and_location():
+def test_approve_accepts_score_without_location():
     request = InspectionInventoryRequest(
         return_job_id="00000000-0000-4000-8000-000000000001",
         decision="APPROVE",
         ubci_score="95.25",
-        location_id="00000000-0000-4000-8000-000000000002",
     )
 
     assert request.ubci_score == Decimal("95.25")
-    assert request.location_id is not None
 
 
 @pytest.mark.parametrize("score", ["-0.01", "100.01"])
@@ -96,7 +93,6 @@ def test_approve_accepts_admin_final_grade_without_ubci_score():
     request = InspectionInventoryRequest(
         return_job_id="00000000-0000-4000-8000-000000000001",
         decision="APPROVE",
-        location_id="00000000-0000-4000-8000-000000000002",
         admin_decision_code="FP_SHADOW",
         final_grade="NORMAL",
     )

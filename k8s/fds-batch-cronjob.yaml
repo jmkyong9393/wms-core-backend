@@ -30,4 +30,19 @@ spec:
               value: "host.docker.internal"
             - name: CHROMA_SERVER_PORT
               value: "8001"
+            - name: INITIAL_MASTER_EMPLOYEE_ID
+              valueFrom:
+                secretKeyRef:
+                  name: wms-master-secret
+                  key: INITIAL_MASTER_EMPLOYEE_ID
+            - name: INITIAL_MASTER_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: wms-master-secret
+                  key: INITIAL_MASTER_NAME
+            - name: INITIAL_MASTER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: wms-master-secret
+                  key: INITIAL_MASTER_PASSWORD
           restartPolicy: OnFailure

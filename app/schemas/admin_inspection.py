@@ -10,7 +10,6 @@ from app.models.wms import ReturnJobStatus
 FinalGrade = Literal[
     "MINT",
     "EXCELLENT",
-    "GOOD",
     "NORMAL",
     "REJECT",
 ]
@@ -65,6 +64,41 @@ class InspectionHistoryRow(BaseModel):
 
     inspected_at: datetime
     updated_at: datetime
+
+class InspectionHistoryListResponse(BaseModel):
+    """
+    관리자 검수 이력 그리드의 서버 페이지네이션 응답.
+
+    items에는 요청한 페이지의 검수 이력만 포함하고,
+    total은 현재 필터 조건에 맞는 전체 검수 이력 수다.
+    """
+
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,
+    )
+
+    items: list[InspectionHistoryRow] = Field(
+        default_factory=list,
+        description="현재 페이지의 검수 이력 목록",
+    )
+    total: int = Field(
+        ge=0,
+        description="필터 조건에 맞는 전체 검수 이력 수",
+    )
+    page: int = Field(
+        ge=1,
+        description="현재 페이지 번호",
+    )
+    size: int = Field(
+        ge=1,
+        description="페이지당 조회 건수",
+    )
+    total_pages: int = Field(
+        ge=0,
+        serialization_alias="total_pages",
+        description="전체 페이지 수",
+    )
 
 
 class InspectionBookDetail(BaseModel):

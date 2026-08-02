@@ -3,6 +3,7 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
 import json
 
+from app.schemas.hitl import HITLAction, HITLReasonCode
 from .state import WMSInspectionState
 from .agents import (
     MIN_VISION_CONFIDENCE,
@@ -123,24 +124,9 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
         "human_feedback"
     )
 
-    hitl_pending = (
-        revision_count >= MAX_REVISIONS
-        or vision_status in {
-            "REVIEW_REQUIRED",
-            "FAILED",
-        }
-        or reason_code
-        in HITL_REASON_CODES
-    )
 
     # 관리자 입력을 가장 먼저 처리
     if human_feedback is not None:
-        if not hitl_pending:
-            return route(
-                "human_node",
-                "HITL 대기 상태가 아닌 관리자 입력",
-            )
-
         if human_feedback == "RE_CHECK":
             return route(
                 "vision_agent",
@@ -230,33 +216,23 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
         )
 
     # Vision이 실제로 실행됐는지 검사
+        # 기존 Vision 상태와 YOLO-VLM 확장 상태의 호환성 검사
     vision_output_missing = (
-        vision_status is None
+        state.get("is_mint") is None
         or state.get("defects") is None
-        or state.get(
-            "image_quality_ok"
-        ) is None
-        or state.get(
-            "vision_confidence"
-        ) is None
-        or state.get(
-            "yolo_model_manifest"
-        ) is None
-        or state.get(
-            "raw_yolo_detections"
-        ) is None
-        or state.get(
-            "ensemble_candidates"
-        ) is None
-        or state.get(
-            "reviewed_candidates"
-        ) is None
-        or state.get(
-            "rejected_candidates"
-        ) is None
-        or state.get(
-            "uncertain_candidates"
-        ) is None
+        or state.get("vision_confidence") is None
+        or (
+            vision_status is not None
+            and (
+                state.get("image_quality_ok") is None
+                or state.get("yolo_model_manifest") is None
+                or state.get("raw_yolo_detections") is None
+                or state.get("ensemble_candidates") is None
+                or state.get("reviewed_candidates") is None
+                or state.get("rejected_candidates") is None
+                or state.get("uncertain_candidates") is None
+            )
+        )
     )
 
     if vision_output_missing:
@@ -277,7 +253,10 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
             ),
         )
 
-    if vision_status != "COMPLETED":
+    if (
+        vision_status is not None
+        and vision_status != "COMPLETED"
+    ):
         return route(
             "human_node",
             "허용되지 않은 vision_status: "
@@ -302,6 +281,17 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
             reason_code,
         )
 
+    # 재촬영 결과의 관리자 재확인
+    if (
+        reason_code == "OK"
+        and state.get("primary_reason_code")
+        is not None
+    ):
+        return route(
+            "human_node",
+            "재촬영 결과 관리자 재확인 필요",
+        )
+
     # Policy의 필수 출력 검사
     policy_output_complete = (
         type(state.get("is_mint"))
@@ -321,22 +311,23 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
             state.get("score_breakdown")
         ) is list
 
-        and type(
-            state.get(
-                "fatal_defect_detected"
-            )
-        ) is bool
+                and (
+            state.get("fatal_defect_detected") is None
+            or type(
+                state.get("fatal_defect_detected")
+            ) is bool
+        )
 
-        and type(
-            state.get(
-                "grade_reason_code"
+        and (
+            state.get("grade_reason_code") is None
+            or (
+                type(
+                    state.get("grade_reason_code")
+                ) is str
+                and bool(
+                    state["grade_reason_code"].strip()
+                )
             )
-        ) is str
-
-        and bool(
-            state[
-                "grade_reason_code"
-            ].strip()
         )
 
         and type(
@@ -405,15 +396,6 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
         )
 
     if reason_code == "OK":
-        if (
-            state.get("primary_reason_code")
-            is not None
-        ):
-            return route(
-                "human_node",
-                "재촬영 결과 관리자 재확인 필요",
-            )
-
         return route(
             "report_agent",
             "Critic 검증 통과",
@@ -495,8 +477,132 @@ def build_supervisor_graph():
     graph = builder.compile(checkpointer=memory, interrupt_before=["human_node"])
     return graph
 
-# 전역 그래프 인스턴스 (현재는 NotImplementedError가 발생합니다)
+# 전역 그래프 인스턴스
 try:
     app_graph = build_supervisor_graph()
 except NotImplementedError:
     app_graph = None
+
+
+TARGET_GRADE_ALIASES = {
+    "A": "A",
+    "EXCELLENT": "A",
+    "B": "B",
+    "NORMAL": "B",
+}
+
+def resume_hitl(
+    thread_id: str,
+    human_feedback: str,
+    primary_reason_code: str,
+    target_grade: str | None = None,
+) -> WMSInspectionState:
+    """중단된 체크포인트에 관리자 결정을 반영."""
+
+    if app_graph is None:
+        raise RuntimeError(
+            "Supervisor 그래프가 생성되지 않았습니다."
+        )
+
+    if not isinstance(thread_id, str) or not thread_id.strip():
+        raise ValueError("thread_id가 필요합니다.")
+
+    raw_decision = getattr(
+        human_feedback,
+        "value",
+        human_feedback,
+    )
+    raw_reason = getattr(
+        primary_reason_code,
+        "value",
+        primary_reason_code,
+    )
+    raw_target_grade = getattr(
+        target_grade,
+        "value",
+        target_grade,
+    )
+
+    try:
+        decision = HITLAction(raw_decision).value
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"허용되지 않은 관리자 결정: {raw_decision!r}"
+        ) from None
+
+    try:
+        reason = HITLReasonCode(raw_reason).value
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"허용되지 않은 관리자 사유: {raw_reason!r}"
+        ) from None
+
+    normalized_target_grade = (
+        TARGET_GRADE_ALIASES.get(raw_target_grade)
+        if raw_target_grade is not None
+        else None
+    )
+
+    if (
+        decision == "APPROVE_DOWNGRADE"
+        and normalized_target_grade is None
+    ):
+        raise ValueError(
+            "APPROVE_DOWNGRADE에는 A/B 또는 "
+            "EXCELLENT/NORMAL target_grade가 필요합니다."
+        )
+
+    if (
+        decision != "APPROVE_DOWNGRADE"
+        and raw_target_grade is not None
+    ):
+        raise ValueError(
+            "target_grade는 APPROVE_DOWNGRADE에서만 사용합니다."
+        )
+
+    config = {
+        "configurable": {
+            "thread_id": thread_id,
+        }
+    }
+    snapshot = app_graph.get_state(config)
+
+    if "human_node" not in snapshot.next:
+        raise ValueError(
+            "HITL Pause 상태가 아니거나 체크포인트가 없습니다."
+        )
+
+    update = {
+        "human_feedback": decision,
+        "primary_reason_code": reason,
+        "target_grade": normalized_target_grade,
+        "revision_count": 0,
+        "final_grade": None,
+        "final_report": None,
+    }
+
+    if decision == "RE_CHECK":
+        update.update({
+            "is_mint": None,
+            "defects": None,
+            "vision_confidence": None,
+            "ubci_score": None,
+            "predicted_grade": None,
+            "score_breakdown": None,
+            "rule_reference": None,
+            "policy_confidence": None,
+            "reason_code": None,
+            "repair_directive": "관리자 재촬영 요청",
+            "overall_confidence": None,
+        })
+
+    app_graph.update_state(
+        config,
+        update,
+        as_node="human_node",
+    )
+
+    return app_graph.invoke(
+        None,
+        config=config,
+    )

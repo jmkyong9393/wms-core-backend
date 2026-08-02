@@ -7,10 +7,15 @@ from sqlmodel import Session, select
 
 from app.core.database import get_session
 from app.api.dependencies.auth import require_admin_or_master
-from app.models.wms import ReturnJob, ReturnJobStatus, User
+from app.models.wms import (
+    ConditionGrade,
+    ReturnJob,
+    ReturnJobStatus,
+    User,
+)
 from app.schemas.admin_inspection import (
     InspectionDetailResponse,
-    InspectionHistoryRow,
+    InspectionHistoryListResponse,
 )
 from app.services.admin_inspection_service import (
     get_inspection_detail,
@@ -19,8 +24,7 @@ from app.services.admin_inspection_service import (
 
 router = APIRouter()
 
-
-# 관리자용 전체 검수 이력 그리드 조회 API
+# 관리자용 검수 현황 통계 API
 @router.get("/inspection-metrics")
 def get_inspection_metrics(
     current_admin: User = Depends(require_admin_or_master),
@@ -96,10 +100,10 @@ def get_inspection_metrics(
         "average_processing_time_seconds": average_processing_time,
     }
 
-# 관리자용 검수 현황 통계 API
+# 관리자용 전체 검수 이력 그리드 조회 API
 @router.get(
     "/inspections",
-    response_model=list[InspectionHistoryRow],
+    response_model=InspectionHistoryListResponse,
 )
 def get_admin_inspection_history(
     status: ReturnJobStatus | None = Query(
@@ -118,10 +122,39 @@ def get_admin_inspection_history(
         default=None,
         description="도서명 검색 키워드",
     ),
+    grade: ConditionGrade | None = Query(
+        default=None,
+        description="확정 검수 등급 필터(MINT, EXCELLENT, NORMAL, REJECT)",
+    ),
+    fast_track: bool | None = Query(
+        default=None,
+        description=(
+            "Fast Track 여부 필터. true면 Fast Track 건만, "
+            "false면 일반 검수 건만 조회"
+        ),
+    ),
+    reason_code: str | None = Query(
+        default=None,
+        min_length=1,
+        description="AI 판정 사유 코드 필터",
+    ),
+    page: int = Query(
+        default=1,
+        ge=1,
+        description="페이지 번호",
+    ),
+    size: int = Query(
+        default=20,
+        ge=1,
+        le=100,
+        description="페이지당 조회 건수",
+    ),
     current_admin: User = Depends(require_admin_or_master),
     session: Session = Depends(get_session),
-) -> list[InspectionHistoryRow]:
-
+) -> InspectionHistoryListResponse:
+    """
+    관리자 검수 이력 그리드를 서버 페이지네이션 방식으로 조회한다.
+    """
     return get_inspection_history(
         session=session,
         tenant_id=current_admin.tenant_id,
@@ -129,6 +162,11 @@ def get_admin_inspection_history(
         start_date=start_date,
         end_date=end_date,
         keyword=keyword,
+        grade=grade,
+        fast_track=fast_track,
+        reason_code=reason_code,
+        page=page,
+        size=size,
     )
 
 # 관리자용 개별 검수 상세 조회 API

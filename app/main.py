@@ -14,11 +14,15 @@ from app.api.routes import (
     inbound,
     inspection_inventory,
     inspections,
+    lpn,
     restock,
     inventory,
     mock,
+    notifications,
     orders,
     outbound,
+    pricing,
+    rejected_items,
     stream,
     used_inbound,
 )
@@ -40,12 +44,31 @@ WMS_OPENAPI_TAGS = [
         "description": "신간 묶음 재고와 중고 단품 재고 통합 조회 API",
     },
     {
+        "name": "Inspections",
+        "description": (
+            "중고·반품 도서의 AI 검수 요청, 상태 조회, 재검수 및 "
+            "관리자 HITL 판정 API"
+        ),
+    },
+    {
+        "name": "LPN",
+        "description": "중고·반품 단품 재고의 LPN 상세 조회 API",
+    },
+    {
+        "name": "Certificate",
+        "description": "공개 토큰 기반 UBCI 품질보증서 조회 API",
+    },
+    {
         "name": "Orders",
         "description": "신간 묶음 재고와 중고 LPN 단품 재고의 주문 생성 API",
     },
     {
         "name": "Outbound",
         "description": "신간 묶음 재고와 중고 LPN 단품 재고의 피킹 및 출고 처리 API",
+    },
+    {
+        "name": "Pricing",
+        "description": "동적 가격 Agent 연동용 LPN 가격 책정 컨텍스트 API",
     },
 ]
 
@@ -108,8 +131,19 @@ app.include_router(
 )
 app.include_router(orders.router, prefix="/api/v1/orders", tags=["Orders"])
 app.include_router(inventory.v1_router, prefix="/api/v1/inventory", tags=["Inventory"])
+app.include_router(lpn.router, prefix="/api/v1/lpn", tags=["LPN"])
 app.include_router(outbound.router, prefix="/api/v1/outbound", tags=["Outbound"])
+app.include_router(
+    pricing.router,
+    prefix="/api/v1/internal/pricing",
+    tags=["Pricing"],
+)
 app.include_router(certificates.router, prefix="/api/v1/certificate", tags=["Certificate"])
+app.include_router(
+    rejected_items.router,
+    prefix="/api/v1/admin/rejected-items",
+    tags=["Inventory"],
+)
 
 # 기존 개발용 재고 상태 API
 app.include_router(inventory.router, prefix="/api/inventory", tags=["Inventory"])
@@ -118,8 +152,9 @@ app.include_router(inventory.router, prefix="/api/inventory", tags=["Inventory"]
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["Admin"])
 app.include_router(db.router, prefix="/api/db", tags=["Database"])
 app.include_router(mock.router, prefix="/api/mock", tags=["Mock"])
+app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["Notifications"],)
 
-# 자동 발추 추천 Agent 임시 호출 api
+# 자동 발주 추천 Agent 임시 호출 api
 app.include_router(restock.router, prefix="/api/v1/admin/restock", tags=["Admin Restock"],)
 
 

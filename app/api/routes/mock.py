@@ -9,6 +9,7 @@ from app.models.wms import (
     Board,
     BoardPost,
     Book,
+    BookCategory,
     ConditionGrade,
     FdsReport,
     InboundItem,
@@ -33,9 +34,14 @@ from app.models.wms import (
     User,
     UserRole,
     WeeklyInsight,
+    UsedInventoryStatus,
 )
 
 from app.api.dependencies.auth import require_master
+
+from app.services.demo_inventory_service import (
+    ensure_demo_outbound_inventory,
+)
 
 router = APIRouter()
 
@@ -56,6 +62,7 @@ def seed_mock_data(
         title="Mock WMS Book",
         isbn=f"978{seed_suffix}",
         publisher="Mock Publisher",
+        category=BookCategory.SCIENCE_TECHNOLOGY,
         standard_size=StandardSize.A5,
         thickness_mm=22,
         base_price=15000,
@@ -64,14 +71,18 @@ def seed_mock_data(
     session.add(book)
     session.flush()
 
-    location = Location(
-        zone="A",
-        rack="1",
-        shelf="3",
-        barcode=f"A-1-3-{str(book.id)[:8]}",
-    )
-    session.add(location)
-    session.flush()
+    location = session.exec(
+        select(Location).where(Location.barcode == "A-1-3")
+    ).first()
+    if location is None:
+        location = Location(
+            zone="A",
+            rack="1",
+            shelf="3",
+            barcode="A-1-3",
+        )
+        session.add(location)
+        session.flush()
 
     inbound_job = InboundJob(
         inbound_type=InboundType.USED_PURCHASE,
@@ -214,6 +225,7 @@ def seed_order_outbound_data(
         title="Order Outbound Seed Book",
         isbn=f"979{seed_suffix}",
         publisher="Order Seed Publisher",
+        category=BookCategory.STUDY_GUIDE,
         standard_size=StandardSize.A5,
         thickness_mm=20,
         base_price=18000,
@@ -222,14 +234,18 @@ def seed_order_outbound_data(
     session.add(book)
     session.flush()
 
-    location = Location(
-        zone="A",
-        rack="2",
-        shelf="1",
-        barcode=f"A-2-1-{str(book.id)[:8]}",
-    )
-    session.add(location)
-    session.flush()
+    location = session.exec(
+        select(Location).where(Location.barcode == "A-2-1")
+    ).first()
+    if location is None:
+        location = Location(
+            zone="A",
+            rack="2",
+            shelf="1",
+            barcode="A-2-1",
+        )
+        session.add(location)
+        session.flush()
 
     inventory = Inventory(
         book_id=book.id,
@@ -257,6 +273,44 @@ def seed_order_outbound_data(
         },
     }
 
+@router.post("/seed/outbound-demo")
+def seed_outbound_demo_data(
+    _master: User = Depends(require_master),
+    session: Session = Depends(get_session),
+):
+    """
+    데모 출고 주문에 사용할 동일 도서의 신간·중고 재고를 준비한다.
+
+    신간은 묶음 Inventory로,
+    중고는 EXCELLENT 등급의 AVAILABLE LPN으로 생성된다.
+    """
+    result = ensure_demo_outbound_inventory(session)
+
+    session.commit()
+    session.refresh(result.new_inventory)
+
+    return {
+        "message": (
+            "Mock outbound demo inventory ensured. "
+            "One book has both new stock and used LPN inventory."
+        ),
+        "book": {
+            "id": str(result.demo_book.id),
+            "title": result.demo_book.title,
+            "isbn": result.demo_book.isbn,
+        },
+        "new_stock": {
+            "inventory_id": str(result.new_inventory.id),
+            "quantity": result.new_inventory.quantity,
+            "added_quantity": result.added_new_stock_quantity,
+            "location_barcode": result.new_location.barcode,
+        },
+        "used_lpn": {
+            "added_lpn_quantity": result.added_used_lpn_quantity,
+            "condition_grade": ConditionGrade.EXCELLENT.value,
+            "location_barcode": result.used_location.barcode,
+        },
+    }
 
 @router.get("/summary")
 def get_mock_summary(

@@ -24,15 +24,18 @@ def restock_agent(
     - 출력: RestockRecommendationResponse
     - 응답 형식: JSON Schema 기반 Structured Output
 
-    TODO:
-    현재 입력·출력 스키마는 연동 테스트용 임시 규격이다.
-    실제 반려 처리 API 및 order_proposals 규격 확정 후 수정한다.
+    Restock 추천안은 최종 반려된 ReturnJob을 기준으로
+    restock_service에서 생성·저장한다.
+
+    이 Agent는 실제 AUTO_PO 주문을 바로 생성하지 않는다.
+    Agent 결과는 관리자 검토용 OrderProposal로 저장되며,
+    승인 후 AUTO_PO 생성은 후속 구현 대상이다.
 
     TODO:
-    현재 최근 판매량을 한 번의 발주 주기에 필요한
-    예상 수요로 간주한다.
     판매 집계 기간, 안전재고, 공급 리드타임이 확정되면
     프롬프트의 발주 판단 기준을 수정한다.
+
+
     """
 
     logger.info(
@@ -67,16 +70,20 @@ def restock_agent(
                 "도서 판매량, 현재 창고 가용 재고, 입고 반려 수량을 "
                 "근거로 대체 발주 수량과 발주 사유를 작성합니다.\n\n"
 
-                "[현재 임시 판단 기준]\n"
+                "[현재 판단 기준]\n"
                 "1. recent_sales_quantity는 한 번의 발주 주기에 필요한 "
                 "예상 수요로 간주합니다.\n"
-                "2. 현재 창고 재고는 예상 수요를 충족하는 데 사용할 수 있는 "
+                "2. current_stock은 현재 창고에서 즉시 판매 가능한 "
                 "가용 재고입니다.\n"
-                "3. 입고 반려 수량은 사용할 수 없으므로 대체가 필요한 "
+                "3. pending_auto_po_quantity는 이미 발주되어 입고를 "
+                "기다리는 수량입니다.\n"
+                "4. 현재 가용 재고와 진행 중 AUTO_PO 수량을 합산해 "
+                "실질 가용 수량으로 판단하세요.\n"
+                "5. 입고 반려 수량은 사용할 수 없으므로 대체가 필요한 "
                 "수량으로 고려합니다.\n"
-                "4. 추천 발주 수량은 예상 수요, 현재 재고, 반려 수량을 "
-                "종합해 계산합니다.\n"
-                "5. 계산 결과가 음수라면 추천 발주 수량은 0입니다.\n\n"
+                "6. 추천 발주 수량은 예상 수요, 실질 가용 수량, "
+                "반려 수량을 종합해 계산합니다.\n"
+                "7. 계산 결과가 음수라면 추천 발주 수량은 0입니다.\n\n"
 
                 "[응답 규칙]\n"
                 "1. 입력으로 제공된 값만 사용하세요.\n"
@@ -97,6 +104,8 @@ def restock_agent(
                 f"- 도서명: {request.book_title}\n"
                 f"- 최근 판매량: {request.recent_sales_quantity}권\n"
                 f"- 현재 창고 가용 재고: {request.current_stock}권\n"
+                f"- 진행 중 AUTO_PO 입고 예정 수량: "
+                f"{request.pending_auto_po_quantity}권\n"
                 f"- 입고 반려 수량: {request.rejected_quantity}권\n"
                 f"- 반려 사유 코드: "
                 f"{request.rejection_reason_code}\n\n"
@@ -118,9 +127,9 @@ def restock_agent(
             "반환하지 않았습니다."
         )
 
-    print(
-        "[Agent] Restock Agent 발주 추천 완료 "
-        f"- 추천 수량: {result.recommended_order_quantity}"
+    logger.info(
+        "Restock Agent 발주 추천 완료. recommended_order_quantity=%s",
+        result.recommended_order_quantity,
     )
 
     return result
