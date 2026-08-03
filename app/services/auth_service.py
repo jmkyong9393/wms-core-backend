@@ -1,7 +1,9 @@
+from collections import defaultdict
 from datetime import date, datetime, timedelta
+import unicodedata
 from uuid import UUID
 
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, text
 from sqlmodel import Session, select
 
 from app.core.exceptions import (
@@ -25,13 +27,16 @@ from app.core.security import (
 )
 from app.models.wms import User, UserRole, UserStatus
 from app.schemas.auth import (
+    EmployeeBulkCreateResultRow,
+    EmployeeBulkCreateRow,
     EmployeeCreateRequest,
     EmployeeListItemResponse,
     EmployeeListResponse,
 )
 
 EMPLOYEE_ID_PREFIX = "AV"
-MAX_DAILY_EMPLOYEE_SEQUENCE = 99
+EMPLOYEE_ID_SEQUENCE_WIDTH = 3
+MAX_MONTHLY_EMPLOYEE_SEQUENCE = 999
 
 
 # 사번으로 사용자를 조회하는 함수
@@ -212,16 +217,51 @@ def save_user(
     session.refresh(user)
 
 
-# 입사일 기준으로 직원 사번 자동 생성
-# 형식 : AV + YYMMDD + 당일 순번 2자리 (예: AV26033105)
-def generate_employee_id(
-        session: Session,
-        hire_date: date,
-) -> str:
-    date_part = hire_date.strftime("%y%m%d")
-    prefix = f"{EMPLOYEE_ID_PREFIX}{date_part}"
+def build_employee_id_prefix(hire_date: date) -> str:
+    """
+    입사 월 기준 사번 접두어를 생성한다.
 
-    # 같은 입사일로 발급된 기존 사번 조회
+    예: 2026-08-01 -> AV2608
+    """
+    return (
+        f"{EMPLOYEE_ID_PREFIX}"
+        f"{hire_date.strftime('%y%m')}"
+    )
+
+
+def extract_employee_sequence(
+    employee_id: str,
+    prefix: str,
+) -> int | None:
+    """
+    현재 월별 사번 규격과 일치하는 순번만 반환한다.
+
+    과거 일 단위 사번(예: AV26080101)은 길이가 달라
+    월 단위 신규 사번 순번 계산에서 제외한다.
+    """
+    suffix = employee_id.removeprefix(prefix)
+
+    if (
+        len(suffix) != EMPLOYEE_ID_SEQUENCE_WIDTH
+        or not suffix.isdigit()
+    ):
+        return None
+
+    return int(suffix)
+
+
+def generate_employee_id(
+    session: Session,
+    hire_date: date,
+) -> str:
+    """
+    입사 월 기준 사번을 생성한다.
+
+    형식: AV + YYMM + 월별 순번 3자리
+    예: AV2608001
+    """
+    prefix = build_employee_id_prefix(hire_date)
+
     employee_ids = session.exec(
         select(User.employee_id).where(
             User.employee_id.startswith(prefix)
@@ -229,24 +269,30 @@ def generate_employee_id(
     ).all()
 
     issued_sequences = [
-        int(employee_id[-2:])
+        sequence
         for employee_id in employee_ids
-        if employee_id[-2:].isdigit()
+        if (
+            sequence := extract_employee_sequence(
+                employee_id=employee_id,
+                prefix=prefix,
+            )
+        ) is not None
     ]
 
-    # 기존 번호 중 가장 큰 값 다음 번호 발급
     next_sequence = max(
         issued_sequences,
         default=0,
     ) + 1
 
-    if next_sequence > MAX_DAILY_EMPLOYEE_SEQUENCE: 
+    if next_sequence > MAX_MONTHLY_EMPLOYEE_SEQUENCE:
         raise ValueError(
-            "해당 입사일의 사번 발급 가능 인원을 초과했습니다."
+            "해당 입사 월의 사번 발급 가능 인원(999명)을 초과했습니다."
         )
-    
-    return f"{prefix}{next_sequence:02d}"
 
+    return (
+        f"{prefix}"
+        f"{next_sequence:0{EMPLOYEE_ID_SEQUENCE_WIDTH}d}"
+    )
 
 
 # 관리자가 직원 계정 생성
@@ -289,6 +335,260 @@ def create_employee(
 
     return user, temporary_password
 
+def _lock_employee_id_month(
+    session: Session,
+    prefix: str,
+) -> None:
+    """
+    같은 입사 월의 사번을 동시에 발급할 때 순번이 겹치지 않도록 잠근다.
+
+    employee_id는 테넌트와 무관하게 전역 unique이므로
+    월별 잠금도 전역 기준으로 사용한다.
+    """
+    session.exec(
+        text(
+            "SELECT pg_advisory_xact_lock("
+            "hashtextextended(:lock_key, 0)"
+            ")"
+        ).bindparams(
+            lock_key=f"employee-id-month:{prefix}"
+        )
+    )
+
+
+def _normalize_employee_name_for_sort(
+    name: str,
+) -> str:
+    """
+    동일 입사일 직원의 사번 순번을 안정적으로 정하기 위한 이름 정렬값.
+
+    한글 이름은 유니코드 정규화 후 정렬하면 가나다 순서와 일관되게 처리된다.
+    """
+    return unicodedata.normalize(
+        "NFC",
+        name,
+    ).casefold()
+
+
+def _normalize_optional_email(
+    email: object | None,
+) -> str | None:
+    if email is None:
+        return None
+
+    return str(email).strip().lower() or None
+
+
+def _get_issued_employee_sequences(
+    session: Session,
+    prefix: str,
+) -> set[int]:
+    employee_ids = session.exec(
+        select(User.employee_id).where(
+            User.employee_id.startswith(prefix)
+        )
+    ).all()
+
+    return {
+        sequence
+        for employee_id in employee_ids
+        if (
+            sequence := extract_employee_sequence(
+                employee_id=employee_id,
+                prefix=prefix,
+            )
+        ) is not None
+    }
+
+
+def create_employees_bulk(
+    session: Session,
+    rows: list[EmployeeBulkCreateRow],
+    current_master: User,
+) -> list[EmployeeBulkCreateResultRow]:
+    """
+    검증된 직원 행을 한 번에 생성한다.
+
+    - 입사일 → 이름 → 원본 엑셀 행 순서로 사번 순번을 결정한다.
+    - 같은 월의 동시 발급은 Advisory Lock으로 보호한다.
+    - 한 행이라도 실패하면 전체를 롤백한다.
+    - 반환값의 순서는 사번 배정 순서와 무관하게 원본 엑셀 행 순서를 유지한다.
+    """
+    if not rows:
+        raise ValueError("생성할 직원 정보가 없습니다.")
+
+    normalized_email_by_row = {
+        row.source_row: _normalize_optional_email(row.email)
+        for row in rows
+    }
+
+    email_rows: dict[str, list[int]] = defaultdict(list)
+
+    for row in rows:
+        email = normalized_email_by_row[row.source_row]
+        if email is not None:
+            email_rows[email].append(row.source_row)
+
+    duplicated_emails = {
+        email: source_rows
+        for email, source_rows in email_rows.items()
+        if len(source_rows) > 1
+    }
+
+    if duplicated_emails:
+        details = ", ".join(
+            (
+                f"{email} "
+                f"(행: {', '.join(map(str, source_rows))})"
+            )
+            for email, source_rows in duplicated_emails.items()
+        )
+        raise ValueError(
+            f"엑셀 파일 내 이메일이 중복되었습니다: {details}"
+        )
+
+    emails = list(email_rows)
+
+    if emails:
+        existing_emails = session.exec(
+            select(User.email).where(
+                func.lower(User.email).in_(emails)
+            )
+        ).all()
+
+        if existing_emails:
+            raise ValueError(
+                "이미 등록된 이메일이 포함되어 있습니다: "
+                + ", ".join(
+                    sorted(
+                        str(email)
+                        for email in existing_emails
+                        if email is not None
+                    )
+                )
+            )
+
+    rows_by_prefix: dict[
+        str,
+        list[EmployeeBulkCreateRow],
+    ] = defaultdict(list)
+
+    for row in rows:
+        prefix = build_employee_id_prefix(
+            row.hire_date
+        )
+        rows_by_prefix[prefix].append(row)
+
+    assigned_employee_id_by_row: dict[int, str] = {}
+
+    try:
+        # 여러 월이 섞여도 항상 접두어 오름차순으로 잠가 교착 상태를 방지한다.
+        for prefix in sorted(rows_by_prefix):
+            _lock_employee_id_month(
+                session=session,
+                prefix=prefix,
+            )
+
+            issued_sequences = (
+                _get_issued_employee_sequences(
+                    session=session,
+                    prefix=prefix,
+                )
+            )
+
+            sorted_rows = sorted(
+                rows_by_prefix[prefix],
+                key=lambda row: (
+                    row.hire_date,
+                    _normalize_employee_name_for_sort(
+                        row.name
+                    ),
+                    row.source_row,
+                ),
+            )
+
+            last_sequence = max(
+                issued_sequences,
+                default=0,
+            )
+
+            if (
+                last_sequence + len(sorted_rows)
+                > MAX_MONTHLY_EMPLOYEE_SEQUENCE
+            ):
+                raise ValueError(
+                    f"{prefix} 사번의 월별 발급 가능 "
+                    "인원(999명)을 초과했습니다."
+                )
+
+            for offset, row in enumerate(
+                sorted_rows,
+                start=1,
+            ):
+                sequence = last_sequence + offset
+
+                assigned_employee_id_by_row[
+                    row.source_row
+                ] = (
+                    f"{prefix}"
+                    f"{sequence:0{EMPLOYEE_ID_SEQUENCE_WIDTH}d}"
+                )
+
+        result_by_source_row: dict[
+            int,
+            EmployeeBulkCreateResultRow,
+        ] = {}
+
+        for row in rows:
+            temporary_password = (
+                generate_temporary_password()
+            )
+
+            user = User(
+                tenant_id=current_master.tenant_id,
+                employee_id=assigned_employee_id_by_row[
+                    row.source_row
+                ],
+                email=normalized_email_by_row[
+                    row.source_row
+                ],
+                name=row.name,
+                password_hash=hash_password(
+                    temporary_password
+                ),
+                role=row.role,
+                status=UserStatus.ACTIVE,
+                must_change_password=True,
+            )
+            session.add(user)
+
+            result_by_source_row[row.source_row] = (
+                EmployeeBulkCreateResultRow(
+                    source_row=row.source_row,
+                    name=row.name,
+                    hire_date=row.hire_date,
+                    role=row.role,
+                    email=normalized_email_by_row[
+                        row.source_row
+                    ],
+                    employee_id=user.employee_id,
+                    temporary_password=temporary_password,
+                )
+            )
+
+        session.commit()
+
+    except Exception:
+        session.rollback()
+        raise
+
+    return [
+        result_by_source_row[row.source_row]
+        for row in sorted(
+            rows,
+            key=lambda row: row.source_row,
+        )
+    ]
 
 # 사번과 비밀번호 검증하는 함수 (로그인 시 사용)
 # 실패 : 사용자가 없거나 비밀번호가 일치하지 않으면 None 반환

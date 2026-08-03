@@ -27,6 +27,8 @@ dependencies = [
     "langchain-text-splitters>=1.1.2",
     "langchain-community>=0.4.2",
     "pandas>=3.0.3",
+    "openpyxl>=3.1.5",
+    "python-multipart>=0.0.9",
 ]
 
 [build-system]

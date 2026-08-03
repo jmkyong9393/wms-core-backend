@@ -1,6 +1,17 @@
+from datetime import datetime
+from io import BytesIO
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
+from fastapi.responses import StreamingResponse
 from sqlmodel import Session
 
 from app.api.dependencies.auth import require_master
@@ -20,9 +31,16 @@ from app.schemas.auth import (
 )
 from app.services.auth_service import (
     create_employee,
+    create_employees_bulk,
     list_employees,
     update_user_role,
     update_user_status,
+)
+from app.services.employee_bulk_excel_service import (
+    EmployeeBulkExcelValidationError,
+    build_employee_bulk_result_xlsx,
+    build_employee_bulk_template_xlsx,
+    parse_employee_bulk_create_xlsx,
 )
 
 router = APIRouter()
@@ -88,6 +106,158 @@ def get_employee_accounts(
         page=page,
         size=size,
     )
+
+@router.get(
+    "/bulk-template",
+    summary="MASTER 직원 일괄 생성 엑셀 양식 다운로드",
+)
+def download_employee_bulk_template(
+    _: User = Depends(require_master),
+) -> StreamingResponse:
+    """
+    직원 일괄 생성에 사용할 빈 엑셀 양식을 다운로드한다.
+
+    입력 헤더:
+    이름 | 입사일 | 역할 | 이메일
+    """
+    content = build_employee_bulk_template_xlsx()
+
+    return StreamingResponse(
+        BytesIO(content),
+        media_type=(
+            "application/vnd.openxmlformats-officedocument."
+            "spreadsheetml.sheet"
+        ),
+        headers={
+            "Content-Disposition": (
+                'attachment; filename="employee_bulk_template.xlsx"'
+            ),
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@router.post(
+    "/bulk-create",
+    status_code=status.HTTP_201_CREATED,
+    summary="MASTER 직원 계정 엑셀 일괄 생성",
+    responses={
+        422: {
+            "description": (
+                "엑셀 형식, 개별 행 값 또는 이메일 중복 검증 실패"
+            )
+        }
+    },
+)
+async def create_employee_accounts_bulk(
+    file: UploadFile = File(
+        description=(
+            "이름 | 입사일 | 역할 | 이메일 헤더를 가진 "
+            ".xlsx 직원 일괄 생성 파일"
+        ),
+    ),
+    current_master: User = Depends(require_master),
+    session: Session = Depends(get_session),
+) -> StreamingResponse:
+    """
+    직원 정보를 엑셀로 업로드하여 한 번에 생성한다.
+
+    생성 성공 시 사번과 최초 비밀번호가 담긴 결과 엑셀을 반환한다.
+    최초 비밀번호는 DB에 저장하지 않으며 이 응답 파일에서만 제공한다.
+    """
+    filename = file.filename or ""
+
+    if not filename.lower().endswith(".xlsx"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "message": (
+                    "직원 일괄 생성 파일은 .xlsx 형식이어야 합니다."
+                ),
+                "errors": [
+                    "파일 확장자를 확인해주세요."
+                ],
+            },
+        )
+
+    try:
+        file_content = await file.read()
+
+        if not file_content:
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_422_UNPROCESSABLE_ENTITY
+                ),
+                detail={
+                    "message": (
+                        "업로드한 엑셀 파일이 비어 있습니다."
+                    ),
+                    "errors": [],
+                },
+            )
+
+        rows = parse_employee_bulk_create_xlsx(
+            file_content
+        )
+
+        results = create_employees_bulk(
+            session=session,
+            rows=rows,
+            current_master=current_master,
+        )
+
+        result_xlsx = build_employee_bulk_result_xlsx(
+            results
+        )
+
+    except EmployeeBulkExcelValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "message": str(exc),
+                "errors": exc.errors,
+            },
+        ) from exc
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "message": (
+                    "직원 계정 일괄 생성에 실패했습니다."
+                ),
+                "errors": [str(exc)],
+            },
+        ) from exc
+
+    finally:
+        await file.close()
+
+    issued_at = datetime.utcnow().strftime(
+        "%Y%m%d_%H%M%S"
+    )
+    download_filename = (
+        f"employee_accounts_{issued_at}.xlsx"
+    )
+
+    return StreamingResponse(
+        BytesIO(result_xlsx),
+        status_code=status.HTTP_201_CREATED,
+        media_type=(
+            "application/vnd.openxmlformats-officedocument."
+            "spreadsheetml.sheet"
+        ),
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{download_filename}"'
+            ),
+            # 최초 비밀번호가 포함된 파일이므로 브라우저 캐시 금지
+            "Cache-Control": "no-store",
+            "Pragma": "no-cache",
+        },
+    )
+
+
 
 # MASTER 전용 직원 계정 생성
 @router.post(
