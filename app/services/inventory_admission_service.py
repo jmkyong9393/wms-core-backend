@@ -48,7 +48,7 @@ def admit_new_stock(
         session=session,
         inbound_item=inbound_item,
         location=location,
-        grade=None,
+        grade=ConditionGrade.MINT,
     )
     _increase_virtual_stock(session, book.id, inbound_item.quantity, now)
     session.flush()

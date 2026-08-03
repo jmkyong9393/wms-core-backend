@@ -48,10 +48,10 @@ def test_generate_employee_id_uses_monthly_three_digit_sequence(
     class FakeResult:
         def all(self):
             return [
-                "AV2608001",
-                "AV2608002",
+                "NZ2608001",
+                "NZ2608002",
                 # 과거 일 단위 사번은 순번 계산에서 제외
-                "AV26080101",
+                "NZ26080101",
             ]
 
     class GenerateIdSession:
@@ -63,7 +63,7 @@ def test_generate_employee_id_uses_monthly_three_digit_sequence(
         hire_date=date(2026, 8, 15),
     )
 
-    assert employee_id == "AV2608003"
+    assert employee_id == "NZ2608003"
 
 
 def test_bulk_create_assigns_ids_by_hire_date_then_name(
@@ -132,9 +132,9 @@ def test_bulk_create_assigns_ids_by_hire_date_then_name(
         result.employee_id
         for result in results
     ] == [
-        "AV2608013",
-        "AV2608012",
-        "AV2608011",
+        "NZ2608013",
+        "NZ2608012",
+        "NZ2608011",
     ]
 
     assert session.commit_count == 1

@@ -1,5 +1,14 @@
+from types import SimpleNamespace
+from uuid import UUID
+
+import pytest
+
+from app.models.wms import ConditionGrade
 from app.services.location_assignment_service import (
+    NoAvailableLocationError,
     _select_first_available_shelf,
+    assign_graded_inventory_location,
+    assign_new_stock_location,
 )
 
 
@@ -89,3 +98,36 @@ def test_returns_none_instead_of_splitting_inbound_batch():
         _select_first_available_shelf(occupancies, required_capacity=5)
         is None
     )
+
+def test_rejects_new_stock_location_assignment_without_category():
+    book = SimpleNamespace(
+        id=UUID("00000000-0000-4000-8000-000000000001"),
+        category=None,
+    )
+
+    with pytest.raises(
+        NoAvailableLocationError,
+        match="Book category is required",
+    ):
+        assign_new_stock_location(
+            session=None,
+            book=book,
+            quantity=1,
+        )
+
+
+def test_rejects_used_stock_location_assignment_without_category():
+    book = SimpleNamespace(
+        id=UUID("00000000-0000-4000-8000-000000000001"),
+        category=None,
+    )
+
+    with pytest.raises(
+        NoAvailableLocationError,
+        match="Book category is required",
+    ):
+        assign_graded_inventory_location(
+            session=None,
+            book=book,
+            grade=ConditionGrade.EXCELLENT,
+        )

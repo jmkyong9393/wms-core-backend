@@ -37,6 +37,10 @@ def assign_new_stock_location(
             f"New stock intake quantity exceeds shelf capacity {SHELF_CAPACITY}"
         )
 
+    if book.category is None:
+        raise NoAvailableLocationError(
+            "Book category is required for new-stock location assignment."
+        )
     rack = rack_for_category(book.category)
     _lock_zone_rack(session, NEW_STOCK_ZONE, rack)
 
@@ -73,6 +77,10 @@ def assign_graded_inventory_location(
     grade: ConditionGrade,
 ) -> Location:
     zone = zone_for_used_grade(grade)
+    if book.category is None:
+        raise NoAvailableLocationError(
+            "Book category is required for graded inventory location assignment."
+        )
     rack = rack_for_category(book.category)
     _lock_zone_rack(session, zone, rack)
     return _assign_available_location(

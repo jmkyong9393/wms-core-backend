@@ -6,6 +6,10 @@ from sqlmodel import Session, select
 
 from app.models.wms import (
     Book,
+    InboundItem,
+    InboundJob,
+    InboundStatus,
+    InboundType,
     Order,
     OrderItem,
     OrderProposal,
@@ -19,7 +23,13 @@ from app.schemas.restock import (
     RestockProposalDetailResponse,
     RestockProposalListItemResponse,
 )
+from app.services.inventory_admission_service import admit_new_stock
+from app.services.location_assignment_service import (
+    NoAvailableLocationError,
+    assign_new_stock_location,
+)
 from app.services.restock_service import (
+    get_current_available_stock,
     get_pending_auto_po_quantity,
 )
 
@@ -112,6 +122,7 @@ def get_restock_proposal_detail(
         id=proposal.id,
         book=_build_book_response(book),
         return_job_id=proposal.return_job_id,
+        proposal_source=proposal.proposal_source,
         status=proposal.status,
         recent_sales_quantity=proposal.recent_sales_quantity,
         current_stock=proposal.current_stock,
@@ -144,6 +155,7 @@ def _build_list_item_response(
     return RestockProposalListItemResponse(
         id=proposal.id,
         book=_build_book_response(book),
+        proposal_source=proposal.proposal_source,
         status=proposal.status,
         recommended_order_quantity=(
             proposal.recommended_order_quantity
@@ -206,16 +218,29 @@ def approve_restock_proposal(
         )
     )
 
+    # 추천안을 생성한 뒤, 다른 추천안 승인 또는 일반 신간 입고로
+    # 실제 가용 재고가 증가했을 수 있으므로 증가분만 추가 차감한다.
+    current_available_stock = get_current_available_stock(
+        session=session,
+        book_id=proposal.book_id,
+    )
+
     additional_pending_quantity = max(
         0,
         current_pending_auto_po_quantity
         - proposal.pending_auto_po_quantity,
     )
 
+    additional_available_quantity = max(
+        0,
+        current_available_stock - proposal.current_stock,
+    )
+
     order_quantity = max(
         0,
         proposal.recommended_order_quantity
-        - additional_pending_quantity,
+        - additional_pending_quantity
+        - additional_available_quantity,
     )
 
     reviewed_at = datetime.utcnow()
@@ -266,6 +291,48 @@ def approve_restock_proposal(
         final_price=book.base_price * order_quantity,
     )
     session.add(auto_po_order_item)
+    session.flush()
+
+    # 시연 환경에서는 추천안 승인과 동시에 발주 수량이 입고된 것으로 처리한다.
+    # 기존 신간 입고 흐름과 동일하게 입고 이력, 로케이션, 재고를 함께 생성한다.
+    inbound_job = InboundJob(
+        inbound_type=InboundType.NEW_STOCK,
+        status=InboundStatus.RECEIVED,
+        supplier_name=book.publisher or "UNKNOWN_PUBLISHER",
+    )
+    session.add(inbound_job)
+    session.flush()
+
+    inbound_item = InboundItem(
+        inbound_job_id=inbound_job.id,
+        book_id=book.id,
+        quantity=order_quantity,
+    )
+    session.add(inbound_item)
+    session.flush()
+
+    location = assign_new_stock_location(
+        session=session,
+        book=book,
+        quantity=order_quantity,
+    )
+
+    inbound_item.location_id = location.id
+    session.add(inbound_item)
+
+    inventory = admit_new_stock(
+        session=session,
+        inbound_item=inbound_item,
+        book=book,
+        location=location,
+    )
+
+    # AUTO_PO는 출고 주문이 아니라 입고 완료된 발주 건이므로 RECEIVED로 전환한다.
+    auto_po_order.status = OrderStatus.RECEIVED
+    auto_po_order.updated_at = reviewed_at
+
+    inbound_job.status = InboundStatus.COMPLETED
+    inbound_job.updated_at = reviewed_at
 
     proposal.status = OrderProposalStatus.APPROVED
     proposal.auto_po_order_id = auto_po_order.id
@@ -279,7 +346,8 @@ def approve_restock_proposal(
         auto_po_created=True,
         ordered_quantity=order_quantity,
         message=(
-            f"{order_quantity}권의 AUTO_PO 주문이 생성되었습니다."
+            f"{order_quantity}권의 AUTO_PO 주문을 생성하고 "
+            "신간 재고에 즉시 편입했습니다."
         ),
     )
 

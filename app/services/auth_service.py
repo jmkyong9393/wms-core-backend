@@ -34,7 +34,7 @@ from app.schemas.auth import (
     EmployeeListResponse,
 )
 
-EMPLOYEE_ID_PREFIX = "AV"
+EMPLOYEE_ID_PREFIX = "NZ"
 EMPLOYEE_ID_SEQUENCE_WIDTH = 3
 MAX_MONTHLY_EMPLOYEE_SEQUENCE = 999
 
@@ -221,7 +221,7 @@ def build_employee_id_prefix(hire_date: date) -> str:
     """
     입사 월 기준 사번 접두어를 생성한다.
 
-    예: 2026-08-01 -> AV2608
+    예: 2026-08-01 -> NZ2608
     """
     return (
         f"{EMPLOYEE_ID_PREFIX}"
@@ -236,7 +236,7 @@ def extract_employee_sequence(
     """
     현재 월별 사번 규격과 일치하는 순번만 반환한다.
 
-    과거 일 단위 사번(예: AV26080101)은 길이가 달라
+    과거 일 단위 사번(예: NZ26080101)은 길이가 달라
     월 단위 신규 사번 순번 계산에서 제외한다.
     """
     suffix = employee_id.removeprefix(prefix)
@@ -257,8 +257,8 @@ def generate_employee_id(
     """
     입사 월 기준 사번을 생성한다.
 
-    형식: AV + YYMM + 월별 순번 3자리
-    예: AV2608001
+    형식: NZ + YYMM + 월별 순번 3자리
+    예: NZ2608001
     """
     prefix = build_employee_id_prefix(hire_date)
 
