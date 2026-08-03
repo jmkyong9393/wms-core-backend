@@ -4,7 +4,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.wms import OrderProposalStatus
+from app.models.wms import (
+    OrderProposalStatus,
+    RestockProposalSource,
+)
 
 
 def to_camel(field_name: str) -> str:
@@ -60,7 +63,7 @@ class RestockRecommendationRequest(BaseModel):
 
     # 반려된 InboundItem 수량. 연결 품목이 없으면 서비스에서 1권으로 처리
     rejected_quantity: int = Field(
-        gt=0,
+        ge=0,
         description="이번 검수에서 반려된 수량",
     )
 
@@ -68,6 +71,16 @@ class RestockRecommendationRequest(BaseModel):
     rejection_reason_code: str = Field(
         min_length=1,
         description="반려 사유 코드",
+    )
+
+    proposal_source: RestockProposalSource = (
+        RestockProposalSource.RETURN_REJECTION
+    )
+
+    safety_stock_quantity: int | None = Field(
+        default=None,
+        ge=0,
+        description="안전재고 기준 수량. 반려 대체 발주에서는 null",
     )
 
 
@@ -144,6 +157,7 @@ class RestockProposalListItemResponse(BaseModel):
 
     recent_sales_quantity: int
     current_stock: int
+    proposal_source: RestockProposalSource
     pending_auto_po_quantity: int
     rejected_quantity: int
 
@@ -166,7 +180,8 @@ class RestockProposalDetailResponse(BaseModel):
     id: UUID
     book: RestockProposalBookResponse
 
-    return_job_id: UUID
+    return_job_id: UUID | None = None
+    proposal_source: RestockProposalSource
     status: OrderProposalStatus
 
     recent_sales_quantity: int

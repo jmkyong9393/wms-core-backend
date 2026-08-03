@@ -18,6 +18,7 @@ from app.models.wms import (
     Order,
 )
 from app.schemas.admin_inspection import (
+    AgentLogStep,
     InspectionDetailResponse,
     InspectionHistoryListResponse,
 )
@@ -28,6 +29,7 @@ from app.schemas.admin_dashboard import (
     FdsPolicyUpdateRequest,
 )
 from app.services.admin_inspection_service import (
+    get_inspection_agent_logs,
     get_inspection_detail,
     get_inspection_history,
 )
@@ -177,6 +179,31 @@ def get_admin_inspection_history(
         reason_code=reason_code,
         page=page,
         size=size,
+    )
+
+@router.get(
+    "/inspections/{job_id}/agent-logs",
+    response_model=list[AgentLogStep],
+    summary="검수 Agent 단계별 실행 로그 조회",
+    description=(
+        "검수 작업에 저장된 Vision, Policy, Critic, Report Agent의 "
+        "단계별 실행 로그를 반환합니다. 관리자 또는 MASTER 권한이 필요합니다."
+    ),
+    responses={
+        401: {"description": "인증 토큰이 없거나 유효하지 않음"},
+        403: {"description": "관리자 또는 MASTER 권한이 없음"},
+        404: {"description": "검수 작업을 찾을 수 없음"},
+    },
+)
+def get_admin_inspection_agent_logs(
+    job_id: UUID,
+    current_admin: User = Depends(require_admin_or_master),
+    session: Session = Depends(get_session),
+) -> list[AgentLogStep]:
+    return get_inspection_agent_logs(
+        session=session,
+        tenant_id=current_admin.tenant_id,
+        job_id=job_id,
     )
 
 # 관리자용 개별 검수 상세 조회 API

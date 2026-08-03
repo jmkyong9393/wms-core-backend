@@ -1,5 +1,6 @@
 from datetime import datetime
 from uuid import UUID
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -38,6 +39,10 @@ class NotificationResponse(BaseModel):
     message: str = Field(description="알림 본문")
     timestamp: datetime = Field(description="알림 생성 시각")
     read: bool = Field(description="현재 사용자의 읽음 여부")
+    payload: dict[str, Any] | None = Field(
+        default=None,
+        description="알림 유형별 상세 화면 이동 및 표시용 데이터",
+    )
 
 
 class NotificationListResponse(BaseModel):

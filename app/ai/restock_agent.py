@@ -4,6 +4,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from app.core.config import settings
+from app.models.wms import RestockProposalSource
 from app.schemas.restock import (
     RestockRecommendationRequest,
     RestockRecommendationResponse,
@@ -61,6 +62,24 @@ def restock_agent(
         strict=True,
     )
 
+    if (
+        request.proposal_source
+        == RestockProposalSource.RETURN_REJECTION
+    ):
+        trigger_context = (
+            "추천 생성 사유: 반려 대체 발주\n"
+            f"- 반려 수량: {request.rejected_quantity}권\n"
+            f"- 반려 사유 코드: {request.rejection_reason_code}\n"
+            "- 반려된 수량은 판매할 수 없으므로 대체 필요 수량으로 고려하세요."
+        )
+    else:
+        trigger_context = (
+            "추천 생성 사유: 안전재고 부족\n"
+            f"- 안전재고 기준: {request.safety_stock_quantity}권\n"
+            f"- 안전재고 부족 사유 코드: {request.rejection_reason_code}\n"
+            "- 반려 수량은 0권이며, 안전재고 기준과 실질 가용 수량의 부족분을 고려하세요."
+        )
+
     messages = [
         SystemMessage(
             content=(
@@ -106,9 +125,8 @@ def restock_agent(
                 f"- 현재 창고 가용 재고: {request.current_stock}권\n"
                 f"- 진행 중 AUTO_PO 입고 예정 수량: "
                 f"{request.pending_auto_po_quantity}권\n"
-                f"- 입고 반려 수량: {request.rejected_quantity}권\n"
-                f"- 반려 사유 코드: "
-                f"{request.rejection_reason_code}\n\n"
+                f"{trigger_context}\n\n"
+
 
                 "위 데이터를 근거로 최적의 대체 발주 수량을 계산하고, "
                 "관리자가 이해할 수 있는 발주 사유와 판단 근거를 작성하세요."

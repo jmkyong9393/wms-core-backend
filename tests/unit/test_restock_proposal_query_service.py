@@ -4,7 +4,10 @@ from uuid import UUID
 
 import pytest
 
-from app.models.wms import OrderProposalStatus
+from app.models.wms import (
+    OrderProposalStatus,
+    RestockProposalSource,
+)
 from app.services.restock_proposal_service import (
     RestockProposalNotFoundError,
     get_restock_proposal_detail,
@@ -66,6 +69,7 @@ def build_proposal(
         return_job_id=UUID(
             "00000000-0000-4000-8000-000000000030"
         ),
+        proposal_source=RestockProposalSource.RETURN_REJECTION,
         status=status,
         recent_sales_quantity=10,
         current_stock=2,
@@ -111,6 +115,9 @@ def test_lists_tenant_restock_proposals():
     assert result[0].status == OrderProposalStatus.PENDING
     assert result[0].pending_auto_po_quantity == 3
     assert result[0].recommended_order_quantity == 6
+    assert result[0].proposal_source == (
+        RestockProposalSource.RETURN_REJECTION
+    )
 
 
 def test_returns_restock_proposal_detail_with_reviewer():

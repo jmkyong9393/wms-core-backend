@@ -456,6 +456,28 @@ def _build_hitl_history(
 
     return history_items
 
+def get_inspection_agent_logs(
+    session: Session,
+    tenant_id: UUID,
+    job_id: UUID,
+) -> list[AgentLogStep]:
+    return_job = session.exec(
+        select(ReturnJob).where(
+            ReturnJob.id == job_id,
+            ReturnJob.tenant_id == tenant_id,
+        )
+    ).first()
+
+    if return_job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="검수 작업을 찾을 수 없습니다.",
+        )
+
+    logs = return_job.agent_logs or {}
+
+    return _build_agent_steps(logs.get("steps"))
+
 def get_inspection_detail(
     session: Session,
     tenant_id: UUID,

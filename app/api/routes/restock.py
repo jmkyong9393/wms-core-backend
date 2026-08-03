@@ -34,6 +34,9 @@ from app.services.restock_proposal_service import (
 from app.services.restock_service import (
     generate_restock_recommendation,
 )
+from app.services.location_assignment_service import (
+    NoAvailableLocationError,
+)
 
 router = APIRouter()
 
@@ -147,7 +150,12 @@ def get_restock_proposal(
     summary="Restock 추천안 승인 및 AUTO_PO 생성",
     responses={
         404: {"description": "추천안을 찾을 수 없음"},
-        409: {"description": "이미 처리되었거나 승인할 수 없는 추천안"},
+        409: {
+            "description": (
+                "이미 처리된 추천안이거나 추가 발주가 필요 없거나, "
+                "신간 적치 가능 로케이션이 없음"
+            )
+        },
     },
 )
 def approve_restock_proposal_api(
@@ -191,6 +199,16 @@ def approve_restock_proposal_api(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
+        ) from exc
+
+    except NoAvailableLocationError as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "신간 재고를 적치할 수 있는 A Zone 로케이션이 없습니다. "
+                f"{exc}"
+            ),
         ) from exc
 
 

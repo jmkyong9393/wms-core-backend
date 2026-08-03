@@ -37,7 +37,7 @@ def client():
         tenant_id=UUID(
             "00000000-0000-4000-8000-000000000100"
         ),
-        employee_id="MASTER001",
+        employee_id="NZ0000000",
     )
 
     app.dependency_overrides[
@@ -107,7 +107,7 @@ def test_bulk_create_returns_result_xlsx(
         hire_date=date(2026, 8, 1),
         role=UserRole.WORKER,
         email="gana@example.com",
-        employee_id="AV2608001",
+        employee_id="NZ2608001",
         temporary_password="TempPassword123!",
     )
 
@@ -156,7 +156,7 @@ def test_bulk_create_returns_result_xlsx(
     worksheet = workbook.active
 
     assert worksheet["A2"].value == "김가나"
-    assert worksheet["E2"].value == "AV2608001"
+    assert worksheet["E2"].value == "NZ2608001"
     assert worksheet["F2"].value == "TempPassword123!"
 
     workbook.close()

@@ -14,8 +14,9 @@ from app.models.wms import (
     ReturnJobStatus,
 )
 
-from app.services.notification_service import (
-    create_committed_notification_for_tenant,
+from app.services.restock_service import (
+    create_restock_proposal_for_rejected_job,
+    create_restock_proposal_for_safety_stock,
 )
 from app.services.langgraph_wrapper import LangGraphInspectionWrapper
 from app.services.redis_pubsub import (
@@ -38,8 +39,10 @@ from app.services.wms_client import (
     WMSNonRetryableError,
     call_wms_inspection_result_api,
 )
-from app.services.restock_service import (create_restock_proposal_for_rejected_job,)
 from app.services.dlq_service import push_inspection_failure_to_dlq
+from app.services.notification_service import (
+    create_committed_notification_for_tenant,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +51,9 @@ WMS_TASK_NAME = "app.worker.process_wms_action"
 RESTOCK_PROPOSAL_TASK_NAME = ("app.worker.process_restock_proposal")
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 5
+SAFETY_STOCK_RESTOCK_PROPOSAL_TASK_NAME = (
+    "app.worker.process_safety_stock_restock_proposal"
+)
 
 class WMSTaskDispatchError(RuntimeError):
     """WMS 후속 Celery Task 등록에 실패한 경우."""
@@ -242,20 +248,22 @@ def create_agent_hitl_alert_safely(
     reason_code = ai_result.get("reason_code") or "UNKNOWN"
 
     try:
-        tenant_id, event = create_committed_notification_for_tenant(
-            tenant_id=job.tenant_id,
-            category=NotificationCategory.AGENT_ALERT,
-            severity=NotificationSeverity.MEDIUM,
-            title="AI 검수 결과 관리자 확인 필요",
-            message=(
-                "AI 검수가 자동 확정되지 않아 관리자 검수가 필요합니다. "
-                f"사유 코드: {reason_code}"
-            ),
-            payload={
-                "return_job_id": str(job.id),
-                "inspection_task_id": task_id,
-                "reason_code": reason_code,
-            },
+        notification_tenant_id, event = (
+            create_committed_notification_for_tenant(
+                tenant_id=job.tenant_id,
+                category=NotificationCategory.AGENT_ALERT,
+                severity=NotificationSeverity.MEDIUM,
+                title="AI 검수 결과 관리자 확인 필요",
+                message=(
+                    "AI 검수가 자동 확정되지 않아 관리자 검수가 필요합니다. "
+                    f"사유 코드: {reason_code}"
+                ),
+                payload={
+                    "return_job_id": str(job.id),
+                    "inspection_task_id": task_id,
+                    "reason_code": reason_code,
+                },
+            )
         )
     except Exception:
         logger.exception(
@@ -269,7 +277,7 @@ def create_agent_hitl_alert_safely(
     publish_event_safely(
         event_name="AGENT_ALERT",
         publish_function=publish_tenant_notification_event,
-        tenant_id=tenant_id,
+        tenant_id=notification_tenant_id,
         event=event,
     )
 
@@ -523,6 +531,7 @@ def process_restock_proposal(
                 "order_proposal_id": str(proposal.id),
                 "return_job_id": str(job_id),
                 "book_id": str(proposal.book_id),
+                "proposal_source": proposal.proposal_source.value,
                 "recommended_order_quantity": (
                     proposal.recommended_order_quantity
                 ),
@@ -559,6 +568,129 @@ def process_restock_proposal(
             "task_id=%s return_job_id=%s error=%s",
             task_id,
             job_id,
+            error,
+        )
+
+        if self.request.retries < self.max_retries:
+            raise self.retry(
+                exc=error,
+                countdown=RETRY_DELAY_SECONDS,
+            )
+
+        raise
+
+@celery_app.task(
+    bind=True,
+    name=SAFETY_STOCK_RESTOCK_PROPOSAL_TASK_NAME,
+    max_retries=MAX_RETRIES,
+    default_retry_delay=RETRY_DELAY_SECONDS,
+)
+def process_safety_stock_restock_proposal(
+    self,
+    tenant_id: str,
+    book_id: str,
+    safety_stock_quantity: int,
+) -> dict[str, Any]:
+    """
+    안전재고 부족 도서에 대해 Restock Agent를 실행하고,
+    관리자 승인용 추천안 및 RESTOCK_ALERT를 생성한다.
+    """
+    task_id = self.request.id
+    parsed_tenant_id = UUID(tenant_id)
+    parsed_book_id = UUID(book_id)
+
+    try:
+        with Session(engine) as session:
+            result = create_restock_proposal_for_safety_stock(
+                session=session,
+                tenant_id=parsed_tenant_id,
+                book_id=parsed_book_id,
+                safety_stock_quantity=safety_stock_quantity,
+            )
+
+            proposal = result.proposal
+
+            # 배치 탐지 뒤 재고가 보충돼 Agent 호출을 생략한 경우
+            if proposal is None:
+                return {
+                    "task_id": task_id,
+                    "book_id": str(parsed_book_id),
+                    "created": False,
+                    "reason": "SAFETY_STOCK_ALREADY_SATISFIED",
+                }
+
+            # 이미 같은 도서의 미처리 안전재고 추천안이 있는 경우
+            if not result.created:
+                return {
+                    "task_id": task_id,
+                    "book_id": str(parsed_book_id),
+                    "proposal_id": str(proposal.id),
+                    "created": False,
+                    "reason": "PENDING_PROPOSAL_ALREADY_EXISTS",
+                }
+
+            # Agent가 추가 발주 불필요로 판단한 경우
+            if proposal.recommended_order_quantity <= 0:
+                return {
+                    "task_id": task_id,
+                    "book_id": str(parsed_book_id),
+                    "proposal_id": str(proposal.id),
+                    "created": True,
+                    "notification_published": False,
+                }
+
+            book = session.get(Book, proposal.book_id)
+            book_title = (
+                book.title
+                if book is not None
+                else str(proposal.book_id)
+            )
+
+        tenant_id, event = create_committed_notification_for_tenant(
+            tenant_id=proposal.tenant_id,
+            category=NotificationCategory.RESTOCK_ALERT,
+            severity=NotificationSeverity(proposal.risk_level),
+            title="안전재고 부족 발주 추천 생성",
+            message=(
+                f"'{book_title}'의 안전재고 부족이 감지되어 "
+                f"발주 추천안이 생성되었습니다. "
+                f"추천 수량: {proposal.recommended_order_quantity}권"
+            ),
+            payload={
+                "order_proposal_id": str(proposal.id),
+                "return_job_id": None,
+                "book_id": str(proposal.book_id),
+                "proposal_source": (
+                    proposal.proposal_source.value
+                ),
+                "recommended_order_quantity": (
+                    proposal.recommended_order_quantity
+                ),
+                "risk_level": proposal.risk_level,
+            },
+        )
+
+        publish_event_safely(
+            event_name="RESTOCK_ALERT",
+            publish_function=publish_tenant_notification_event,
+            tenant_id=tenant_id,
+            event=event,
+        )
+
+        return {
+            "task_id": task_id,
+            "book_id": str(parsed_book_id),
+            "proposal_id": str(proposal.id),
+            "created": True,
+            "notification_published": True,
+        }
+
+    except Exception as error:
+        logger.exception(
+            "Safety-stock restock proposal processing failed. "
+            "task_id=%s book_id=%s error=%s",
+            task_id,
+            book_id,
             error,
         )
 

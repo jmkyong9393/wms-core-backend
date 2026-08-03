@@ -35,7 +35,7 @@ class FakeSession:
 def build_user() -> SimpleNamespace:
     return SimpleNamespace(
         id=UUID("00000000-0000-4000-8000-000000000001"),
-        employee_id="AV26080201",
+        employee_id="NZ26080201",
         email="hong@example.com",
         name="홍길동",
         role=UserRole.WORKER,
@@ -77,7 +77,7 @@ def test_returns_paginated_employee_list_with_user_uuid():
     assert str(employee.id) == (
         "00000000-0000-4000-8000-000000000001"
     )
-    assert employee.employee_id == "AV26080201"
+    assert employee.employee_id == "NZ26080201"
     assert employee.name == "홍길동"
     assert employee.role == UserRole.WORKER
     assert employee.status == UserStatus.ACTIVE

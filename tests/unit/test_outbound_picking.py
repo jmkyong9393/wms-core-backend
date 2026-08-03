@@ -197,7 +197,7 @@ def test_new_stock_picking_reserves_inventory_without_deducting_quantity():
     assert allocations[0].inventory_id == INVENTORY_ID
     assert allocations[0].quantity == 2
     picked_item = response.picking_groups[0].racks[0].shelves[0].items[0]
-    assert picked_item.condition_grade is None
+    assert picked_item.condition_grade == ConditionGrade.MINT
     assert picked_item.lpn_barcode is None
     assert session.committed is True
 

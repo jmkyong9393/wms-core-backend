@@ -60,6 +60,7 @@ def create_committed_notification_for_tenant(
                 "severity": notification.severity.value,
                 "title": notification.title,
                 "message": notification.message,
+                "payload": notification.payload,
                 "timestamp": notification.created_at.isoformat(),
                 "read": False,
             }
@@ -83,6 +84,7 @@ def build_notification_response(
         severity=notification.severity,
         title=notification.title,
         message=notification.message,
+        payload=notification.payload,
         timestamp=notification.created_at,
         read=recipient.read_at is not None,
     )
