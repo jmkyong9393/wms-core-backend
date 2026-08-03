@@ -1,3 +1,4 @@
+from uuid import UUID
 from typing import Literal
 from pydantic_settings import BaseSettings
 
@@ -31,6 +32,9 @@ class Settings(BaseSettings):
     # 발주 추천 결과의 일관성을 위해 낮게 설정한 임시값이다.
     # 실제 Agent 품질 테스트 후 조정한다.
     RESTOCK_AGENT_TEMPERATURE: float = 0.1
+
+    # 안전재고 부족 AUTO_PO 배치가 생성할 관리자 추천안의 테넌트
+    AUTO_PO_TENANT_ID: UUID | None = None
     
     # AWS, Supabase or other config can be added here
     

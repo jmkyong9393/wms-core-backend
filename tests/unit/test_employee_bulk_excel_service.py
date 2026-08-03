@@ -129,7 +129,7 @@ def test_builds_result_xlsx_with_issued_credentials():
                 hire_date=date(2026, 8, 1),
                 role=UserRole.WORKER,
                 email="gana@example.com",
-                employee_id="AV2608001",
+                employee_id="NZ2608001",
                 temporary_password="TempPassword123!",
             )
         ]
@@ -160,7 +160,7 @@ def test_builds_result_xlsx_with_issued_credentials():
 
     assert result_row[0] == "김가나"
     assert result_row[2] == "WORKER"
-    assert result_row[4] == "AV2608001"
+    assert result_row[4] == "NZ2608001"
     assert result_row[5] == "TempPassword123!"
 
     workbook.close()

@@ -57,6 +57,7 @@ class OrderStatus(str, Enum):
     PICKING = "PICKING"
     SHIPPED = "SHIPPED"
     RETURN_REQUESTED = "RETURN_REQUESTED"
+    RECEIVED = "RECEIVED"
 
 
 class ReturnJobStatus(str, Enum):
@@ -73,6 +74,10 @@ class OrderProposalStatus(str, Enum):
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
     NOT_REQUIRED = "NOT_REQUIRED"
+
+class RestockProposalSource(str, Enum):
+    RETURN_REJECTION = "RETURN_REJECTION"
+    SAFETY_STOCK = "SAFETY_STOCK"
 
 class InventoryTransactionType(str, Enum):
     INBOUND = "INBOUND"
@@ -418,7 +423,8 @@ class OrderProposal(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True,)
     tenant_id: uuid.UUID = Field(foreign_key="tenants.id",nullable=False,index=True,)
     book_id: uuid.UUID = Field(foreign_key="books.id",nullable=False,index=True,)
-    return_job_id: uuid.UUID = Field(foreign_key="return_jobs.id",nullable=False,index=True,)
+    return_job_id: uuid.UUID | None = Field(default=None,foreign_key="return_jobs.id",index=True,)
+    proposal_source: RestockProposalSource = Field(default=RestockProposalSource.RETURN_REJECTION,nullable=False,index=True,)
     recent_sales_quantity: int = Field(nullable=False)
     current_stock: int = Field(nullable=False)
 

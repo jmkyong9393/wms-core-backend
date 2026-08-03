@@ -1,169 +1,180 @@
 import logging
-import uuid
-from datetime import datetime
-from typing import List, Dict, Any
-from collections import defaultdict
-from sqlmodel import Session, text
-from app.core.database import engine
-from app.models.wms import OrderType, OrderStatus
+from typing import Any
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+from sqlmodel import Session, text
+
+from app.core.celery_app import celery_app
+from app.core.config import settings
+from app.core.database import engine
+
+
 logger = logging.getLogger(__name__)
 
-def fetch_books_needing_restock(session: Session) -> List[Dict[str, Any]]:
-    logger.info("DB에서 출고 이력이 있으며 실질 재고가 안전재고 미달인 도서를 조회합니다...")
-    # SQL 단에서 실질 재고(물리+입고예정)와 안전재고(주간판매량*2, 최소 10권)를 비교하여 
-    # 발주가 필요한 도서만 메모리로 가져옵니다. (메모리 최적화)
-    # 또한 주간 판매량이 1권 이상인 도서만 발주 대상에 포함합니다. (악성 재고 무한 발주 방지)
-    query = text("""
-        WITH WeeklySales AS (
-            SELECT 
-                oi.book_id,
-                COALESCE(SUM(oi.quantity), 0) as weekly_sales
-            FROM order_items oi
-            JOIN orders o ON oi.order_id = o.id
-            WHERE o.created_at >= NOW() - INTERVAL '7 days'
-              AND o.type = 'B2B_ORDER'
-            GROUP BY oi.book_id
+SAFETY_STOCK_RESTOCK_PROPOSAL_TASK_NAME = (
+    "app.worker.process_safety_stock_restock_proposal"
+)
+
+
+def fetch_books_needing_restock(
+    session: Session,
+) -> list[dict[str, Any]]:
+    """
+    최근 판매 이력이 있고 실질 가용 재고와 진행 중 AUTO_PO 수량의 합이
+    안전재고보다 적은 도서만 조회한다.
+
+    실제 추천안 생성과 주문 생성은 여기서 하지 않는다.
+    """
+    query = text(
+        """
+        WITH weekly_sales AS (
+            SELECT
+                order_items.book_id,
+                COALESCE(SUM(order_items.quantity), 0) AS weekly_sales
+            FROM order_items
+            JOIN orders
+                ON orders.id = order_items.order_id
+            WHERE orders.created_at >= NOW() - INTERVAL '7 days'
+              AND orders.type = 'B2B_ORDER'
+              AND orders.status = 'SHIPPED'
+            GROUP BY order_items.book_id
         ),
-        CurrentInventory AS (
+        new_stock AS (
             SELECT
                 book_id,
-                COALESCE(SUM(quantity), 0) as total_stock
+                COALESCE(
+                    SUM(quantity - reserved_quantity),
+                    0
+                ) AS available_quantity
             FROM inventory
             GROUP BY book_id
         ),
-        PendingPOs AS (
+        used_stock AS (
             SELECT
-                oi.book_id,
-                COALESCE(SUM(oi.quantity), 0) as pending_po_qty
-            FROM order_items oi
-            JOIN orders o ON oi.order_id = o.id
-            -- 입고 전까지의 모든 진행 상태 포함 (PENDING, PICKING, SHIPPED)
-            WHERE o.type = 'AUTO_PO' AND o.status IN ('PENDING', 'PICKING', 'SHIPPED')
-            GROUP BY oi.book_id
+                book_id,
+                COUNT(*) AS available_quantity
+            FROM inventory_used_items
+            WHERE status = 'AVAILABLE'
+            GROUP BY book_id
+        ),
+        pending_auto_po AS (
+            SELECT
+                order_items.book_id,
+                COALESCE(SUM(order_items.quantity), 0)
+                    AS pending_quantity
+            FROM order_items
+            JOIN orders
+                ON orders.id = order_items.order_id
+            WHERE orders.type = 'AUTO_PO'
+              AND orders.status IN (
+                  'PENDING',
+                  'PICKING',
+                  'SHIPPED'
+              )
+            GROUP BY order_items.book_id
         )
-        SELECT 
-            b.id as book_id,
-            b.title,
-            b.publisher,
-            b.base_price,
-            COALESCE(c.total_stock, 0) as total_stock,
-            COALESCE(w.weekly_sales, 0) as weekly_sales,
-            COALESCE(p.pending_po_qty, 0) as pending_po_qty
-        FROM books b
-        JOIN WeeklySales w ON b.id = w.book_id -- INNER JOIN으로 주간 판매량이 있는 도서만 필터링
-        LEFT JOIN CurrentInventory c ON b.id = c.book_id
-        LEFT JOIN PendingPOs p ON b.id = p.book_id
-        WHERE w.weekly_sales > 0 
-          AND (COALESCE(c.total_stock, 0) + COALESCE(p.pending_po_qty, 0)) < GREATEST(10, w.weekly_sales * 2)
-    """)
-    result = session.execute(query)
-    data = []
-    for row in result:
-        data.append({
-            "book_id": str(row[0]),
-            "title": row[1],
-            "publisher": row[2] or "UNKNOWN_PUBLISHER",
-            "base_price": float(row[3]) if row[3] else 0.0,
-            "total_stock": int(row[4]),
-            "weekly_sales": int(row[5]),
-            "pending_po_qty": int(row[6])
-        })
-    return data
+        SELECT
+            books.id AS book_id,
+            books.title,
+            COALESCE(weekly_sales.weekly_sales, 0)
+                AS weekly_sales,
+            (
+                COALESCE(new_stock.available_quantity, 0)
+                + COALESCE(used_stock.available_quantity, 0)
+            ) AS current_stock,
+            COALESCE(pending_auto_po.pending_quantity, 0)
+                AS pending_auto_po_quantity,
+            GREATEST(
+                10,
+                COALESCE(weekly_sales.weekly_sales, 0) * 2
+            ) AS safety_stock_quantity
+        FROM books
+        JOIN weekly_sales
+            ON weekly_sales.book_id = books.id
+        LEFT JOIN new_stock
+            ON new_stock.book_id = books.id
+        LEFT JOIN used_stock
+            ON used_stock.book_id = books.id
+        LEFT JOIN pending_auto_po
+            ON pending_auto_po.book_id = books.id
+        WHERE (
+            COALESCE(new_stock.available_quantity, 0)
+            + COALESCE(used_stock.available_quantity, 0)
+            + COALESCE(pending_auto_po.pending_quantity, 0)
+        ) < GREATEST(
+            10,
+            COALESCE(weekly_sales.weekly_sales, 0) * 2
+        )
+        """
+    )
 
-def run_auto_po_batch():
-    logger.info("=== Auto-PO (자동 발주) 배치 작업 시작 ===")
-    
+    rows = session.execute(query).fetchall()
+
+    return [
+        {
+            "book_id": str(row.book_id),
+            "title": row.title,
+            "weekly_sales": int(row.weekly_sales),
+            "current_stock": int(row.current_stock),
+            "pending_auto_po_quantity": int(
+                row.pending_auto_po_quantity
+            ),
+            "safety_stock_quantity": int(
+                row.safety_stock_quantity
+            ),
+        }
+        for row in rows
+    ]
+
+
+def run_auto_po_batch() -> None:
+    """
+    안전재고 부족 도서를 탐지하고, 도서별로 Celery Restock Agent 작업을
+    등록한다. 주문과 재고는 관리자 승인 API에서만 변경된다.
+    """
+    if settings.AUTO_PO_TENANT_ID is None:
+        raise RuntimeError(
+            "AUTO_PO_TENANT_ID must be configured "
+            "before running the auto-PO batch."
+        )
+
+    logger.info(
+        "=== Safety-stock Restock proposal batch started ==="
+    )
+
     with Session(engine) as session:
-        try:
-            books_to_order = fetch_books_needing_restock(session)
-            
-            if not books_to_order:
-                logger.info("안전재고 미달 도서가 없습니다. 발주를 생성하지 않습니다.")
-                return
-                
-            # 출판사별 발주서(PO) 분리를 위한 Grouping
-            po_by_publisher = defaultdict(list)
-            
-            for stat in books_to_order:
-                book_id = stat["book_id"]
-                title = stat["title"]
-                publisher = stat["publisher"]
-                total_stock = stat["total_stock"]
-                weekly_sales = stat["weekly_sales"]
-                base_price = stat["base_price"]
-                pending_po_qty = stat["pending_po_qty"]
-                
-                effective_stock = total_stock + pending_po_qty
-                safety_stock = max(10, weekly_sales * 2)
-                
-                order_quantity = max(10, safety_stock - effective_stock)
-                final_price = order_quantity * base_price
-                
-                logger.info(f"[{publisher}] '{title}' 재고 부족 감지! 실질재고: {effective_stock} < 안전재고: {safety_stock}. {order_quantity}권 발주 필요.")
-                
-                po_by_publisher[publisher].append({
-                    "book_id": book_id,
-                    "quantity": order_quantity,
-                    "unit_price": base_price,
-                    "final_price": final_price
-                })
-            
-            # 대량 Insert(Bulk Insert)를 위한 리스트 준비
-            orders_to_insert = []
-            order_items_to_insert = []
-            now = datetime.utcnow()
-            
-            for publisher, items in po_by_publisher.items():
-                po_order_id = str(uuid.uuid4())
-                total_po_price = sum(item["final_price"] for item in items)
-                
-                # 출판사 단위의 발주서(Order) 생성 (customer_name에 출판사명 저장)
-                orders_to_insert.append({
-                    "id": po_order_id,
-                    "customer_name": publisher, 
-                    "type": OrderType.AUTO_PO.value,
-                    "total_price": total_po_price,
-                    "status": OrderStatus.PENDING.value,
-                    "created_at": now,
-                    "updated_at": now
-                })
-                
-                for item in items:
-                    order_items_to_insert.append({
-                        "id": str(uuid.uuid4()),
-                        "order_id": po_order_id,
-                        "book_id": item["book_id"],
-                        "quantity": item["quantity"],
-                        "unit_price": item["unit_price"],
-                        "final_price": item["final_price"],
-                        "created_at": now,
-                        "updated_at": now
-                    })
-            
-            # Bulk Insert 실행 (DB I/O 최적화)
-            logger.info(f"총 {len(orders_to_insert)}개의 출판사에 대한 발주서와 {len(order_items_to_insert)}개의 품목을 생성합니다...")
-            
-            insert_order_query = text("""
-                INSERT INTO orders (id, customer_name, type, total_price, status, logistics_center, created_at, updated_at)
-                VALUES (:id, :customer_name, :type, :total_price, :status, 'CENTER_A', :created_at, :updated_at)
-            """)
-            session.execute(insert_order_query, orders_to_insert)
-            
-            insert_item_query = text("""
-                INSERT INTO order_items (id, order_id, book_id, quantity, unit_price, final_price, created_at, updated_at)
-                VALUES (:id, :order_id, :book_id, :quantity, :unit_price, :final_price, :created_at, :updated_at)
-            """)
-            session.execute(insert_item_query, order_items_to_insert)
-                
-            session.commit()
-            logger.info(f"=== Auto-PO 배치 작업 완료 (발주서: {len(orders_to_insert)}건, 품목: {len(order_items_to_insert)}건) ===")
-            
-        except Exception as e:
-            session.rollback()
-            logger.error(f"Auto-PO 배치 작업 중 오류 발생: {e}")
-            raise
+        books_to_restock = fetch_books_needing_restock(
+            session,
+        )
+
+    if not books_to_restock:
+        logger.info(
+            "No books are below the safety-stock threshold."
+        )
+        return
+
+    for book in books_to_restock:
+        task = celery_app.send_task(
+            SAFETY_STOCK_RESTOCK_PROPOSAL_TASK_NAME,
+            args=[
+                str(settings.AUTO_PO_TENANT_ID),
+                book["book_id"],
+                book["safety_stock_quantity"],
+            ],
+        )
+
+        logger.info(
+            "Safety-stock Restock Agent task queued. "
+            "task_id=%s book_id=%s title=%s "
+            "current_stock=%s pending_auto_po_quantity=%s "
+            "safety_stock_quantity=%s",
+            task.id,
+            book["book_id"],
+            book["title"],
+            book["current_stock"],
+            book["pending_auto_po_quantity"],
+            book["safety_stock_quantity"],
+        )
+
 
 if __name__ == "__main__":
     run_auto_po_batch()

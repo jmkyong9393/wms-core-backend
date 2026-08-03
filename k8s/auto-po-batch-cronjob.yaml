@@ -45,4 +45,9 @@ spec:
                 secretKeyRef:
                   name: wms-master-secret
                   key: INITIAL_MASTER_PASSWORD
+            - name: AUTO_PO_TENANT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: wms-master-secret
+                  key: AUTO_PO_TENANT_ID
           restartPolicy: OnFailure

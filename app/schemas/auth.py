@@ -105,7 +105,7 @@ class EmployeeBulkCreateResultRow(EmployeeBulkCreateRow):
     """
 
     employee_id: str = Field(
-        description="발급된 사번. 예: AV2608001",
+        description="발급된 사번. 예: NZ2608001",
     )
 
     temporary_password: str = Field(

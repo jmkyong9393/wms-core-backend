@@ -1,7 +1,10 @@
 from types import SimpleNamespace
 from uuid import UUID
 
-from app.models.wms import ReturnJobStatus
+from app.models.wms import (
+    RestockProposalSource,
+    ReturnJobStatus,
+)
 from app import worker
 
 
@@ -114,6 +117,9 @@ def build_proposal(
     *,
     recommended_order_quantity: int,
     risk_level: str,
+    proposal_source: RestockProposalSource = (
+        RestockProposalSource.RETURN_REJECTION
+    ),
 ):
     return SimpleNamespace(
         id=UUID("00000000-0000-4000-8000-000000000020"),
@@ -125,6 +131,7 @@ def build_proposal(
         ),
         recommended_order_quantity=recommended_order_quantity,
         risk_level=risk_level,
+        proposal_source=proposal_source,
     )
 
 
@@ -201,13 +208,19 @@ def test_positive_quantity_proposal_publishes_notification(
             generation_in_progress=False,
         ),
     )
+    notification = {}
+
+    def fake_create_notification(**kwargs):
+        notification.update(kwargs)
+        return (
+            str(proposal.tenant_id),
+            {"event": "notification"},
+        )
+
     monkeypatch.setattr(
         worker,
         "create_committed_notification_for_tenant",
-        lambda **_kwargs: (
-            str(proposal.tenant_id),
-            {"event": "notification"},
-        ),
+        fake_create_notification,
     )
 
     def fake_publish_event_safely(
@@ -242,3 +255,78 @@ def test_positive_quantity_proposal_publishes_notification(
     assert published["kwargs"]["tenant_id"] == str(
         proposal.tenant_id
     )
+    assert notification["payload"] == {
+        "order_proposal_id": str(proposal.id),
+        "return_job_id": (
+            "00000000-0000-4000-8000-000000000001"
+        ),
+        "book_id": str(proposal.book_id),
+        "proposal_source": "RETURN_REJECTION",
+        "recommended_order_quantity": 11,
+        "risk_level": "HIGH",
+    }
+
+def test_safety_stock_proposal_publishes_notification(
+    monkeypatch,
+):
+    proposal = build_proposal(
+        recommended_order_quantity=8,
+        risk_level="MEDIUM",
+        proposal_source=RestockProposalSource.SAFETY_STOCK,
+    )
+    notification = {}
+
+    monkeypatch.setattr(
+        worker,
+        "Session",
+        lambda _engine: FakeSessionContext(
+            book=SimpleNamespace(title="안전재고 부족 도서"),
+        ),
+    )
+    monkeypatch.setattr(
+        worker,
+        "create_restock_proposal_for_safety_stock",
+        lambda **_kwargs: SimpleNamespace(
+            proposal=proposal,
+            created=True,
+        ),
+    )
+
+    def fake_create_notification(**kwargs):
+        notification.update(kwargs)
+        return (
+            str(proposal.tenant_id),
+            {"event": "notification"},
+        )
+
+    monkeypatch.setattr(
+        worker,
+        "create_committed_notification_for_tenant",
+        fake_create_notification,
+    )
+    monkeypatch.setattr(
+        worker,
+        "publish_event_safely",
+        lambda **_kwargs: True,
+    )
+
+    task_result = (
+        worker.process_safety_stock_restock_proposal.apply(
+            args=[
+                str(proposal.tenant_id),
+                str(proposal.book_id),
+                20,
+            ],
+        )
+    )
+
+    assert task_result.successful()
+    assert task_result.get()["notification_published"] is True
+    assert notification["payload"] == {
+        "order_proposal_id": str(proposal.id),
+        "return_job_id": None,
+        "book_id": str(proposal.book_id),
+        "proposal_source": "SAFETY_STOCK",
+        "recommended_order_quantity": 8,
+        "risk_level": "MEDIUM",
+    }

@@ -22,6 +22,7 @@ from app.models.wms import (
     ReturnJob,
     ReturnJobStatus,
     UsedInventoryStatus,
+    RestockProposalSource,
 )
 from app.schemas.restock import (
     RestockRecommendationRequest,
@@ -43,6 +44,8 @@ RESTOCK_GENERATION_GENERATING = "GENERATING"
 RESTOCK_GENERATION_RESPONSE_SAVED = "RESPONSE_SAVED"
 RESTOCK_GENERATION_COMPLETED = "COMPLETED"
 RESTOCK_GENERATION_FAILED = "FAILED"
+
+SAFETY_STOCK_REASON_CODE = "SAFETY_STOCK_SHORTAGE"
 
 @dataclass(frozen=True)
 class RestockProposalCreationResult:
@@ -198,6 +201,7 @@ def create_restock_proposal_for_rejected_job(
         tenant_id=return_job.tenant_id,
         book_id=book.id,
         return_job_id=return_job.id,
+        proposal_source=RestockProposalSource.RETURN_REJECTION,
         recent_sales_quantity=request.recent_sales_quantity,
         current_stock=request.current_stock,
         pending_auto_po_quantity=(
@@ -244,6 +248,136 @@ def create_restock_proposal_for_rejected_job(
         created=True,
     )
 
+def create_restock_proposal_for_safety_stock(
+    session: Session,
+    tenant_id: UUID,
+    book_id: UUID,
+    safety_stock_quantity: int,
+) -> RestockProposalCreationResult:
+    """
+    안전재고 부족 도서를 대상으로 같은 Restock Agent를 실행하고
+    관리자 승인용 OrderProposal을 생성한다.
+
+    동일 도서에 미처리 안전재고 추천안이 이미 있으면 기존 추천안을 반환해
+    CronJob 재실행으로 인한 중복 추천안을 막는다.
+    """
+    if safety_stock_quantity < 1:
+        raise ValueError(
+            "Safety stock quantity must be at least 1."
+        )
+
+    # 승인 처리와 배치 추천 생성이 같은 도서에서 동시에 실행될 때를 직렬화한다.
+    book = session.exec(
+        select(Book)
+        .where(Book.id == book_id)
+        .with_for_update()
+    ).first()
+
+    if book is None:
+        raise ValueError(
+            f"Safety-stock restock target book was not found: {book_id}"
+        )
+
+    existing_proposal = session.exec(
+        select(OrderProposal)
+        .where(
+            OrderProposal.tenant_id == tenant_id,
+            OrderProposal.book_id == book.id,
+            OrderProposal.proposal_source
+            == RestockProposalSource.SAFETY_STOCK,
+            OrderProposal.status == OrderProposalStatus.PENDING,
+        )
+        .with_for_update()
+    ).first()
+
+    if existing_proposal is not None:
+        return RestockProposalCreationResult(
+            proposal=existing_proposal,
+            created=False,
+        )
+
+    current_stock = get_current_available_stock(
+        session=session,
+        book_id=book.id,
+    )
+    pending_auto_po_quantity = get_pending_auto_po_quantity(
+        session=session,
+        book_id=book.id,
+    )
+
+    effective_stock = (
+        current_stock + pending_auto_po_quantity
+    )
+
+    # 배치가 후보를 찾은 뒤 재고가 늘어난 경우 Agent 호출 자체를 생략한다.
+    if effective_stock >= safety_stock_quantity:
+        return RestockProposalCreationResult(
+            proposal=None,
+            created=False,
+        )
+
+    request = RestockRecommendationRequest(
+        proposal_source=RestockProposalSource.SAFETY_STOCK,
+        isbn=book.isbn or str(book.id),
+        book_title=book.title,
+        recent_sales_quantity=_get_recent_sales_quantity(
+            session=session,
+            book_id=book.id,
+        ),
+        current_stock=current_stock,
+        pending_auto_po_quantity=pending_auto_po_quantity,
+        rejected_quantity=0,
+        rejection_reason_code=SAFETY_STOCK_REASON_CODE,
+        safety_stock_quantity=safety_stock_quantity,
+    )
+
+    recommendation = generate_restock_recommendation(
+        request,
+    )
+
+    proposal = OrderProposal(
+        tenant_id=tenant_id,
+        book_id=book.id,
+        return_job_id=None,
+        proposal_source=RestockProposalSource.SAFETY_STOCK,
+        recent_sales_quantity=request.recent_sales_quantity,
+        current_stock=request.current_stock,
+        pending_auto_po_quantity=(
+            request.pending_auto_po_quantity
+        ),
+        rejected_quantity=0,
+        rejection_reason_code=SAFETY_STOCK_REASON_CODE,
+        recommended_order_quantity=(
+            recommendation.recommended_order_quantity
+        ),
+        reason_summary=recommendation.reason_summary,
+        evidence=recommendation.evidence,
+        risk_level=recommendation.risk_level,
+        status=(
+            OrderProposalStatus.NOT_REQUIRED
+            if recommendation.recommended_order_quantity <= 0
+            else OrderProposalStatus.PENDING
+        ),
+    )
+
+    session.add(proposal)
+    session.commit()
+    session.refresh(proposal)
+
+    logger.info(
+        "Safety-stock restock proposal created. "
+        "proposal_id=%s book_id=%s "
+        "recommended_order_quantity=%s",
+        proposal.id,
+        book.id,
+        proposal.recommended_order_quantity,
+    )
+
+    return RestockProposalCreationResult(
+        proposal=proposal,
+        created=True,
+    )
+
 def _build_restock_recommendation_request(
     session: Session,
     return_job: ReturnJob,
@@ -257,7 +391,7 @@ def _build_restock_recommendation_request(
             session=session,
             book_id=book.id,
         ),
-        current_stock=_get_current_available_stock(
+        current_stock=get_current_available_stock(
             session=session,
             book_id=book.id,
         ),
@@ -345,7 +479,7 @@ def _get_recent_sales_quantity(
     return int(result or 0)
 
 
-def _get_current_available_stock(
+def get_current_available_stock(
     session: Session,
     book_id: UUID,
 ) -> int:
