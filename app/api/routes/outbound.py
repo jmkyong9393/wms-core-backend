@@ -257,6 +257,7 @@ def create_picking_instruction(
 
             # 신간 주문: 실제 quantity는 차감하지 않고 reserved_quantity만 증가한다.
             remaining_quantity = order_item.quantity
+            selected_inventory_total = Decimal("0")
             inventory_rows = session.exec(
                 select(Inventory)
                 .where(
@@ -289,6 +290,20 @@ def create_picking_instruction(
                     raise RuntimeError(
                         "Location for inventory was not found"
                     )
+                if (
+                    inventory.discount_rate is None
+                    or inventory.sale_price is None
+                ):
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail={
+                            "message": (
+                                "FIFO selected new stock without "
+                                "completed pricing"
+                            ),
+                            "inventory_id": str(inventory.id),
+                        },
+                    )
 
                 inventory.reserved_quantity += reserved_quantity
                 inventory.updated_at = datetime.utcnow()
@@ -313,6 +328,9 @@ def create_picking_instruction(
                         ),
                     )
                 )
+                selected_inventory_total += (
+                    inventory.sale_price * reserved_quantity
+                )
                 remaining_quantity -= reserved_quantity
 
             if remaining_quantity > 0:
@@ -325,6 +343,15 @@ def create_picking_instruction(
                         "missing_quantity": remaining_quantity,
                     },
                 )
+
+            # 하나의 주문 품목이 서로 다른 가격의 FIFO 재고에 걸쳐 예약될 수
+            # 있으므로, unit_price는 실제 선택 금액의 평균 단가로 기록한다.
+            order_item.final_price = selected_inventory_total
+            order_item.unit_price = (
+                selected_inventory_total / order_item.quantity
+            )
+            order_item.updated_at = datetime.utcnow()
+            session.add(order_item)
 
         order.total_price = sum(
             (order_item.final_price for order_item in order_items),

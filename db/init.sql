@@ -116,13 +116,24 @@ CREATE TABLE inventory (
     location_id UUID NOT NULL REFERENCES locations(id),
     quantity INTEGER NOT NULL DEFAULT 0,
     reserved_quantity INTEGER NOT NULL DEFAULT 0,
+    discount_rate NUMERIC(5, 4),
+    sale_price NUMERIC(12, 2),
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uq_inventory_book_location UNIQUE (book_id, location_id),
     CONSTRAINT ck_inventory_reserved_quantity_non_negative
         CHECK (reserved_quantity >= 0),
     CONSTRAINT ck_inventory_reserved_quantity_not_exceed_quantity
-        CHECK (reserved_quantity <= quantity)
+        CHECK (reserved_quantity <= quantity),
+    CONSTRAINT ck_inventory_discount_rate
+        CHECK (
+            discount_rate IS NULL
+            OR (discount_rate >= 0 AND discount_rate < 1)
+        ),
+    CONSTRAINT ck_inventory_sale_price_positive
+        CHECK (sale_price IS NULL OR sale_price > 0),
+    CONSTRAINT ck_inventory_pricing_pair
+        CHECK ((discount_rate IS NULL) = (sale_price IS NULL))
 );
 
 CREATE TABLE inventory_used_items (

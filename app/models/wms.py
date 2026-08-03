@@ -243,6 +243,19 @@ class Inventory(SQLModel, table=True):
         UniqueConstraint("book_id", "location_id", name="uq_inventory_book_location"),
         CheckConstraint("reserved_quantity >= 0", name="ck_inventory_reserved_quantity_non_negative",),
         CheckConstraint("reserved_quantity <= quantity", name="ck_inventory_reserved_quantity_not_exceed_quantity",),
+        CheckConstraint(
+            "discount_rate IS NULL OR "
+            "(discount_rate >= 0 AND discount_rate < 1)",
+            name="ck_inventory_discount_rate",
+        ),
+        CheckConstraint(
+            "sale_price IS NULL OR sale_price > 0",
+            name="ck_inventory_sale_price_positive",
+        ),
+        CheckConstraint(
+            "(discount_rate IS NULL) = (sale_price IS NULL)",
+            name="ck_inventory_pricing_pair",
+        ),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
@@ -251,6 +264,14 @@ class Inventory(SQLModel, table=True):
     quantity: int = Field(default=0)
     # 피킹 지시서에 배정되어 다른 주문이 사용할 수 없는 신간 재고 수량
     reserved_quantity: int = Field(default=0, nullable=False,)
+    discount_rate: Optional[Decimal] = Field(
+        default=None,
+        sa_column=Column(Numeric(5, 4)),
+    )
+    sale_price: Optional[Decimal] = Field(
+        default=None,
+        sa_column=Column(Numeric(12, 2)),
+    )
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 

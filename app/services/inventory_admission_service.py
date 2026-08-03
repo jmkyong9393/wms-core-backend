@@ -16,6 +16,9 @@ from app.models.wms import (
     ReturnJob,
     UsedInventoryStatus,
 )
+from app.domain.inventory_pricing_policy import (
+    calculate_new_stock_default_price,
+)
 from app.services.lpn_service import build_public_qr_url
 
 
@@ -34,14 +37,26 @@ def admit_new_stock(
         .with_for_update()
     ).first()
     now = datetime.utcnow()
+    default_discount_rate, default_sale_price = (
+        calculate_new_stock_default_price(book.base_price)
+    )
     if inventory is None:
         inventory = Inventory(
             book_id=book.id,
             location_id=location.id,
             quantity=inbound_item.quantity,
+            discount_rate=default_discount_rate,
+            sale_price=default_sale_price,
         )
     else:
         inventory.quantity += inbound_item.quantity
+        # 기존 재고의 가격 정책은 유지하고, 과거 무가격 행만 기본값으로 보완한다.
+        if (
+            inventory.discount_rate is None
+            and inventory.sale_price is None
+        ):
+            inventory.discount_rate = default_discount_rate
+            inventory.sale_price = default_sale_price
         inventory.updated_at = now
     session.add(inventory)
     _record_inbound_log(

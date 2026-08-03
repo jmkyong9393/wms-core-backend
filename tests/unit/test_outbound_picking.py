@@ -112,13 +112,18 @@ def build_location(
 def build_inventory(
     quantity=3,
     reserved_quantity=0,
+    inventory_id=INVENTORY_ID,
+    discount_rate=Decimal("0.1000"),
+    sale_price=Decimal("13500.00"),
 ):
     return Inventory(
-        id=INVENTORY_ID,
+        id=inventory_id,
         book_id=BOOK_ID,
         location_id=LOCATION_ID,
         quantity=quantity,
         reserved_quantity=reserved_quantity,
+        discount_rate=discount_rate,
+        sale_price=sale_price,
     )
 
 
@@ -188,10 +193,12 @@ def test_new_stock_picking_reserves_inventory_without_deducting_quantity():
     ]
 
     assert response.status == OrderStatus.PICKING
-    assert response.total_price == Decimal("30000.00")
+    assert response.total_price == Decimal("27000.00")
     assert order.status == OrderStatus.PICKING
     assert inventory.quantity == 3
     assert inventory.reserved_quantity == 2
+    assert order_item.unit_price == Decimal("13500.00")
+    assert order_item.final_price == Decimal("27000.00")
     assert len(allocations) == 1
     assert allocations[0].order_item_id == ORDER_ITEM_ID
     assert allocations[0].inventory_id == INVENTORY_ID
@@ -287,9 +294,74 @@ def test_picking_recalculates_total_from_new_and_used_order_items(monkeypatch):
         session=session,
     )
 
-    assert new_order_item.final_price == Decimal("30000.00")
+    assert new_order_item.final_price == Decimal("27000.00")
     assert used_order_item.final_price == Decimal("13500.00")
-    assert order.total_price == Decimal("43500.00")
+    assert order.total_price == Decimal("40500.00")
+
+
+def test_new_stock_picking_uses_fifo_inventory_prices_by_quantity():
+    order = build_order()
+    order_item = build_order_item(quantity=3)
+    first_inventory = build_inventory(
+        quantity=2,
+        sale_price=Decimal("13500.00"),
+    )
+    second_inventory = build_inventory(
+        quantity=2,
+        inventory_id=UUID("00000000-0000-4000-8000-000000000008"),
+        discount_rate=Decimal("0.2000"),
+        sale_price=Decimal("12000.00"),
+    )
+    location = build_location()
+
+    session = FakeSession(
+        results=[
+            FakeQueryResult(row=order),
+            FakeQueryResult(rows=[order_item]),
+            FakeQueryResult(rows=[first_inventory, second_inventory]),
+        ],
+        locations={LOCATION_ID: location},
+    )
+
+    response = outbound.create_picking_instruction(
+        outbound.PickRequest(order_id=ORDER_ID),
+        session=session,
+    )
+
+    assert first_inventory.reserved_quantity == 2
+    assert second_inventory.reserved_quantity == 1
+    assert order_item.final_price == Decimal("39000.00")
+    assert order_item.unit_price == Decimal("13000.00")
+    assert order.total_price == Decimal("39000.00")
+    assert response.total_price == Decimal("39000.00")
+
+
+def test_new_stock_picking_rejects_inventory_without_pricing():
+    order = build_order()
+    order_item = build_order_item(quantity=1)
+    inventory = build_inventory(
+        quantity=1,
+        discount_rate=None,
+        sale_price=None,
+    )
+    location = build_location()
+    session = FakeSession(
+        results=[
+            FakeQueryResult(row=order),
+            FakeQueryResult(rows=[order_item]),
+            FakeQueryResult(rows=[inventory]),
+        ],
+        locations={LOCATION_ID: location},
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        outbound.create_picking_instruction(
+            outbound.PickRequest(order_id=ORDER_ID),
+            session=session,
+        )
+
+    assert exc_info.value.status_code == 409
+    assert session.rolled_back is True
 
 
 def test_picking_instruction_rejects_non_pending_order():
