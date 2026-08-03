@@ -1,10 +1,12 @@
+from datetime import datetime
 from decimal import Decimal
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import Session, select
+from sqlalchemy import func
 
 from app.core.database import get_session
 from app.models.wms import (
@@ -14,7 +16,10 @@ from app.models.wms import (
     OrderItem,
     OrderStatus,
     OrderType,
+    User,
 )
+
+from app.api.dependencies.auth import require_wms_operator
 
 router = APIRouter()
 
@@ -69,6 +74,82 @@ class CreateOrderResponse(BaseModel):
     applied_discount: str = Field(description="적용된 할인 정책 식별자")
     status: OrderStatus = Field(description="주문 처리 상태")
 
+class OrderListItemResponse(BaseModel):
+    id: UUID
+    customer_name: str
+    status: OrderStatus
+    total_price: Decimal
+    logistics_center: str | None = None
+    created_at: datetime
+
+class OrderListResponse(BaseModel):
+    items: list[OrderListItemResponse]
+    total: int
+    page: int
+    size: int
+    total_pages: int
+
+
+@router.get(
+    "",
+    response_model=OrderListResponse,
+    operation_id="listOutboundOrders",
+    summary="출고 대상 주문 목록 조회",
+    description=(
+        "출고 담당자가 피킹할 B2B 주문 목록을 조회합니다. "
+        "기본적으로 PENDING 주문을 조회하며, status를 지정하면 "
+        "PICKING 또는 SHIPPED 주문도 조회할 수 있습니다."
+    ),
+)
+def list_outbound_orders(
+    status_filter: OrderStatus = Query(
+        default=OrderStatus.PENDING,
+        alias="status",
+        description="주문 상태 필터",
+    ),
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=100),
+    session: Session = Depends(get_session),
+    _: User = Depends(require_wms_operator),
+) -> OrderListResponse:
+    base_statement = select(Order).where(
+        Order.type == OrderType.B2B_ORDER,
+        Order.status == status_filter,
+    )
+
+    total = session.exec(
+        select(func.count())
+        .select_from(Order)
+        .where(
+            Order.type == OrderType.B2B_ORDER,
+            Order.status == status_filter,
+        )
+    ).one()
+
+    orders = session.exec(
+        base_statement
+        .order_by(Order.created_at.desc(), Order.id.desc())
+        .offset((page - 1) * size)
+        .limit(size)
+    ).all()
+
+    return OrderListResponse(
+        items=[
+            OrderListItemResponse(
+                id=order.id,
+                customer_name=order.customer_name,
+                status=order.status,
+                total_price=order.total_price,
+                logistics_center=order.logistics_center,
+                created_at=order.created_at,
+            )
+            for order in orders
+        ],
+        total=total,
+        page=page,
+        size=size,
+        total_pages=(total + size - 1) // size if total else 0,
+    )
 
 @router.post(
     "",

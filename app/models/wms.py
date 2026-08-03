@@ -373,7 +373,8 @@ class OrderItemInventoryAllocation(SQLModel, table=True):
 
     __table_args__ = (
         UniqueConstraint("order_item_id","inventory_id",name="uq_order_item_inventory_allocation",),
-        CheckConstraint("quantity > 0",name="ck_order_item_inventory_allocation_quantity_positive",),)
+        CheckConstraint("quantity > 0",name="ck_order_item_inventory_allocation_quantity_positive",),
+        CheckConstraint("picked_quantity >= 0 AND picked_quantity <= quantity",name=("ck_order_item_inventory_allocation_picked_quantity"),),)
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4,primary_key=True,)
 
@@ -385,6 +386,9 @@ class OrderItemInventoryAllocation(SQLModel, table=True):
 
     # 해당 재고 행에서 예약한 수량
     quantity: int = Field(nullable=False)
+
+    # 실제 ISBN 스캔으로 확인된 수량
+    picked_quantity: int = Field(default=0, nullable=False)
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -410,6 +414,10 @@ class OrderItemLpnAllocation(SQLModel, table=True):
         foreign_key="inventory_used_items.id",
         nullable=False,
     )
+
+    # 예약된 중고 LPN을 실제로 스캔한 시각
+    picked_at: datetime | None = Field(default=None)
+
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
