@@ -4,7 +4,7 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import (
     String,
     case,
@@ -108,6 +108,40 @@ class InventoryListResponse(BaseModel):
     """
     통합 재고 그리드의 서버 페이지네이션 응답.
     """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "items": [
+                    {
+                        "id": (
+                            "00000000-0000-4000-8000-000000000001"
+                        ),
+                        "book": {
+                            "title": "사피엔스",
+                            "isbn": "9788912345678",
+                        },
+                        "stock_type": "NEW_STOCK",
+                        "grade": "MINT",
+                        "zone": "A-3-1",
+                        "quantity": 10,
+                        "reserved_quantity": 2,
+                        "available_quantity": 8,
+                        "lpn_status": None,
+                        "base_price": "18000.00",
+                        "discount_rate": "0.1000",
+                        "sale_price": "16200.00",
+                        "pricing_status": "DEFAULT_POLICY",
+                        "date": "2026-08-03T10:00:00",
+                    }
+                ],
+                "total": 1,
+                "page": 1,
+                "size": 20,
+                "total_pages": 1,
+            }
+        }
+    )
 
     items: list[InventoryListItemResponse] = Field(
         default_factory=list,
