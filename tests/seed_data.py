@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timedelta
-from sqlmodel import Session, SQLModel, text
+from sqlmodel import Session, SQLModel, text, select
 from app.core.database import engine
 from app.models.wms import (
     Tenant, Book, Location, Order, OrderItem, ReturnJob, Inventory,
@@ -11,13 +11,19 @@ from app.models.wms import (
 
 def seed_db():
     with Session(engine) as session:
-        # Create Tables if not exist (optional, assuming init.sql already ran)
+        # 0. Clean up transaction and master tables to ensure idempotence
+        session.execute(text("TRUNCATE TABLE rejected_items, inbound_items, inbound_jobs, return_jobs, order_items, orders, inventory, weekly_insights, fds_reports, fds_policies, books, locations CASCADE"))
+        session.commit()
         
         # 1. Tenant
-        tenant = Tenant(id=uuid.uuid4(), code="T001", name="Test Tenant")
-        session.add(tenant)
+        tenant = session.exec(select(Tenant).where(Tenant.code == "AIVLE_WMS")).first()
+        if not tenant:
+            tenant = Tenant(id=uuid.uuid4(), code="AIVLE_WMS", name="AIVLE WMS")
+            session.add(tenant)
+            session.flush()
         
         # 2. FdsPolicy
+        session.execute(text("DELETE FROM fds_policies"))
         policies = [
             FdsPolicy(policy_key="MAX_RETURN_30D", policy_value=3),
             FdsPolicy(policy_key="MIN_UBCI_SCORE", policy_value=30.0),
@@ -44,28 +50,17 @@ def seed_db():
         session.add_all([book1, book2])
         
         # 4. Locations
-        loc1 = Location(
-            id=uuid.uuid4(),
-            zone="A",
-            rack="1",
-            shelf="1",
-            barcode="A-1-1",
-        )
-        loc2 = Location(
-            id=uuid.uuid4(),
-            zone="B",
-            rack="2",
-            shelf="2",
-            barcode="B-2-2",
-        )
-        loc3 = Location(
-            id=uuid.uuid4(),
-            zone="C",
-            rack="1",
-            shelf="1",
-            barcode="C-1-1",
-        )
-        session.add_all([loc1, loc2, loc3])
+        def get_or_create_location(zone, rack, shelf, barcode):
+            loc = session.exec(select(Location).where(Location.barcode == barcode)).first()
+            if not loc:
+                loc = Location(id=uuid.uuid4(), zone=zone, rack=rack, shelf=shelf, barcode=barcode)
+                session.add(loc)
+                session.flush()
+            return loc
+
+        loc1 = get_or_create_location("A", "1", "1", "A-1-1")
+        loc2 = get_or_create_location("B", "2", "2", "B-2-2")
+        loc3 = get_or_create_location("C", "1", "1", "C-1-1")
         session.commit()
         
         # 5. Inventory (for fetch_inventory_stats & auto_po_batch)

@@ -550,6 +550,16 @@ class WeeklyInsight(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class FdsPolicy(SQLModel, table=True):
+    __tablename__ = "fds_policies"
+    __table_args__ = {"extend_existing": True}
+
+    policy_key: str = Field(primary_key=True, max_length=100)
+    policy_value: float = Field(nullable=False)
+    description: Optional[str] = Field(default=None, max_length=500)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class User(SQLModel, table=True):
     __tablename__ = "users"
 

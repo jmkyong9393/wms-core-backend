@@ -162,6 +162,7 @@ def seed_mock_data(
     session.add(inventory_log)
 
     fds_report = FdsReport(
+        tenant_id=current_master.tenant_id,
         customer_id=customer_id,
         fraud_score=95,
         fraud_reason="Mock repeated return pattern",

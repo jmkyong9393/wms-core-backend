@@ -1,8 +1,8 @@
 from datetime import datetime
 from uuid import UUID
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlmodel import Session, select
 
 from app.core.database import get_session
@@ -12,10 +12,20 @@ from app.models.wms import (
     ReturnJob,
     ReturnJobStatus,
     User,
+    WeeklyInsight,
+    FdsReport,
+    FdsPolicy,
+    Order,
 )
 from app.schemas.admin_inspection import (
     InspectionDetailResponse,
     InspectionHistoryListResponse,
+)
+from app.schemas.admin_dashboard import (
+    WeeklyInsightResponse,
+    FdsReportResponse,
+    FdsPolicyResponse,
+    FdsPolicyUpdateRequest,
 )
 from app.services.admin_inspection_service import (
     get_inspection_detail,
@@ -184,3 +194,143 @@ def get_admin_inspection_detail(
         tenant_id=current_admin.tenant_id,
         job_id=job_id,
     )
+
+
+# FDS 기본 설정 시딩 헬퍼 함수
+DEFAULT_POLICIES = [
+    {
+        "policy_key": "MAX_RETURN_30D",
+        "policy_value": 3.0,
+        "description": "최근 30일 내 최대 허용 반품 횟수 (초과 시 고의 파손 의심 분석 대상)"
+    },
+    {
+        "policy_key": "MIN_UBCI_SCORE",
+        "policy_value": 30.0,
+        "description": "도서 등급 최하 한계 UBCI 점수 (이하인 경우 결함 의심)"
+    },
+    {
+        "policy_key": "MAX_RETURN_90D",
+        "policy_value": 5.0,
+        "description": "최근 90일 내 최대 허용 반품 횟수 (초과 시 정밀 모니터링 경보)"
+    },
+    {
+        "policy_key": "MAX_REFUND_AMT",
+        "policy_value": 500000.0,
+        "description": "누적 최대 허용 환불 금액 (원화 기준, 초과 시 위험군 분류)"
+    }
+]
+
+def ensure_default_fds_policies(session: Session):
+    existing = session.exec(select(FdsPolicy)).all()
+    if not existing:
+        for p in DEFAULT_POLICIES:
+            policy = FdsPolicy(
+                policy_key=p["policy_key"],
+                policy_value=p["policy_value"],
+                description=p["description"]
+            )
+            session.add(policy)
+        session.commit()
+
+# 1. GET /weekly-insights
+@router.get(
+    "/weekly-insights",
+    response_model=list[WeeklyInsightResponse],
+    summary="주간 누적 절감액 및 불량 분석 핫스팟 조회",
+)
+def get_weekly_insights(
+    current_admin: User = Depends(require_admin_or_master),
+    session: Session = Depends(get_session),
+) -> list[WeeklyInsightResponse]:
+    insights = session.exec(
+        select(WeeklyInsight)
+        .order_by(WeeklyInsight.report_week.desc())
+    ).all()
+    return insights
+
+# 2. GET /fds/reports
+@router.get(
+    "/fds/reports",
+    response_model=list[FdsReportResponse],
+    summary="이상거래 위험군 탐지 기록 조회",
+)
+def get_fds_reports(
+    current_admin: User = Depends(require_admin_or_master),
+    session: Session = Depends(get_session),
+) -> list[FdsReportResponse]:
+    reports = session.exec(
+        select(FdsReport)
+        .where(FdsReport.tenant_id == current_admin.tenant_id)
+        .order_by(FdsReport.detected_at.desc())
+    ).all()
+
+    # customer_id 별 customer_name 매핑
+    customer_ids = [r.customer_id for r in reports if r.customer_id]
+    customer_name_map = {}
+    if customer_ids:
+        # orders 테이블에서 고유한 B2B 고객사명 가져오기
+        orders_data = session.exec(
+            select(Order.customer_id, Order.customer_name)
+            .where(Order.customer_id.in_(customer_ids))
+        ).all()
+        for cid, cname in orders_data:
+            if cid and cname:
+                customer_name_map[cid] = cname
+
+    response_list = []
+    for r in reports:
+        response_list.append(
+            FdsReportResponse(
+                id=r.id,
+                tenant_id=r.tenant_id,
+                customer_id=r.customer_id,
+                customer_name=customer_name_map.get(r.customer_id, "Unknown"),
+                fraud_score=r.fraud_score,
+                fraud_reason=r.fraud_reason,
+                detected_at=r.detected_at,
+                created_at=r.created_at,
+                updated_at=r.updated_at,
+            )
+        )
+    return response_list
+
+# 3. GET /fds/policies
+@router.get(
+    "/fds/policies",
+    response_model=list[FdsPolicyResponse],
+    summary="FDS 룰셋 임계값 조회",
+)
+def get_fds_policies(
+    current_admin: User = Depends(require_admin_or_master),
+    session: Session = Depends(get_session),
+) -> list[FdsPolicyResponse]:
+    ensure_default_fds_policies(session)
+    policies = session.exec(select(FdsPolicy)).all()
+    return policies
+
+# 4. PUT /fds/policies/{policy_key}
+@router.put(
+    "/fds/policies/{policy_key}",
+    response_model=FdsPolicyResponse,
+    summary="FDS 룰 임계값 단일 조절",
+)
+def update_fds_policy(
+    policy_key: str,
+    request: FdsPolicyUpdateRequest,
+    current_admin: User = Depends(require_admin_or_master),
+    session: Session = Depends(get_session),
+) -> FdsPolicyResponse:
+    ensure_default_fds_policies(session)
+    policy = session.get(FdsPolicy, policy_key)
+    if not policy:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="FDS 정책을 찾을 수 없습니다.",
+        )
+    
+    policy.policy_value = request.policy_value
+    policy.updated_at = datetime.utcnow()
+    session.add(policy)
+    session.commit()
+    session.refresh(policy)
+    return policy
