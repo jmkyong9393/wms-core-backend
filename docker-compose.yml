@@ -72,6 +72,7 @@ services:
     # Hot-reload mapping for local dev (overrides CMD to use reload)
     volumes:
       - ./app:/app/app
+      - ./models:/app/models:ro
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
 
   worker:
@@ -95,6 +96,7 @@ services:
     # Hot-reload mapping for local dev
     volumes:
       - ./app:/app/app
+      - ./models:/app/models:ro
     
     # AI 검수 비동기 작업을 처리하는 Celery Worker
     command: ["celery", "-A", "app.worker", "worker", "-l", "info", "--pool=gevent", "-E"]
