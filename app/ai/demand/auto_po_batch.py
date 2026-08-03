@@ -1,5 +1,6 @@
 import logging
 import uuid
+from datetime import datetime
 from typing import List, Dict, Any
 from collections import defaultdict
 from sqlmodel import Session, text
@@ -112,6 +113,7 @@ def run_auto_po_batch():
             # 대량 Insert(Bulk Insert)를 위한 리스트 준비
             orders_to_insert = []
             order_items_to_insert = []
+            now = datetime.utcnow()
             
             for publisher, items in po_by_publisher.items():
                 po_order_id = str(uuid.uuid4())
@@ -123,7 +125,9 @@ def run_auto_po_batch():
                     "customer_name": publisher, 
                     "type": OrderType.AUTO_PO.value,
                     "total_price": total_po_price,
-                    "status": OrderStatus.PENDING.value
+                    "status": OrderStatus.PENDING.value,
+                    "created_at": now,
+                    "updated_at": now
                 })
                 
                 for item in items:
@@ -133,21 +137,23 @@ def run_auto_po_batch():
                         "book_id": item["book_id"],
                         "quantity": item["quantity"],
                         "unit_price": item["unit_price"],
-                        "final_price": item["final_price"]
+                        "final_price": item["final_price"],
+                        "created_at": now,
+                        "updated_at": now
                     })
             
             # Bulk Insert 실행 (DB I/O 최적화)
             logger.info(f"총 {len(orders_to_insert)}개의 출판사에 대한 발주서와 {len(order_items_to_insert)}개의 품목을 생성합니다...")
             
             insert_order_query = text("""
-                INSERT INTO orders (id, customer_name, type, total_price, status, logistics_center)
-                VALUES (:id, :customer_name, :type, :total_price, :status, 'CENTER_A')
+                INSERT INTO orders (id, customer_name, type, total_price, status, logistics_center, created_at, updated_at)
+                VALUES (:id, :customer_name, :type, :total_price, :status, 'CENTER_A', :created_at, :updated_at)
             """)
             session.execute(insert_order_query, orders_to_insert)
             
             insert_item_query = text("""
-                INSERT INTO order_items (id, order_id, book_id, quantity, unit_price, final_price)
-                VALUES (:id, :order_id, :book_id, :quantity, :unit_price, :final_price)
+                INSERT INTO order_items (id, order_id, book_id, quantity, unit_price, final_price, created_at, updated_at)
+                VALUES (:id, :order_id, :book_id, :quantity, :unit_price, :final_price, :created_at, :updated_at)
             """)
             session.execute(insert_item_query, order_items_to_insert)
                 

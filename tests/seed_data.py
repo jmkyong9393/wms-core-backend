@@ -173,7 +173,9 @@ def seed_db():
             )
         
         session.commit()
-        print("✅ DB Seed Data Insertion Completed!")
+        print("[SUCCESS] DB Seed Data Insertion Completed!")
 
 if __name__ == "__main__":
+    import sys
+    sys.stdout.reconfigure(encoding='utf-8')
     seed_db()
