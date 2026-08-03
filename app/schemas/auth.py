@@ -60,6 +60,58 @@ class UserResponse(AuthSchema):
 class EmployeeCreateResponse(UserResponse):
     temporary_password: str
 
+class EmployeeBulkCreateRow(AuthSchema):
+    """
+    일괄 계정 생성 엑셀의 검증 완료 행.
+
+    source_row는 엑셀에서 오류가 발생했을 때
+    관리자가 어느 행을 수정해야 하는지 안내하기 위한 행 번호다.
+    """
+
+    source_row: int = Field(
+        ge=2,
+        description="헤더를 제외한 원본 엑셀 행 번호",
+    )
+
+    name: str = Field(
+        min_length=2,
+        max_length=50,
+        description="직원 이름",
+    )
+
+    hire_date: date = Field(
+        description="입사일. 사번의 YYMM 부분 생성 기준",
+    )
+
+    role: Literal[
+        UserRole.ADMIN,
+        UserRole.WORKER,
+    ] = Field(
+        description="직원 역할",
+    )
+
+    email: EmailStr | None = Field(
+        default=None,
+        description="직원 이메일. 비어 있으면 null",
+    )
+
+
+class EmployeeBulkCreateResultRow(EmployeeBulkCreateRow):
+    """
+    일괄 계정 생성 완료 후 결과 엑셀에 기록할 행.
+
+    temporary_password는 생성 직후 결과 파일에만 기록하며,
+    DB에는 해시값만 저장한다.
+    """
+
+    employee_id: str = Field(
+        description="발급된 사번. 예: AV2608001",
+    )
+
+    temporary_password: str = Field(
+        description="최초 로그인용 임시 비밀번호",
+    )
+
 class EmployeeListItemResponse(AuthSchema):
     """
     MASTER 직원 관리 화면의 목록 행.
