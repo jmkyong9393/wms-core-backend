@@ -364,6 +364,7 @@ def test_new_stock_picking_uses_fifo_inventory_prices_by_quantity():
         sale_price=Decimal("12000.00"),
     )
     location = build_location()
+    book = build_book()
 
     session = FakeSession(
         results=[
@@ -398,6 +399,7 @@ def test_new_stock_picking_rejects_inventory_without_pricing():
         sale_price=None,
     )
     location = build_location()
+    book = build_book()
     session = FakeSession(
         results=[
             FakeQueryResult(row=order),
