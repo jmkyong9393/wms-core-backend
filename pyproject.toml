@@ -42,3 +42,6 @@ packages = ["app"]
 dev = [
     "pytest>=8.2.2",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

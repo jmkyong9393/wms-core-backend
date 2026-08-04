@@ -27,11 +27,15 @@ from app.schemas.admin_dashboard import (
     FdsReportResponse,
     FdsPolicyResponse,
     FdsPolicyUpdateRequest,
+    OutboundDashboardSummaryResponse,
 )
 from app.services.admin_inspection_service import (
     get_inspection_agent_logs,
     get_inspection_detail,
     get_inspection_history,
+)
+from app.services.outbound_dashboard_service import (
+    get_outbound_dashboard_summary as get_outbound_dashboard_summary_service,
 )
 
 router = APIRouter()
@@ -111,6 +115,23 @@ def get_inspection_metrics(
         "failed_jobs": failed_jobs,
         "average_processing_time_seconds": average_processing_time,
     }
+
+@router.get(
+    "/dashboard/outbound-summary",
+    response_model=OutboundDashboardSummaryResponse,
+    operation_id="getOutboundDashboardSummary",
+    summary="출고 통합 대시보드 요약 조회",
+    description=(
+        "진행 중인 B2B 피킹 주문 수, 실제 바코드 스캔 기준 피킹 완료율, "
+        "당일 송장 발급 완료 건수와 최근 출고 주문 목록을 반환합니다. "
+        "AUTO_PO 입고 주문은 출고 대시보드 집계에서 제외합니다."
+    ),
+)
+def get_outbound_dashboard_summary(
+    _: User = Depends(require_admin_or_master),
+    session: Session = Depends(get_session),
+) -> OutboundDashboardSummaryResponse:
+    return get_outbound_dashboard_summary_service(session)
 
 # 관리자용 전체 검수 이력 그리드 조회 API
 @router.get(
