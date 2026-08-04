@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 from enum import Enum
@@ -92,6 +92,20 @@ class PickResponse(BaseModel):
 class PickingInstructionDetailResponse(PickResponse):
     is_picking_completed: bool
 
+class ShippingLabelContact(BaseModel):
+    name: str
+    phone: str
+    postal_code: str | None = None
+    address: str | None = None
+
+
+class DemoShippingLabel(BaseModel):
+    is_demo: bool = True
+    title: str = "TEST / DEMO WAYBILL"
+    collected_date: date
+    sender: ShippingLabelContact
+    recipient: ShippingLabelContact
+
 class ShipmentConfirmResponse(BaseModel):
     order_id: UUID
     status: OrderStatus
@@ -99,6 +113,7 @@ class ShipmentConfirmResponse(BaseModel):
     shipping_carrier: str
     waybill_barcode: str
     shipped_at: datetime
+    shipping_label: DemoShippingLabel
 
 
 class PickingScanRequest(BaseModel):
@@ -836,6 +851,25 @@ def scan_picking_item(
         session.rollback()
         raise
 
+def _build_demo_shipping_label(
+    order: Order,
+    shipped_at: datetime,
+) -> DemoShippingLabel:
+    return DemoShippingLabel(
+        collected_date=shipped_at.date(),
+        sender=ShippingLabelContact(
+            name="Newzed Logistics Center",
+            phone="02-0000-0000",
+        ),
+        recipient=ShippingLabelContact(
+            name=order.customer_name or "Demo Customer",
+            phone="010-1234-5678",
+            postal_code="12345",
+            address="123 Teheran-ro, Gangnam-gu, Seoul",
+        ),
+    )
+
+
 @router.post(
     "/picking-instructions/{order_id}/confirm",
     response_model=ShipmentConfirmResponse,
@@ -887,6 +921,10 @@ def confirm_shipment(
                 shipping_carrier=order.shipping_carrier,
                 waybill_barcode=order.waybill_number,
                 shipped_at=order.shipped_at,
+                shipping_label=_build_demo_shipping_label(
+                    order=order,
+                    shipped_at=order.shipped_at,
+                ),
             )
 
         if order.status != OrderStatus.PICKING:
@@ -1131,4 +1169,8 @@ def confirm_shipment(
         shipping_carrier=waybill.shipping_carrier,
         waybill_barcode=waybill.barcode_value,
         shipped_at=order.shipped_at,
+        shipping_label=_build_demo_shipping_label(
+            order=order,
+            shipped_at=order.shipped_at,
+        ),
     )

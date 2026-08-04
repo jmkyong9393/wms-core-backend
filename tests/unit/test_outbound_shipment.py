@@ -171,6 +171,12 @@ def test_confirm_new_stock_shipment_deducts_quantity_and_reservation():
     assert response.waybill_number.startswith("WB-")
     assert response.waybill_barcode == response.waybill_number
     assert response.shipping_carrier == "MOCK_COURIER"
+    assert response.shipping_label.is_demo is True
+    assert response.shipping_label.title == "TEST / DEMO WAYBILL"
+    assert response.shipping_label.sender.name == "Newzed Logistics Center"
+    assert response.shipping_label.recipient.name == order.customer_name
+    assert response.shipping_label.recipient.phone == "010-1234-5678"
+    assert response.shipping_label.recipient.postal_code == "12345"
 
     assert order.status == OrderStatus.SHIPPED
     assert order.shipped_at is not None
@@ -254,6 +260,9 @@ def test_confirm_shipment_returns_existing_waybill_for_shipped_order():
     assert response.waybill_number == "WB-EXISTING-001"
     assert response.waybill_barcode == "WB-EXISTING-001"
     assert response.shipped_at == shipped_at
+    assert response.shipping_label.is_demo is True
+    assert response.shipping_label.recipient.name == order.customer_name
+    assert response.shipping_label.collected_date == shipped_at.date()
     assert session.committed is False
 
 
