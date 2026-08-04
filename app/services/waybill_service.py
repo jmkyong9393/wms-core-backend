@@ -1,5 +1,6 @@
 from dataclasses import dataclass
-from uuid import uuid4
+from datetime import datetime
+
 
 from app.models.wms import Order
 
@@ -17,6 +18,8 @@ class WaybillIssueResult:
 
 def issue_waybill_for_order(
     order: Order,
+    *,
+    issued_at: datetime,
 ) -> WaybillIssueResult:
     """
     주문에 연결된 송장이 있으면 기존 송장을 반환하고,
@@ -25,8 +28,11 @@ def issue_waybill_for_order(
     DB commit은 호출한 출고 확정 서비스/라우터에서 처리한다.
     """
     if order.waybill_number is None:
+        issued_date = issued_at.strftime("%Y%m%d")
+        order_suffix = order.id.hex[:12].upper()
+
         order.waybill_number = (
-            f"{WAYBILL_PREFIX}-{uuid4().hex.upper()}"
+            f"{WAYBILL_PREFIX}-{issued_date}-{order_suffix}"
         )
         order.shipping_carrier = DEFAULT_SHIPPING_CARRIER
 
