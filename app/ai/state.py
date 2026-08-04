@@ -25,7 +25,10 @@ VisionStatus = Literal[
 # Vision이 관리자 확인 또는 실패 사유를 표시하는 코드 
 VisionReasonCode = Literal[
     "QUALITY_ERROR",
+    "VISION_IMAGE_QUALITY",
     "VISION_LOW_CONFIDENCE",
+    "VISION_MISSED_DEFECT_SUSPECTED",
+    "VISION_UNCERTAIN_CANDIDATE",
     "VISION_UNCLASSIFIED_DEFECT",
 ]
 
@@ -101,6 +104,7 @@ class WMSInspectionState(TypedDict, total=False):
     vision_confidence: Optional[float]  # 전체 Vision 판독 신뢰도, 0~1
     vision_status: Optional[VisionStatus] # Vision 실행 상태
     vision_reason_code: Optional[VisionReasonCode]  # Vision이 REVIEW_REQUIRED 또는 FAILED가 된 사유
+    missed_defect_suspected: Optional[bool]  # YOLO 후보 밖의 명확한 결함 의심 여부
 
     # 2. Policy Agent (UBCI 대조)
     is_mint: Optional[bool]

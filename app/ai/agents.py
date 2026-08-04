@@ -7,12 +7,14 @@ from dataclasses import dataclass
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
+from urllib.parse import urlsplit
+from urllib.request import Request, urlopen
 from typing import Annotated, Literal
 
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_openai import ChatOpenAI
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageOps
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from ultralytics import YOLO
 from .rag.critic_cases import (
@@ -132,6 +134,15 @@ class CandidateReview(BaseModel):
 
     @model_validator(mode="after")
     def normalize_review(self):
+        # 낮은 신뢰도의 확정·거절을 자동 처리하지 않고 HITL 후보로 전환
+        if (
+            self.review_confidence
+            < MIN_VISION_CONFIDENCE
+        ):
+            self.decision = "UNCERTAIN"
+            self.reject_reason = (
+                "INSUFFICIENT_EVIDENCE"
+            )
         # CONFIRMED 출력의 필수값 검증
         confirmed_is_valid = (
             self.confirmed_type is not None
@@ -169,6 +180,14 @@ class HybridVisionReview(BaseModel):
     reviews: list[CandidateReview]
     missed_defect_suspected: bool
     review_confidence: float = Field(ge=0, le=1)
+
+# 프론트 검수 이미지의 고정 순서
+IMAGE_VIEWS = (
+    "FRONT",
+    "BACK",
+    "INNER",
+)
+
 YOLO_IMAGE_SIZE = int(
     os.getenv("YOLO_IMAGE_SIZE", "960")
 )
@@ -176,14 +195,14 @@ YOLO_IMAGE_SIZE = int(
 YOLO_MAX_PER_MODEL = int(
     os.getenv(
         "YOLO_MAX_CANDIDATES_PER_MODEL",
-        "30",
+        "10",
     )
 )
 
 YOLO_MAX_ENSEMBLE_CANDIDATES = int(
     os.getenv(
         "YOLO_MAX_ENSEMBLE_CANDIDATES",
-        "15",
+        "6",
     )
 )
 
@@ -391,16 +410,123 @@ def get_yolo_model_manifest() -> list[dict]:
         for name, item in get_yolo_models().items()
     ]
 
+# 검수 이미지 최대 허용 용량
+MAX_INSPECTION_IMAGE_BYTES = 15 * 1024 * 1024
+
+
+def _load_inspection_image(
+    raw_path: str,
+) -> Image.Image:
+    """CloudFront URL 또는 로컬 경로의 검수 이미지 로드."""
+
+    source = raw_path.strip()
+
+    if not source:
+        raise ValueError(
+            "검수 이미지 경로가 비어 있습니다."
+        )
+
+    parsed_url = urlsplit(source)
+
+    # 프론트에서 전달된 CloudFront HTTPS 이미지 처리
+    if parsed_url.scheme in {"http", "https"}:
+        # 실제 원격 이미지 검증 시점에만 백엔드 설정 로드
+        from app.services.inspection_image_service import (
+            normalize_cloudfront_image_urls,
+        )
+
+        if parsed_url.scheme != "https":
+            raise ValueError(
+                "검수 이미지 URL은 HTTPS만 허용됩니다."
+            )
+
+        # 허용된 CloudFront 주소인지 기존 백엔드 정책으로 재검증
+        image_url = normalize_cloudfront_image_urls(
+            [source]
+        )[0]
+
+        request = Request(
+            image_url,
+            headers={
+                "User-Agent": "wms-ai-vision/1.0",
+            },
+        )
+
+        with urlopen(
+            request,
+            timeout=20,
+        ) as response:
+            image_bytes = response.read(
+                MAX_INSPECTION_IMAGE_BYTES + 1
+            )
+
+        if len(image_bytes) > MAX_INSPECTION_IMAGE_BYTES:
+            raise ValueError(
+                "검수 이미지가 15MB 제한을 초과했습니다."
+            )
+
+        image_source = BytesIO(
+            image_bytes
+        )
+
+    # 기존 PowerShell 테스트용 로컬 이미지 처리
+    else:
+        image_path = Path(source)
+
+        if not image_path.is_absolute():
+            repo_root = (
+                Path(__file__)
+                .resolve()
+                .parents[2]
+            )
+            image_path = (
+                repo_root / image_path
+            )
+
+        if not image_path.exists():
+            raise FileNotFoundError(
+                "검수 이미지가 없습니다: "
+                f"{image_path}"
+            )
+
+        image_source = image_path
+
+    try:
+        with Image.open(
+            image_source
+        ) as image:
+            image.load()
+            return ImageOps.exif_transpose(
+                image
+            ).convert("RGB")
+
+    except OSError as error:
+        raise ValueError(
+            "검수 이미지 파일을 해석할 수 없습니다."
+        ) from error
 
 def image_to_data_url(
     image: Image.Image,
+    *,
+    max_side: int = 1280,
+    quality: int = 80,
 ) -> str:
-    buffer = BytesIO()
+    """VLM 전송용 이미지 축소 및 JPEG 변환."""
 
-    image.convert("RGB").save(
+    converted = image.convert("RGB")
+
+    # 원본 비율을 유지한 VLM 입력 크기 제한
+    converted.thumbnail(
+        (max_side, max_side),
+        Image.Resampling.LANCZOS,
+    )
+
+    buffer = BytesIO()
+    converted.save(
         buffer,
         format="JPEG",
-        quality=90,
+        quality=quality,
+        optimize=True,
     )
 
     encoded = base64.b64encode(
@@ -542,6 +668,14 @@ def detect_yolo_candidates(
         spec: YoloModelSpec = item["spec"]
         model: YOLO = item["model"]
 
+        # 손글씨 모델은 속지 사진에만 적용
+        # 표지 제목·그림·출판사 로고의 손글씨 오탐 차단
+        if (
+            spec.role == "DOODLE_SPECIALIST"
+            and image_index != 2
+        ):
+            continue
+
         result = model.predict(
             source=image,
             conf=float(
@@ -628,6 +762,7 @@ def detect_yolo_candidates(
 
             raw_detections.append({
                 "image_index": image_index,
+                "image_view": IMAGE_VIEWS[image_index],
                 "source_model": model_name,
                 "source_role": spec.role,
                 "source_class": source_class,
@@ -714,6 +849,7 @@ def detect_yolo_candidates(
 
         candidates.append({
             "candidate_id": candidate_id,
+            "image_view": IMAGE_VIEWS[image_index],
             "image_index": image_index,
             "bbox": bbox,
             "pixel_bbox": [
@@ -887,6 +1023,7 @@ def vision_agent(state: WMSInspectionState) -> WMSInspectionState:
             "reviewed_candidates": [],
             "rejected_candidates": [],
             "uncertain_candidates": [],
+            "missed_defect_suspected": False,
             "defects": None,
             "image_quality_ok": False,
             "vision_confidence": None,
@@ -933,44 +1070,44 @@ def vision_agent(state: WMSInspectionState) -> WMSInspectionState:
     prompt = """
 당신은 중고 도서 검수 시스템의 2차 확인자입니다.
 
-역할과 금지사항:
-1. YOLO 앙상블이 만든 candidate_id와 BBox만 검토합니다.
-2. 새로운 candidate, BBox, 좌표를 절대 만들지 않습니다.
+역할:
+- YOLO가 제안한 candidate_id와 BBox가 실제 결함인지 검증합니다.
+- YOLO 제안은 결함 확정이 아니라 확인이 필요한 후보일 뿐입니다.
+
+금지사항:
+1. 새로운 candidate 또는 BBox를 만들지 않습니다.
+2. BBox 좌표를 변경하지 않습니다.
 3. is_mint, UBCI 점수, 등급, reason_code를 결정하지 않습니다.
-4. 각 candidate_id를 정확히 한 번만 반환합니다.
+4. 입력된 candidate_id를 정확히 한 번씩 반환합니다.
+5. BBox가 있다는 이유만으로 결함을 확정하지 않습니다.
 
-입력 이해:
-- 첫 이미지는 후보 번호가 표시된 전체 사진입니다.
-- 다음 이미지는 각 후보의 확대 Crop입니다.
-- proposed_type은 YOLO가 제안한 결함 유형입니다.
-- source_models와 source_predictions는 모델별 판단입니다.
-- class_conflict=true이면 전문 모델들의 유형이 충돌한 것입니다.
+정상 요소:
+- 표지 제목, 인쇄 글자, 로고, 일러스트, 무늬
+- 그림자, 빛 반사, 책상과 배경 물체
+- 속지에 인쇄된 문제, 지문, 해설, 표와 선
+- 정상적인 종이 질감과 미세한 사용 흔적
 
-decision 규칙:
-- CONFIRMED: 물리적인 결함이 분명할 때
-- REJECTED: 표지 디자인, 인쇄, 그림자, 빛 반사, 배경 등 오탐일 때
-- UNCERTAIN: 흐림, 가림, 증거 부족, 모델 충돌로 확정할 수 없을 때
+결함 요소:
+- 찢어짐, 접힘, 모서리 눌림, 심한 마모
+- 영구 얼룩, 물 젖음, 종이 우글거림
+- 제본 손상, 페이지 분리
+- 인쇄체와 구분되는 필기, 낙서, 형광펜
 
-결함 유형 규칙:
+판정:
+- CONFIRMED: 물리적 결함의 시각적 근거가 분명함
+- REJECTED: 정상 인쇄·디자인·배경·반사·그림자임
+- UNCERTAIN: 흐림·가림·증거 부족·모델 충돌로 확정 불가
+
+결함 유형:
 - proposed_type이 OTHER_VISIBLE_DAMAGE가 아니면
-  CONFIRMED의 confirmed_type을 proposed_type과 같게 유지합니다.
-- OTHER_VISIBLE_DAMAGE인 일반 모델 후보만 근거가 분명한 경우
-  구체적인 허용 결함 유형으로 세분화합니다.
-- 전문 모델의 proposed_type에 동의하지 않으면
-  다른 유형으로 변경하지 말고 UNCERTAIN을 반환합니다.
+  CONFIRMED의 confirmed_type을 proposed_type과 동일하게 유지합니다.
+- 전문 모델의 proposed_type과 다르게 보이면
+  임의로 유형을 바꾸지 말고 UNCERTAIN을 반환합니다.
 
-필드 규칙:
-- CONFIRMED:
-  confirmed_type과 location 필수
-  reject_reason=null
-  ratio는 책 면적 대비 실제 결함 면적 비율
-- REJECTED 또는 UNCERTAIN:
-  confirmed_type=null
-  location=null
-  ratio=0.0
-  reject_reason 필수
-- missed_defect_suspected는 전체 사진에 명확한 결함이 있지만
-  어느 YOLO 후보에도 들어 있지 않을 때만 true입니다.
+필드:
+- CONFIRMED: confirmed_type, location 필수, ratio > 0
+- REJECTED/UNCERTAIN: confirmed_type=null, location=null, ratio=0
+- missed_defect_suspected는 후보 밖에 명확한 결함이 보일 때만 true
 """
 
     try:
@@ -997,37 +1134,18 @@ decision 규칙:
         rejected_candidates: list[dict] = []
         uncertain_candidates: list[dict] = []
         final_defects: list[dict] = []
-        confidence_values: list[float] = []
+        image_confidence_values: list[float] = []
 
         all_image_quality_ok = True
         missed_defect_suspected = False
-
-        repo_root = (
-            Path(__file__)
-            .resolve()
-            .parents[2]
-        )
 
         for (
             image_index,
             raw_path,
         ) in enumerate(image_paths):
-            image_path = Path(raw_path)
-
-            if not image_path.is_absolute():
-                image_path = (
-                    repo_root / image_path
-                )
-
-            if not image_path.exists():
-                raise FileNotFoundError(
-                    "이미지가 없습니다: "
-                    f"{image_path}"
-                )
-
-            image = Image.open(
-                image_path
-            ).convert("RGB")
+            image = _load_inspection_image(
+                raw_path
+            )
 
             (
                 raw_detections,
@@ -1055,6 +1173,7 @@ decision 규칙:
 
             candidate_metadata = [
                 {
+                    "image_view": candidate["image_view"],
                     "candidate_id": (
                         candidate[
                             "candidate_id"
@@ -1099,23 +1218,24 @@ decision 규칙:
                 {
                     "type": "text",
                     "text": (
-                        "다음 YOLO 앙상블 후보를 "
-                        "규칙대로 검토하세요.\n"
-                        + json.dumps(
-                            candidate_metadata,
-                            ensure_ascii=False,
-                        )
-                    ),
+                    f"현재 사진 유형: {IMAGE_VIEWS[image_index]}\n"
+                    "다음 YOLO 앙상블 후보를 "
+                    "규칙대로 검토하세요.\n"
+                    + json.dumps(
+                        candidate_metadata,
+                        ensure_ascii=False,
+                    )
+                ),
                 },
                 {
                     "type": "image_url",
                     "image_url": {
-                        "url": (
-                            image_to_data_url(
-                                annotated
-                            )
-                        ),
-                        "detail": "high",
+                        "url": image_to_data_url(
+                        annotated,
+                        max_side=1280,
+                        quality=80,
+                    ),
+                    "detail": "high",
                     },
                 },
             ]
@@ -1125,24 +1245,22 @@ decision 규칙:
                     {
                         "type": "text",
                         "text": (
-                            "다음 확대 이미지의 "
-                            "candidate_id는 "
-                            f"{candidate['candidate_id']}"
-                            "입니다. BBox는 변경할 수 "
-                            "없습니다."
-                        ),
+                        "다음 확대 이미지의 "
+                        "candidate_id는 "
+                        f"{candidate['candidate_id']}입니다. "
+                        f"사진 유형은 {candidate['image_view']}입니다. "
+                        "BBox는 변경할 수 없습니다."
+                    ),
                     },
                     {
                         "type": "image_url",
                         "image_url": {
-                            "url": (
-                                image_to_data_url(
-                                    candidate[
-                                        "crop"
-                                    ]
-                                )
-                            ),
-                            "detail": "high",
+                            "url": image_to_data_url(
+                            candidate["crop"],
+                            max_side=512,
+                            quality=75,
+                        ),
+                        "detail": "low",
                         },
                     },
                 ])
@@ -1180,7 +1298,7 @@ decision 규칙:
                 and review.image_quality_ok
             )
 
-            confidence_values.append(
+            image_confidence_values.append(
                 review.review_confidence
             )
 
@@ -1221,9 +1339,6 @@ decision 규칙:
                     review_record
                 )
 
-                confidence_values.append(
-                    item.review_confidence
-                )
 
                 if (
                     item.decision
@@ -1337,53 +1452,74 @@ decision 규칙:
                 )
 
         vision_confidence = (
-            min(confidence_values)
-            if confidence_values
+            min(image_confidence_values)
+            if image_confidence_values
             else 1.0
         )
 
     except Exception as error:
+        error_type = type(error).__name__
+
         print(
             "[Agent] Hybrid Vision 실패:",
-            type(error).__name__,
+            error_type,
             str(error),
         )
 
+        trace_event(
+            "VISION_ERROR",
+            {
+                "error_type": error_type,
+                "error_message": str(error),
+            },
+        )
+
         return failure_result(
-            "YOLO 앙상블 또는 VLM 검토 실패: "
-            f"{type(error).__name__}: {error}"
+            "Vision 처리 중 오류가 발생했습니다. "
+            f"오류 유형: {error_type}"
         )
 
     vision_status = "COMPLETED"
     vision_reason_code = None
     repair_directive = None
 
-    if (
-        not all_image_quality_ok
-        or vision_confidence
-        < MIN_VISION_CONFIDENCE
-    ):
+    if not all_image_quality_ok:
         vision_status = "REVIEW_REQUIRED"
-        vision_reason_code = (
-            "VISION_LOW_CONFIDENCE"
-        )
+        vision_reason_code = "VISION_IMAGE_QUALITY"
         repair_directive = (
-            "사진 품질 또는 판단 신뢰도가 낮아 "
-            "관리자 확인이나 재촬영이 필요합니다."
+            "흐림, 가림, 역광 등으로 사진 판독이 어렵습니다. "
+            "앞면, 뒷면, 속지를 다시 촬영해 주세요."
         )
         revision_count += 1
 
-    elif (
-        missed_defect_suspected
-        or uncertain_candidates
-    ):
+    elif vision_confidence < MIN_VISION_CONFIDENCE:
+        vision_status = "REVIEW_REQUIRED"
+        vision_reason_code = "VISION_LOW_CONFIDENCE"
+        repair_directive = (
+            "Vision 판단 신뢰도가 기준보다 낮아 "
+            "관리자 확인이 필요합니다."
+        )
+        revision_count += 1
+
+    elif missed_defect_suspected:
         vision_status = "REVIEW_REQUIRED"
         vision_reason_code = (
-            "VISION_UNCLASSIFIED_DEFECT"
+            "VISION_MISSED_DEFECT_SUSPECTED"
         )
         repair_directive = (
-            "YOLO 미탐 가능성, 클래스 충돌 또는 "
-            "VLM 보류 후보를 관리자가 확인해야 합니다."
+            "YOLO 후보 밖에서 추가 결함이 의심됩니다. "
+            "관리자 확인이 필요합니다."
+        )
+        revision_count += 1
+
+    elif uncertain_candidates:
+        vision_status = "REVIEW_REQUIRED"
+        vision_reason_code = (
+            "VISION_UNCERTAIN_CANDIDATE"
+        )
+        repair_directive = (
+            "결함 여부를 확정하지 못한 후보가 있습니다. "
+            "표시된 BBox를 관리자가 확인해야 합니다."
         )
         revision_count += 1
 
@@ -1413,6 +1549,9 @@ decision 규칙:
         "uncertain_candidates": (
             uncertain_candidates
         ),
+        "missed_defect_suspected": (
+            missed_defect_suspected
+        ),
         "defects": final_defects,
         "image_quality_ok": (
             all_image_quality_ok
@@ -1436,10 +1575,10 @@ decision 규칙:
                 content=(
                     "[Vision Agent] 완료 - "
                     f"상태={vision_status}, "
-                    f"승인={len(final_defects)}, "
-                    "거절="
+                    f"결함확정={len(final_defects)}, "
+                    "오탐제외="
                     f"{len(rejected_candidates)}, "
-                    "보류="
+                    "판정보류="
                     f"{len(uncertain_candidates)}"
                 )
             )
@@ -1480,6 +1619,9 @@ decision 규칙:
             ),
             "uncertain_candidates": (
                 uncertain_candidates
+            ),
+            "missed_defect_suspected": (
+                missed_defect_suspected
             ),
             "repair_directive": (
                 repair_directive

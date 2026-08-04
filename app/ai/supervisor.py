@@ -209,14 +209,37 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
             "허용되지 않은 관리자 입력",
         )
 
+    # Vision이 관리자 검토 또는 실패를 명시한 경우 즉시 HITL 이관
+    # is_mint=None은 REVIEW_REQUIRED 상태에서 정상적인 값이므로
+    # Vision 출력 누락으로 판단하지 않음
+    if vision_status in {
+        "REVIEW_REQUIRED",
+        "FAILED",
+    }:
+        return route(
+            "human_node",
+            vision_reason_code or vision_status,
+        )
+
+    # 정의되지 않은 Vision 상태 차단
+    if vision_status not in {
+        None,
+        "COMPLETED",
+    }:
+        return route(
+            "human_node",
+            "허용되지 않은 vision_status: "
+            f"{vision_status}",
+        )
+
+    # Vision 외 에이전트의 무한 재처리 방지
     if revision_count >= MAX_REVISIONS:
         return route(
             "human_node",
             "최대 재시도 횟수 도달",
         )
 
-    # Vision이 실제로 실행됐는지 검사
-        # 기존 Vision 상태와 YOLO-VLM 확장 상태의 호환성 검사
+    # 최초 실행 또는 불완전한 COMPLETED 결과 검사
     vision_output_missing = (
         state.get("is_mint") is None
         or state.get("defects") is None
@@ -239,28 +262,6 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
         return route(
             "vision_agent",
             "Vision 출력 없음",
-        )
-
-    if vision_status in {
-        "REVIEW_REQUIRED",
-        "FAILED",
-    }:
-        return route(
-            "human_node",
-            (
-                vision_reason_code
-                or vision_status
-            ),
-        )
-
-    if (
-        vision_status is not None
-        and vision_status != "COMPLETED"
-    ):
-        return route(
-            "human_node",
-            "허용되지 않은 vision_status: "
-            f"{vision_status}",
         )
 
     if reason_code in HITL_REASON_CODES:
