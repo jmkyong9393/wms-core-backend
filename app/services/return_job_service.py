@@ -197,6 +197,8 @@ def save_inspection_hitl_required(
             },
         }
 
+        job.ai_inspection_completed_at = datetime.utcnow()
+
         save_return_job(
             session=session,
             job=job,
@@ -253,6 +255,8 @@ def save_ai_inspection_result(
             "ai_decision": decision,
             "ai_completed": True,
         }
+
+        job.ai_inspection_completed_at = datetime.utcnow()
 
         save_return_job(
             session=session,
