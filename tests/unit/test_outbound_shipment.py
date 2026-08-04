@@ -141,6 +141,7 @@ def test_confirm_new_stock_shipment_deducts_quantity_and_reservation():
         order_item_id=ORDER_ITEM_ID,
         inventory_id=INVENTORY_ID,
         quantity=1,
+        picked_quantity=1,
     )
 
     book = outbound.Book(
@@ -182,7 +183,10 @@ def test_confirm_new_stock_shipment_deducts_quantity_and_reservation():
         if isinstance(item, InventoryLog)
     ]
     assert len(inventory_logs) == 1
-    assert inventory_logs[0].condition_grade is None
+    assert (
+        inventory_logs[0].condition_grade
+        == ConditionGrade.MINT
+    )
     assert inventory_logs[0].target_lpn is None
     assert session.committed is True
 
@@ -196,6 +200,7 @@ def test_confirm_used_lpn_shipment_changes_status_to_shipped():
     allocation = OrderItemLpnAllocation(
         order_item_id=ORDER_ITEM_ID,
         inventory_used_item_id=USED_INVENTORY_ID,
+        picked_at=datetime(2026, 8, 3, 21, 0, 0),
     )
 
     book = outbound.Book(
@@ -266,4 +271,44 @@ def test_confirm_shipment_rejects_non_picking_order():
         )
 
     assert exc_info.value.status_code == 409
+    assert session.rolled_back is True
+
+def test_confirm_shipment_rejects_incomplete_picking():
+    order = build_order()
+    order_item = build_order_item()
+
+    allocation = OrderItemInventoryAllocation(
+        order_item_id=ORDER_ITEM_ID,
+        inventory_id=INVENTORY_ID,
+        quantity=1,
+        picked_quantity=0,
+    )
+
+    session = FakeSession(
+        results=[
+            FakeQueryResult(row=order),
+            FakeQueryResult(rows=[order_item]),
+            FakeQueryResult(rows=[allocation]),
+            FakeQueryResult(rows=[]),
+        ],
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        outbound.confirm_shipment(
+            order_id=ORDER_ID,
+            session=session,
+        )
+
+    assert exc_info.value.status_code == 409
+    assert (
+        exc_info.value.detail["message"]
+        == "Shipment cannot be confirmed until all "
+        "reserved items are scanned."
+    )
+    assert (
+        exc_info.value.detail["incomplete_new_allocations"][0]
+        ["allocation_id"]
+        == str(allocation.id)
+    )
+    assert session.committed is False
     assert session.rolled_back is True
