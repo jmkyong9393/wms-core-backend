@@ -1149,7 +1149,10 @@ def confirm_shipment(
             book.updated_at = now
             session.add(book)
 
-        waybill = issue_waybill_for_order(order)
+        waybill = issue_waybill_for_order(
+            order,
+            issued_at=now,
+        )
 
         order.status = OrderStatus.SHIPPED
         order.shipped_at = now

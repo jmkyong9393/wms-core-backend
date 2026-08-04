@@ -168,7 +168,10 @@ def test_confirm_new_stock_shipment_deducts_quantity_and_reservation():
     )
 
     assert response.status == OrderStatus.SHIPPED
-    assert response.waybill_number.startswith("WB-")
+    assert response.waybill_number == (
+        f"WB-{order.shipped_at:%Y%m%d}-"
+        f"{ORDER_ID.hex[:12].upper()}"
+    )
     assert response.waybill_barcode == response.waybill_number
     assert response.shipping_carrier == "MOCK_COURIER"
     assert response.shipping_label.is_demo is True
