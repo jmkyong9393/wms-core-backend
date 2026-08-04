@@ -352,6 +352,7 @@ def test_picking_recalculates_total_from_new_and_used_order_items(monkeypatch):
 def test_new_stock_picking_uses_fifo_inventory_prices_by_quantity():
     order = build_order()
     order_item = build_order_item(quantity=3)
+    book = build_book()
     first_inventory = build_inventory(
         quantity=2,
         sale_price=Decimal("13500.00"),
@@ -363,11 +364,13 @@ def test_new_stock_picking_uses_fifo_inventory_prices_by_quantity():
         sale_price=Decimal("12000.00"),
     )
     location = build_location()
+    book = build_book()
 
     session = FakeSession(
         results=[
             FakeQueryResult(row=order),
             FakeQueryResult(rows=[order_item]),
+            FakeQueryResult(rows=[book]),
             FakeQueryResult(rows=[first_inventory, second_inventory]),
         ],
         locations={LOCATION_ID: location},
@@ -389,16 +392,19 @@ def test_new_stock_picking_uses_fifo_inventory_prices_by_quantity():
 def test_new_stock_picking_rejects_inventory_without_pricing():
     order = build_order()
     order_item = build_order_item(quantity=1)
+    book = build_book()
     inventory = build_inventory(
         quantity=1,
         discount_rate=None,
         sale_price=None,
     )
     location = build_location()
+    book = build_book()
     session = FakeSession(
         results=[
             FakeQueryResult(row=order),
             FakeQueryResult(rows=[order_item]),
+            FakeQueryResult(rows=[book]),
             FakeQueryResult(rows=[inventory]),
         ],
         locations={LOCATION_ID: location},

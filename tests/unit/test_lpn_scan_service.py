@@ -116,11 +116,13 @@ def test_returns_available_inventory_location_after_inspection():
     assert result.location is not None
     assert result.location.barcode == "B-1-2"
     assert result.requires_retake is False
+    assert result.return_job_id is None
 
 
 def test_marks_retake_required_before_inventory_is_created():
     inbound_item = build_inbound_item()
     return_job = SimpleNamespace(
+        id=UUID("00000000-0000-4000-8000-000000000005"),
         status=ReturnJobStatus.RECHECK_REQUIRED,
         condition_grade=None,
         ubci_score=None,
@@ -147,6 +149,7 @@ def test_marks_retake_required_before_inventory_is_created():
     assert result.requires_retake is True
     assert result.location is None
     assert result.inventory_status is None
+    assert result.return_job_id == return_job.id
 
 
 def test_returns_rejected_item_location():

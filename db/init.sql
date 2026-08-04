@@ -22,6 +22,10 @@ CREATE TYPE orderproposalstatus AS ENUM (
     'REJECTED',
     'NOT_REQUIRED'
 );
+CREATE TYPE restockproposalsource AS ENUM (
+    'RETURN_REJECTION',
+    'SAFETY_STOCK'
+);
 CREATE TYPE return_job_status AS ENUM ('PENDING', 'PROCESSING', 'APPROVED', 'REJECTED', 'HITL_REQUIRED', 'RECHECK_REQUIRED', 'FAILED');
 CREATE TYPE inspection_mode AS ENUM ('RETURN', 'USED_PURCHASE');
 CREATE TYPE inventory_transaction_type AS ENUM ('INBOUND', 'OUTBOUND', 'RETURN_RESTOCK', 'DISCARD');
@@ -200,12 +204,15 @@ CREATE TABLE order_item_inventory_allocations (
     order_item_id UUID NOT NULL REFERENCES order_items(id),
     inventory_id UUID NOT NULL REFERENCES inventory(id),
     quantity INTEGER NOT NULL,
+    picked_quantity INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uq_order_item_inventory_allocation
         UNIQUE (order_item_id, inventory_id),
     CONSTRAINT ck_order_item_inventory_allocation_quantity_positive
-        CHECK (quantity > 0)
+        CHECK (quantity > 0),
+    CONSTRAINT ck_order_item_inventory_allocation_picked_quantity
+        CHECK (picked_quantity >= 0 AND picked_quantity <= quantity)
 );
 
 CREATE INDEX ix_order_item_inventory_allocations_order_item_id
@@ -218,6 +225,7 @@ CREATE TABLE order_item_lpn_allocations (
     id UUID PRIMARY KEY,
     order_item_id UUID NOT NULL REFERENCES order_items(id),
     inventory_used_item_id UUID NOT NULL REFERENCES inventory_used_items(id),
+    picked_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uq_order_item_lpn_allocation
@@ -335,7 +343,8 @@ CREATE TABLE order_proposals (
     id UUID PRIMARY KEY,
     tenant_id UUID NOT NULL REFERENCES tenants(id),
     book_id UUID NOT NULL REFERENCES books(id),
-    return_job_id UUID NOT NULL REFERENCES return_jobs(id),
+    return_job_id UUID REFERENCES return_jobs(id),
+    proposal_source restockproposalsource NOT NULL DEFAULT 'RETURN_REJECTION',
     recent_sales_quantity INTEGER NOT NULL,
     current_stock INTEGER NOT NULL,
     pending_auto_po_quantity INTEGER NOT NULL DEFAULT 0,
@@ -345,7 +354,7 @@ CREATE TABLE order_proposals (
     reason_summary VARCHAR NOT NULL,
     evidence JSONB NOT NULL,
     risk_level VARCHAR NOT NULL,
-    status orderproposalstatus NOT NULL,
+    status orderproposalstatus NOT NULL DEFAULT 'PENDING',
     auto_po_order_id UUID REFERENCES orders(id),
     reviewer_id UUID REFERENCES users(id),
     reviewed_at TIMESTAMP,
@@ -365,6 +374,9 @@ CREATE INDEX ix_order_proposals_book_id
 
 CREATE INDEX ix_order_proposals_return_job_id
     ON order_proposals(return_job_id);
+
+CREATE INDEX ix_order_proposals_proposal_source
+    ON order_proposals(proposal_source);
 
 CREATE INDEX ix_order_proposals_status
     ON order_proposals(status);

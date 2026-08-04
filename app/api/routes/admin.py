@@ -27,11 +27,19 @@ from app.schemas.admin_dashboard import (
     FdsReportResponse,
     FdsPolicyResponse,
     FdsPolicyUpdateRequest,
+    OutboundDashboardSummaryResponse,
+    DashboardFlowTrendResponse,
 )
 from app.services.admin_inspection_service import (
     get_inspection_agent_logs,
     get_inspection_detail,
     get_inspection_history,
+)
+from app.services.outbound_dashboard_service import (
+    get_outbound_dashboard_summary as get_outbound_dashboard_summary_service,
+)
+from app.services.dashboard_flow_trend_service import (
+    get_dashboard_flow_trend as get_dashboard_flow_trend_service,
 )
 
 router = APIRouter()
@@ -82,14 +90,14 @@ def get_inspection_metrics(
             failed_jobs += 1
 
 
-        if job.status in {
-            ReturnJobStatus.APPROVED,
-            ReturnJobStatus.REJECTED,
-        }:  
-            # 요청 생성부터 WMS 최종 처리 완료까지의 평균 시간
-            processing_time = (
-                job.updated_at - job.created_at
-            ).total_seconds()
+        if job.ai_inspection_completed_at is not None:
+            processing_time = max(
+                0.0,
+                (
+                    job.ai_inspection_completed_at
+                    - job.ai_inspection_started_at
+                ).total_seconds(),
+            )
 
             processing_times.append(processing_time)
 
@@ -111,6 +119,51 @@ def get_inspection_metrics(
         "failed_jobs": failed_jobs,
         "average_processing_time_seconds": average_processing_time,
     }
+
+
+@router.get(
+    "/dashboard/outbound-summary",
+    response_model=OutboundDashboardSummaryResponse,
+    operation_id="getOutboundDashboardSummary",
+    summary="출고 통합 대시보드 요약 조회",
+    description=(
+        "진행 중인 B2B 피킹 주문 수, 실제 바코드 스캔 기준 피킹 완료율, "
+        "당일 송장 발급 완료 건수와 최근 출고 주문 목록을 반환합니다. "
+        "AUTO_PO 입고 주문은 출고 대시보드 집계에서 제외합니다."
+    ),
+)
+def get_outbound_dashboard_summary(
+    _: User = Depends(require_admin_or_master),
+    session: Session = Depends(get_session),
+) -> OutboundDashboardSummaryResponse:
+    return get_outbound_dashboard_summary_service(session)
+
+
+@router.get(
+    "/dashboard/flow-trend",
+    response_model=DashboardFlowTrendResponse,
+    operation_id="getDashboardFlowTrend",
+    summary="입출고 및 AI 검수 처리 시간 일별 추이 조회",
+    description=(
+        "최근 지정 기간의 일별 입고·출고 수량과 "
+        "완료된 AI 검수 건의 평균 처리 시간을 반환합니다."
+    ),
+)
+def get_dashboard_flow_trend(
+    days: int = Query(
+        default=7,
+        ge=1,
+        le=31,
+        description="조회할 최근 일수",
+    ),
+    _: User = Depends(require_admin_or_master),
+    session: Session = Depends(get_session),
+) -> DashboardFlowTrendResponse:
+    return get_dashboard_flow_trend_service(
+        session=session,
+        days=days,
+    )
+
 
 # 관리자용 전체 검수 이력 그리드 조회 API
 @router.get(

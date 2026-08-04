@@ -489,6 +489,14 @@ class ReturnJob(SQLModel, table=True):
 
     final_report: Optional[str] = Field(default=None)
 
+    ai_inspection_started_at: datetime = Field(
+        default_factory=datetime.utcnow,
+        nullable=False,
+    )
+    ai_inspection_completed_at: Optional[datetime] = Field(
+        default=None,
+    )
+
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -582,16 +590,6 @@ class WeeklyInsight(SQLModel, table=True):
     )
     predicted_returns: int = Field(default=0)
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
-
-
-class FdsPolicy(SQLModel, table=True):
-    __tablename__ = "fds_policies"
-    __table_args__ = {"extend_existing": True}
-
-    policy_key: str = Field(primary_key=True, max_length=100)
-    policy_value: float = Field(nullable=False)
-    description: Optional[str] = Field(default=None, max_length=500)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
