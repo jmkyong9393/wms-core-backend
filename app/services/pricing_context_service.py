@@ -10,6 +10,7 @@ from app.models.wms import (
     BookCategory,
     ConditionGrade,
     InventoryUsedItem,
+    UsedInventoryStatus,
 )
 
 
@@ -61,6 +62,10 @@ def get_dynamic_pricing_context(
     if inventory_item.ubci_score is None:
         raise PricingContextIncompleteError(
             "LPN inventory item does not have a confirmed UBCI score"
+        )
+    if inventory_item.status != UsedInventoryStatus.AVAILABLE:
+        raise PricingContextIncompleteError(
+            "Dynamic pricing is only available for AVAILABLE LPN inventory"
         )
     if book.base_price <= 0:
         raise PricingContextIncompleteError(

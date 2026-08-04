@@ -8,6 +8,7 @@ from app.models.wms import (
     BookCategory,
     ConditionGrade,
     InventoryUsedItem,
+    UsedInventoryStatus,
 )
 from app.services.pricing_context_service import (
     PricingContextIncompleteError,
@@ -88,6 +89,20 @@ def test_rejects_book_without_positive_base_price():
                 (_inventory_item(), _book(base_price=Decimal("0")))
             ),
             "LPN-12345678123456781234567812345678",
+        )
+
+
+def test_rejects_pricing_context_for_unavailable_lpn():
+    inventory_item = _inventory_item()
+    inventory_item.status = UsedInventoryStatus.RESERVED
+
+    with pytest.raises(
+        PricingContextIncompleteError,
+        match="only available for AVAILABLE",
+    ):
+        get_dynamic_pricing_context(
+            _session_returning((inventory_item, _book())),
+            inventory_item.lpn_barcode,
         )
 
 
