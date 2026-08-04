@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from decimal import Decimal
 from uuid import UUID
 
 from app.api.routes.inventory import list_inventory
@@ -67,6 +68,10 @@ def test_returns_new_and_used_inventory_availability_fields():
                 "reserved_quantity": 3,
                 "available_quantity": 7,
                 "lpn_status": None,
+                "base_price": Decimal("18000.00"),
+                "discount_rate": Decimal("0.1000"),
+                "sale_price": Decimal("16200.00"),
+                "pricing_status": "DEFAULT_POLICY",
                 "date": datetime(2026, 7, 30, 10, 0, 0),
             },
             {
@@ -85,6 +90,10 @@ def test_returns_new_and_used_inventory_availability_fields():
                 "reserved_quantity": 1,
                 "available_quantity": 0,
                 "lpn_status": "RESERVED",
+                "base_price": Decimal("18000.00"),
+                "discount_rate": Decimal("0.1500"),
+                "sale_price": Decimal("15300.00"),
+                "pricing_status": "AGENT_PRICED",
                 "date": datetime(2026, 7, 30, 9, 0, 0),
             },
         ],
@@ -115,12 +124,19 @@ def test_returns_new_and_used_inventory_availability_fields():
     assert new_stock.reserved_quantity == 3
     assert new_stock.available_quantity == 7
     assert new_stock.lpn_status is None
+    assert new_stock.base_price == Decimal("18000.00")
+    assert new_stock.discount_rate == Decimal("0.1000")
+    assert new_stock.sale_price == Decimal("16200.00")
+    assert new_stock.pricing_status == "DEFAULT_POLICY"
 
     assert used_item.stock_type == "USED_ITEM"
     assert used_item.quantity == 1
     assert used_item.reserved_quantity == 1
     assert used_item.available_quantity == 0
     assert used_item.lpn_status == UsedInventoryStatus.RESERVED
+    assert used_item.discount_rate == Decimal("0.1500")
+    assert used_item.sale_price == Decimal("15300.00")
+    assert used_item.pricing_status == "AGENT_PRICED"
 
 
 def test_applies_requested_offset_and_limit_to_inventory_query():

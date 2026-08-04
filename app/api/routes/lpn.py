@@ -211,6 +211,14 @@ def get_lpn_detail(
         inventory_status=inventory_item.status,
         condition_grade=inventory_item.condition_grade,
         ubci_score=inventory_item.ubci_score,
+        base_price=book.base_price,
+        discount_rate=inventory_item.discount_rate,
+        sale_price=inventory_item.sale_price,
+        pricing_status=(
+            "AGENT_PRICED"
+            if inventory_item.sale_price is not None
+            else "PENDING"
+        ),
         location=LpnLocationDetail(
             id=location.id,
             barcode=location.barcode,

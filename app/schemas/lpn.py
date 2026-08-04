@@ -1,5 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -39,6 +40,10 @@ class LpnDetailResponse(BaseModel):
                 "inventory_status": "AVAILABLE",
                 "condition_grade": "EXCELLENT",
                 "ubci_score": "91.50",
+                "base_price": "18000.00",
+                "discount_rate": "0.1500",
+                "sale_price": "15300.00",
+                "pricing_status": "AGENT_PRICED",
                 "location": {
                     "id": "00000000-0000-4000-8000-000000000002",
                     "barcode": "A-1-3",
@@ -70,6 +75,20 @@ class LpnDetailResponse(BaseModel):
         max_digits=5,
         decimal_places=2,
         description="검수 완료 후 확정된 UBCI 점수",
+    )
+    base_price: Decimal = Field(
+        description="도서 마스터에 저장된 정가",
+    )
+    discount_rate: Decimal | None = Field(
+        default=None,
+        description="동적 가격 Agent가 산정한 할인율",
+    )
+    sale_price: Decimal | None = Field(
+        default=None,
+        description="동적 가격 Agent가 산정한 현재 판매가",
+    )
+    pricing_status: Literal["AGENT_PRICED", "PENDING"] = Field(
+        description="LPN 동적 가격 산정 상태",
     )
     location: LpnLocationDetail = Field(
         description="단품 재고의 현재 물리적 보관 위치",

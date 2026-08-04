@@ -57,6 +57,7 @@ class OrderStatus(str, Enum):
     PICKING = "PICKING"
     SHIPPED = "SHIPPED"
     RETURN_REQUESTED = "RETURN_REQUESTED"
+    RECEIVED = "RECEIVED"
 
 
 class ReturnJobStatus(str, Enum):
@@ -73,6 +74,10 @@ class OrderProposalStatus(str, Enum):
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
     NOT_REQUIRED = "NOT_REQUIRED"
+
+class RestockProposalSource(str, Enum):
+    RETURN_REJECTION = "RETURN_REJECTION"
+    SAFETY_STOCK = "SAFETY_STOCK"
 
 class InventoryTransactionType(str, Enum):
     INBOUND = "INBOUND"
@@ -238,6 +243,19 @@ class Inventory(SQLModel, table=True):
         UniqueConstraint("book_id", "location_id", name="uq_inventory_book_location"),
         CheckConstraint("reserved_quantity >= 0", name="ck_inventory_reserved_quantity_non_negative",),
         CheckConstraint("reserved_quantity <= quantity", name="ck_inventory_reserved_quantity_not_exceed_quantity",),
+        CheckConstraint(
+            "discount_rate IS NULL OR "
+            "(discount_rate >= 0 AND discount_rate < 1)",
+            name="ck_inventory_discount_rate",
+        ),
+        CheckConstraint(
+            "sale_price IS NULL OR sale_price > 0",
+            name="ck_inventory_sale_price_positive",
+        ),
+        CheckConstraint(
+            "(discount_rate IS NULL) = (sale_price IS NULL)",
+            name="ck_inventory_pricing_pair",
+        ),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
@@ -246,6 +264,14 @@ class Inventory(SQLModel, table=True):
     quantity: int = Field(default=0)
     # 피킹 지시서에 배정되어 다른 주문이 사용할 수 없는 신간 재고 수량
     reserved_quantity: int = Field(default=0, nullable=False,)
+    discount_rate: Optional[Decimal] = Field(
+        default=None,
+        sa_column=Column(Numeric(5, 4)),
+    )
+    sale_price: Optional[Decimal] = Field(
+        default=None,
+        sa_column=Column(Numeric(12, 2)),
+    )
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -347,7 +373,8 @@ class OrderItemInventoryAllocation(SQLModel, table=True):
 
     __table_args__ = (
         UniqueConstraint("order_item_id","inventory_id",name="uq_order_item_inventory_allocation",),
-        CheckConstraint("quantity > 0",name="ck_order_item_inventory_allocation_quantity_positive",),)
+        CheckConstraint("quantity > 0",name="ck_order_item_inventory_allocation_quantity_positive",),
+        CheckConstraint("picked_quantity >= 0 AND picked_quantity <= quantity",name=("ck_order_item_inventory_allocation_picked_quantity"),),)
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4,primary_key=True,)
 
@@ -359,6 +386,9 @@ class OrderItemInventoryAllocation(SQLModel, table=True):
 
     # 해당 재고 행에서 예약한 수량
     quantity: int = Field(nullable=False)
+
+    # 실제 ISBN 스캔으로 확인된 수량
+    picked_quantity: int = Field(default=0, nullable=False)
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -384,6 +414,10 @@ class OrderItemLpnAllocation(SQLModel, table=True):
         foreign_key="inventory_used_items.id",
         nullable=False,
     )
+
+    # 예약된 중고 LPN을 실제로 스캔한 시각
+    picked_at: datetime | None = Field(default=None)
+
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -397,7 +431,8 @@ class OrderProposal(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True,)
     tenant_id: uuid.UUID = Field(foreign_key="tenants.id",nullable=False,index=True,)
     book_id: uuid.UUID = Field(foreign_key="books.id",nullable=False,index=True,)
-    return_job_id: uuid.UUID = Field(foreign_key="return_jobs.id",nullable=False,index=True,)
+    return_job_id: uuid.UUID | None = Field(default=None,foreign_key="return_jobs.id",index=True,)
+    proposal_source: RestockProposalSource = Field(default=RestockProposalSource.RETURN_REJECTION,nullable=False,index=True,)
     recent_sales_quantity: int = Field(nullable=False)
     current_stock: int = Field(nullable=False)
 

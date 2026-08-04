@@ -1,9 +1,10 @@
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import (
     String,
     case,
@@ -80,6 +81,24 @@ class InventoryListItemResponse(BaseModel):
             "중고 단품은 AVAILABLE 또는 RESERVED 상태를 반환한다."
         ),
     )
+    base_price: Decimal = Field(
+        description="도서 마스터에 저장된 정가",
+    )
+    discount_rate: Decimal | None = Field(
+        default=None,
+        description="현재 재고에 적용된 할인율",
+    )
+    sale_price: Decimal | None = Field(
+        default=None,
+        description="현재 재고의 판매가",
+    )
+    pricing_status: Literal[
+        "DEFAULT_POLICY",
+        "AGENT_PRICED",
+        "PENDING",
+    ] = Field(
+        description="신간 기본 정책 또는 중고 Agent 가격 산정 상태",
+    )
     date: datetime = Field(
         description="재고가 마지막으로 변경된 시각",
     )
@@ -89,6 +108,40 @@ class InventoryListResponse(BaseModel):
     """
     통합 재고 그리드의 서버 페이지네이션 응답.
     """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "items": [
+                    {
+                        "id": (
+                            "00000000-0000-4000-8000-000000000001"
+                        ),
+                        "book": {
+                            "title": "사피엔스",
+                            "isbn": "9788912345678",
+                        },
+                        "stock_type": "NEW_STOCK",
+                        "grade": "MINT",
+                        "zone": "A-3-1",
+                        "quantity": 10,
+                        "reserved_quantity": 2,
+                        "available_quantity": 8,
+                        "lpn_status": None,
+                        "base_price": "18000.00",
+                        "discount_rate": "0.1000",
+                        "sale_price": "16200.00",
+                        "pricing_status": "DEFAULT_POLICY",
+                        "date": "2026-08-03T10:00:00",
+                    }
+                ],
+                "total": 1,
+                "page": 1,
+                "size": 20,
+                "total_pages": 1,
+            }
+        }
+    )
 
     items: list[InventoryListItemResponse] = Field(
         default_factory=list,
@@ -224,6 +277,16 @@ def list_inventory(
                 literal(None),
                 String,
             ).label("lpn_status"),
+            Book.base_price.label("base_price"),
+            Inventory.discount_rate.label("discount_rate"),
+            Inventory.sale_price.label("sale_price"),
+            case(
+                (
+                    Inventory.sale_price.is_not(None),
+                    "DEFAULT_POLICY",
+                ),
+                else_="PENDING",
+            ).label("pricing_status"),
             Inventory.updated_at.label("date"),
         )
         .join(
@@ -274,6 +337,16 @@ def list_inventory(
                 InventoryUsedItem.status,
                 String,
             ).label("lpn_status"),
+            Book.base_price.label("base_price"),
+            InventoryUsedItem.discount_rate.label("discount_rate"),
+            InventoryUsedItem.sale_price.label("sale_price"),
+            case(
+                (
+                    InventoryUsedItem.sale_price.is_not(None),
+                    "AGENT_PRICED",
+                ),
+                else_="PENDING",
+            ).label("pricing_status"),
             InventoryUsedItem.updated_at.label("date"),
         )
         .join(
@@ -396,6 +469,10 @@ def list_inventory(
                 reserved_quantity=row_data["reserved_quantity"],
                 available_quantity=row_data["available_quantity"],
                 lpn_status=row_data["lpn_status"],
+                base_price=row_data["base_price"],
+                discount_rate=row_data["discount_rate"],
+                sale_price=row_data["sale_price"],
+                pricing_status=row_data["pricing_status"],
                 date=row_data["date"],
             )
         )
@@ -412,4 +489,62 @@ def list_inventory(
         page=page,
         size=size,
         total_pages=total_pages,
+    )
+
+
+@v1_router.get(
+    "/{inventory_id}",
+    response_model=InventoryListItemResponse,
+    operation_id="getNewStockInventoryDetail",
+    summary="신간 묶음 재고 단건 조회",
+    description=(
+        "재고 ID를 기준으로 신간 묶음 재고의 도서, 로케이션, "
+        "가용 수량과 현재 판매 가격을 조회합니다."
+    ),
+    responses={404: {"description": "신간 묶음 재고를 찾을 수 없음"}},
+)
+def get_new_stock_inventory_detail(
+    inventory_id: UUID,
+    current_admin: User = Depends(require_admin_or_master),
+    session: Session = Depends(get_session),
+) -> InventoryListItemResponse:
+    row = session.exec(
+        select(Inventory, Book, Location)
+        .join(Book, Inventory.book_id == Book.id)
+        .join(Location, Inventory.location_id == Location.id)
+        .where(Inventory.id == inventory_id)
+    ).first()
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="New stock inventory not found",
+        )
+
+    inventory, book, location = row
+    return InventoryListItemResponse(
+        id=inventory.id,
+        book=InventoryBookResponse(title=book.title, isbn=book.isbn),
+        stock_type="NEW_STOCK",
+        grade=ConditionGrade.MINT,
+        zone=_format_location(
+            barcode=location.barcode,
+            zone=location.zone,
+            rack=location.rack,
+            shelf=location.shelf,
+        ),
+        quantity=inventory.quantity,
+        reserved_quantity=inventory.reserved_quantity,
+        available_quantity=(
+            inventory.quantity - inventory.reserved_quantity
+        ),
+        lpn_status=None,
+        base_price=book.base_price,
+        discount_rate=inventory.discount_rate,
+        sale_price=inventory.sale_price,
+        pricing_status=(
+            "DEFAULT_POLICY"
+            if inventory.sale_price is not None
+            else "PENDING"
+        ),
+        date=inventory.updated_at,
     )
