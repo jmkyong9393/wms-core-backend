@@ -13,6 +13,7 @@ from app.models.wms import (
     ConditionGrade,
     ReturnJob,
     ReturnJobStatus,
+    InboundItem,
 )
 from app.schemas.admin_inspection import (
     AgentLogStep,
@@ -488,10 +489,15 @@ def get_inspection_detail(
             ReturnJob,
             Book.title,
             Book.isbn,
+            InboundItem.lpn_barcode,
         )
         .join(
             Book,
             ReturnJob.book_id == Book.id,
+        )
+        .outerjoin(
+            InboundItem,
+            ReturnJob.inbound_item_id == InboundItem.id,
         )
         .where(
             ReturnJob.id == job_id,
@@ -507,7 +513,7 @@ def get_inspection_detail(
             detail="검수 작업을 찾을 수 없습니다.",
         )
 
-    return_job, book_title, book_isbn = row
+    return_job, book_title, book_isbn, lpn_barcode = row
 
     logs = return_job.agent_logs or {}
     parsed_report = _parse_final_report(
@@ -541,6 +547,7 @@ def get_inspection_detail(
         status=return_job.status,
         mode=return_job.mode.value,
         final_grade=_extract_final_grade(logs),
+        lpn_barcode=lpn_barcode,
         is_fast_track=(
             (return_job.agent_logs or {}).get(
                 "is_fast_track"
