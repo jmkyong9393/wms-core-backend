@@ -112,20 +112,28 @@ def apply_inspection_inventory_result(
             rejection_disposition=request.rejection_disposition,
         )
         session.commit()
+    except Exception:
+        session.rollback()
+        raise
 
-        if (
-            result.decision == "APPROVE"
-            and result.inventory_changed
-            and result.inventory_used_item_id is not None
-        ):
+    if (
+        result.decision == "APPROVE"
+        and result.inventory_changed
+        and result.inventory_used_item_id is not None
+    ):
+        try:
             execute_dynamic_pricing(
                 session=session,
                 lpn_barcode=result.lpn_barcode,
             )
             session.commit()
-    except Exception:
-        session.rollback()
-        raise
+        except Exception:
+            session.rollback()
+            logger.exception(
+                "Dynamic pricing failed after inventory admission. "
+                "lpn_barcode=%s",
+                result.lpn_barcode,
+            )
 
     label_print_status = LabelPrintStatus.SKIPPED
     label_print_error = None

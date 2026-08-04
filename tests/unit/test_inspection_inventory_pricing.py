@@ -115,3 +115,34 @@ def test_skips_pricing_without_new_sellable_inventory(
 
     execute_pricing.assert_not_called()
     session.commit.assert_called_once()
+
+
+def test_keeps_admitted_inventory_when_dynamic_pricing_fails(monkeypatch):
+    result = _admission_result()
+    session = Mock()
+    monkeypatch.setattr(
+        inspection_inventory,
+        "apply_inspected_item_result",
+        Mock(return_value=result),
+    )
+    monkeypatch.setattr(
+        inspection_inventory,
+        "execute_dynamic_pricing",
+        Mock(side_effect=RuntimeError("Pricing Agent unavailable")),
+    )
+    monkeypatch.setattr(
+        inspection_inventory,
+        "_try_print_ubci_label",
+        Mock(return_value=("SKIPPED", None)),
+    )
+    session.get.side_effect = [Mock(), Mock(), Mock()]
+
+    response = inspection_inventory.apply_inspection_inventory_result(
+        request=_request(),
+        session=session,
+    )
+
+    assert response.inventory_used_item_id == result.inventory_used_item_id
+    assert response.inventory_changed is True
+    session.commit.assert_called_once()
+    session.rollback.assert_called_once()
