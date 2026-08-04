@@ -17,6 +17,7 @@ from app.schemas.inspection_inventory import (
 )
 from app.schemas.label import LabelPrintStatus
 from app.services.used_inventory_service import apply_inspected_item_result
+from app.services.dynamic_pricing_service import execute_dynamic_pricing
 from app.services.label_printer_service import (
     send_zpl_to_label_printer,
 )
@@ -111,6 +112,17 @@ def apply_inspection_inventory_result(
             rejection_disposition=request.rejection_disposition,
         )
         session.commit()
+
+        if (
+            result.decision == "APPROVE"
+            and result.inventory_changed
+            and result.inventory_used_item_id is not None
+        ):
+            execute_dynamic_pricing(
+                session=session,
+                lpn_barcode=result.lpn_barcode,
+            )
+            session.commit()
     except Exception:
         session.rollback()
         raise
