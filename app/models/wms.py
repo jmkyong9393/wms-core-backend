@@ -489,6 +489,14 @@ class ReturnJob(SQLModel, table=True):
 
     final_report: Optional[str] = Field(default=None)
 
+    ai_inspection_started_at: datetime = Field(
+        default_factory=datetime.utcnow,
+        nullable=False,
+    )
+    ai_inspection_completed_at: Optional[datetime] = Field(
+        default=None,
+    )
+
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 

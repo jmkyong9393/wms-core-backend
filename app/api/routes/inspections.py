@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import UUID
 import logging
 
@@ -405,6 +406,13 @@ def recheck_inspection(
 
     # 새 Celery 작업을 등록하기 전 대기 상태로 변경
     return_job.status = ReturnJobStatus.PENDING
+
+    now = datetime.utcnow()
+
+    return_job.ai_inspection_started_at = now
+    return_job.ai_inspection_completed_at = None
+    return_job.updated_at = now
+
     return_job.task_id = None
 
     updated_logs = dict(return_job.agent_logs or {})
