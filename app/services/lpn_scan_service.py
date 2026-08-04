@@ -148,4 +148,9 @@ def get_lpn_scan_detail(
             inspection_status
             == ReturnJobStatus.RECHECK_REQUIRED
         ),
+        return_job_id=(
+            return_job.id
+            if inspection_status == ReturnJobStatus.RECHECK_REQUIRED
+            else None
+        ),
     )

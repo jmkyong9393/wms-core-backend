@@ -1,3 +1,4 @@
+from uuid import UUID
 from decimal import Decimal
 
 from pydantic import BaseModel, Field
@@ -70,4 +71,12 @@ class LpnScanResponse(BaseModel):
 
     requires_retake: bool = Field(
         description="AI 또는 관리자가 재촬영을 요청한 상태인지 여부",
+    )
+
+    return_job_id: UUID | None = Field(
+        default=None,
+        description=(
+            "재촬영 대상 검수 작업 ID. "
+            "requires_retake가 true일 때 재검수 요청에 사용"
+        ),
     )
