@@ -43,7 +43,7 @@ class UsedBookInboundResponse(BaseModel):
     status: InboundStatus = Field(description="입고 작업 상태")
     book_id: UUID = Field(description="도서 마스터 ID")
     lpn_barcode: str = Field(description="검수 전 발급된 단품 추적 LPN")
-    certificate_url: str = Field(
+    certificate_url: str | None = Field(
         description=(
             "일반 소비자가 품질보증서를 직접 조회하는 공개 URL. "
             "검수 완료 전에는 품질보증서를 조회할 수 없다."
