@@ -97,3 +97,18 @@ class LpnDetailResponse(BaseModel):
     certificate_url: str | None = Field(
         description="LPN 라벨 QR에 인코딩할 공개 품질보증서 URL",
     )
+
+
+class PrintLpnRequest(BaseModel):
+    lpn_barcode: str = Field(alias="lpnBarcode")
+    title: str
+    isbn: str
+    worker_id: str = Field(alias="workerId")
+    
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class PrintLpnResponse(BaseModel):
+    success: bool
+    message: str
+

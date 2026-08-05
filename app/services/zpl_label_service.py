@@ -118,3 +118,34 @@ def build_ubci_label_zpl(
     ]
 
     return "\n".join(commands)
+
+
+def build_custom_label_zpl(
+    *,
+    lpn_barcode: str,
+    title: str,
+    isbn: str,
+    worker_id: str,
+) -> str:
+    """
+    프론트엔드 모달에서 입력된 정보로 라벨 ZPL을 생성한다.
+    """
+    safe_lpn = _sanitize_zpl_text(lpn_barcode)
+    safe_title = _sanitize_zpl_text(title)
+    safe_isbn = _sanitize_zpl_text(isbn)
+    safe_worker = _sanitize_zpl_text(worker_id)
+    
+    # QR URL (단순하게 LPN 바코드를 넣거나, 프론트엔드 스캔 URL로 설정)
+    from app.core.config import settings
+    scan_url = f"{settings.PUBLIC_WEB_BASE_URL}/scan/{safe_lpn}"
+    
+    commands = [
+        *_build_label_header(),
+        f"^FO15,12^A0N,20,20^FD{safe_title}^FS",
+        f"^FO15,35^A0N,18,18^FDISBN: {safe_isbn}^FS",
+        f"^FO15,60^BQN,2,4^FDLA,{scan_url}^FS",
+        f"^FO100,70^A0N,20,20^FDLPN: {safe_lpn}^FS",
+        f"^FO100,100^A0N,18,18^FDWorker: {safe_worker}^FS",
+        "^XZ",
+    ]
+    return "\n".join(commands)
