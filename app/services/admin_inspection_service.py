@@ -25,6 +25,7 @@ from app.schemas.admin_inspection import (
     InspectionHistoryRow,
     InspectionHistoryListResponse,
 )
+from app.services.lpn_service import build_label_scan_qr_url
 
 VALID_FINAL_GRADES = {
     "MINT",
@@ -490,6 +491,7 @@ def get_inspection_detail(
             Book.title,
             Book.isbn,
             InboundItem.lpn_barcode,
+            InboundItem.certificate_token,
         )
         .join(
             Book,
@@ -513,7 +515,7 @@ def get_inspection_detail(
             detail="검수 작업을 찾을 수 없습니다.",
         )
 
-    return_job, book_title, book_isbn, lpn_barcode = row
+    return_job, book_title, book_isbn, lpn_barcode, certificate_token = row
 
     logs = return_job.agent_logs or {}
     parsed_report = _parse_final_report(
@@ -548,6 +550,7 @@ def get_inspection_detail(
         mode=return_job.mode.value,
         final_grade=_extract_final_grade(logs),
         lpn_barcode=lpn_barcode,
+        label_scan_url=build_label_scan_qr_url(certificate_token) if certificate_token else None,
         is_fast_track=(
             (return_job.agent_logs or {}).get(
                 "is_fast_track"
