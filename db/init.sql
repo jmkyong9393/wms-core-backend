@@ -249,6 +249,8 @@ CREATE TABLE return_jobs (
     condition_grade condition_grade,
     agent_logs JSONB,
     final_report VARCHAR,
+    ai_inspection_started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    ai_inspection_completed_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
