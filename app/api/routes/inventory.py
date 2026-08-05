@@ -81,6 +81,13 @@ class InventoryListItemResponse(BaseModel):
             "중고 단품은 AVAILABLE 또는 RESERVED 상태를 반환한다."
         ),
     )
+    lpn_barcode: str | None = Field(
+        default=None,
+        description=(
+            "중고·반품 단품 식별용 LPN 바코드. "
+            "신간 묶음 재고는 null"
+        ),
+    )
     base_price: Decimal = Field(
         description="도서 마스터에 저장된 정가",
     )
@@ -128,6 +135,7 @@ class InventoryListResponse(BaseModel):
                         "reserved_quantity": 2,
                         "available_quantity": 8,
                         "lpn_status": None,
+                        "lpn_barcode": None,
                         "base_price": "18000.00",
                         "discount_rate": "0.1000",
                         "sale_price": "16200.00",
@@ -277,6 +285,10 @@ def list_inventory(
                 literal(None),
                 String,
             ).label("lpn_status"),
+            cast(
+                literal(None),
+                String,
+            ).label("lpn_barcode"),
             Book.base_price.label("base_price"),
             Inventory.discount_rate.label("discount_rate"),
             Inventory.sale_price.label("sale_price"),
@@ -337,6 +349,7 @@ def list_inventory(
                 InventoryUsedItem.status,
                 String,
             ).label("lpn_status"),
+            InventoryUsedItem.lpn_barcode.label("lpn_barcode"),
             Book.base_price.label("base_price"),
             InventoryUsedItem.discount_rate.label("discount_rate"),
             InventoryUsedItem.sale_price.label("sale_price"),
@@ -469,6 +482,7 @@ def list_inventory(
                 reserved_quantity=row_data["reserved_quantity"],
                 available_quantity=row_data["available_quantity"],
                 lpn_status=row_data["lpn_status"],
+                lpn_barcode=row_data["lpn_barcode"],
                 base_price=row_data["base_price"],
                 discount_rate=row_data["discount_rate"],
                 sale_price=row_data["sale_price"],
@@ -538,6 +552,7 @@ def get_new_stock_inventory_detail(
             inventory.quantity - inventory.reserved_quantity
         ),
         lpn_status=None,
+        lpn_barcode=None,
         base_price=book.base_price,
         discount_rate=inventory.discount_rate,
         sale_price=inventory.sale_price,
