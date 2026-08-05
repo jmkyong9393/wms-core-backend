@@ -28,11 +28,10 @@ MockOrderSource = Literal["NEW_STOCK", "USED_LPN"]
 
 @dataclass(frozen=True)
 class MockOrderCandidate:
-    """주문 생성에 사용할 신간 또는 중고 재고 후보."""
-
     book: Book
     source: MockOrderSource
     condition_grade: ConditionGrade | None = None
+    available_quantity: int = 1
 
 
 @dataclass(frozen=True)
@@ -50,6 +49,7 @@ class MockOrderGenerationResult:
 # 가상 가용 재고가 있는 데모 도서를 대상으로 PENDING 주문 한 건을 생성한다.
 def create_mock_outbound_order(
     session: Session,
+    target_isbn: str | None = None,
 ) -> MockOrderGenerationResult | None:
     """
     신간 또는 중고 EXCELLENT LPN 중 가용한 대상을 선택해 주문을 생성한다.
@@ -57,8 +57,14 @@ def create_mock_outbound_order(
     재고 예약은 피킹 지시서 생성 단계에서 수행한다.
     이 함수는 commit하지 않으며 호출자가 트랜잭션을 관리한다.
     """
-    new_stock_candidate = _find_new_stock_candidate(session)
-    used_lpn_candidate = _find_used_lpn_candidate(session)
+    new_stock_candidate = _find_new_stock_candidate(
+        session,
+        target_isbn=target_isbn,
+    )
+    used_lpn_candidate = _find_used_lpn_candidate(
+        session,
+        target_isbn=target_isbn,
+    )
 
     candidate = _select_candidate(
         new_stock_candidate,
@@ -67,11 +73,24 @@ def create_mock_outbound_order(
     if candidate is None:
         return None
 
+    order_quantity = (
+        random.randint(
+            1,
+            min(3, candidate.available_quantity),
+        )
+        if candidate.source == "NEW_STOCK"
+        else 1
+    )
+
+    total_price = (
+        candidate.book.base_price * order_quantity
+    )
+
     order = Order(
         customer_id=uuid4(),
         customer_name=f"Mock B2B Customer {uuid4().hex[:8]}",
         type=OrderType.B2B_ORDER,
-        total_price=candidate.book.base_price,
+        total_price=total_price,
         status=OrderStatus.PENDING,
         logistics_center="SEOUL_DC",
     )
@@ -84,9 +103,9 @@ def create_mock_outbound_order(
         # 실제 피킹 위치는 피킹 지시서 생성 시 Allocation으로 결정한다.
         location_id=None,
         condition_grade=candidate.condition_grade,
-        quantity=1,
+        quantity=order_quantity,
         unit_price=candidate.book.base_price,
-        final_price=candidate.book.base_price,
+        final_price=total_price,
     )
     session.add(order_item)
     session.flush()
@@ -104,12 +123,13 @@ def create_mock_outbound_order(
 # 데모 도서의 신간 가상 가용 재고가 있는 경우 주문 후보를 반환한다.
 def _find_new_stock_candidate(
     session: Session,
+    target_isbn: str | None = None,
 ) -> MockOrderCandidate | None:
     pending_quantities = _get_pending_new_stock_quantities(
         session,
     )
 
-    inventory_rows = session.exec(
+    statement = (
         select(
             Inventory.book_id,
             func.sum(
@@ -118,9 +138,23 @@ def _find_new_stock_candidate(
         )
         .join(Book, Inventory.book_id == Book.id)
         .where(
-            Book.isbn == DEMO_OUTBOUND_BOOK_ISBN,
             Book.base_price > 0,
+            Inventory.discount_rate.is_not(None),
+            Inventory.sale_price.is_not(None),
         )
+    )
+
+    if target_isbn is not None:
+        statement = statement.where(
+            Book.isbn == target_isbn
+        )
+    else:
+        statement = statement.where(
+            Book.isbn != DEMO_OUTBOUND_BOOK_ISBN
+        )
+
+    inventory_rows = session.exec(
+        statement
         .group_by(Inventory.book_id)
         .order_by(Inventory.book_id)
     ).all()
@@ -136,7 +170,11 @@ def _find_new_stock_candidate(
             0,
         )
 
-        if physical_available - pending_quantity <= 0:
+        available_quantity = (
+            physical_available - pending_quantity
+        )
+
+        if available_quantity <= 0:
             continue
 
         book = session.get(Book, book_id)
@@ -145,6 +183,7 @@ def _find_new_stock_candidate(
                 MockOrderCandidate(
                     book=book,
                     source="NEW_STOCK",
+                    available_quantity=available_quantity,
                 )
             )
 
@@ -157,12 +196,13 @@ def _find_new_stock_candidate(
 # 데모 도서의 AVAILABLE EXCELLENT LPN이 있는 경우 주문 후보를 반환한다.
 def _find_used_lpn_candidate(
     session: Session,
+    target_isbn: str | None = None,
 ) -> MockOrderCandidate | None:
     pending_counts = _get_pending_used_lpn_order_counts(
         session,
     )
 
-    used_lpn_rows = session.exec(
+    statement = (
         select(
             InventoryUsedItem.book_id,
             InventoryUsedItem.condition_grade,
@@ -179,9 +219,23 @@ def _find_used_lpn_candidate(
             == UsedInventoryStatus.AVAILABLE,
             InventoryUsedItem.condition_grade
             == ConditionGrade.EXCELLENT,
-            Book.isbn == DEMO_OUTBOUND_BOOK_ISBN,
+            InventoryUsedItem.discount_rate.is_not(None),
+            InventoryUsedItem.sale_price.is_not(None),
             Book.base_price > 0,
         )
+    )
+
+    if target_isbn is not None:
+        statement = statement.where(
+            Book.isbn == target_isbn
+        )
+    else:
+        statement = statement.where(
+            Book.isbn != DEMO_OUTBOUND_BOOK_ISBN
+        )
+
+    used_lpn_rows = session.exec(
+        statement
         .group_by(
             InventoryUsedItem.book_id,
             InventoryUsedItem.condition_grade,
@@ -192,6 +246,7 @@ def _find_used_lpn_candidate(
         )
     ).all()
 
+
     candidates: list[MockOrderCandidate] = []
 
     for book_id, condition_grade, available_lpn_count in used_lpn_rows:
@@ -200,7 +255,11 @@ def _find_used_lpn_candidate(
             0,
         )
 
-        if int(available_lpn_count) - pending_count <= 0:
+        available_quantity = (
+            int(available_lpn_count) - pending_count
+        )
+
+        if available_quantity <= 0:
             continue
 
         book = session.get(Book, book_id)
@@ -210,6 +269,7 @@ def _find_used_lpn_candidate(
                     book=book,
                     source="USED_LPN",
                     condition_grade=condition_grade,
+                    available_quantity=available_quantity,
                 )
             )
 

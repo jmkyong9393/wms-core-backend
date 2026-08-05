@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 from sqlalchemy import func
@@ -16,6 +17,7 @@ from app.models.wms import (
     OrderType,
     StandardSize,
     UsedInventoryStatus,
+    BookCategory,
 )
 
 
@@ -72,6 +74,14 @@ def ensure_demo_outbound_inventory(
         location_id=new_location.id,
     )
 
+    if new_inventory.discount_rate is None:
+        new_inventory.discount_rate = Decimal("0.00")
+
+    if new_inventory.sale_price is None:
+        new_inventory.sale_price = demo_book.base_price
+
+    session.add(new_inventory)
+
     used_location = _get_or_create_location(
         session=session,
         barcode=DEMO_USED_LPN_LOCATION_BARCODE,
@@ -111,16 +121,14 @@ def ensure_demo_outbound_inventory(
                 InventoryUsedItem(
                     book_id=demo_book.id,
                     location_id=used_location.id,
-                    lpn_barcode=(
-                        f"LPN-DEMO-{uuid4().hex.upper()}"
-                    ),
+                    lpn_barcode=f"LPN-DEMO-{uuid4().hex.upper()}",
                     ubci_score=90,
+                    discount_rate=Decimal("0.00"),
+                    sale_price=demo_book.base_price,
                     condition_grade=ConditionGrade.EXCELLENT,
                     status=UsedInventoryStatus.AVAILABLE,
-                    certificate_url=(
-                        "https://example.com/certificates/demo"
-                    ),
-                )
+                    certificate_url="https://example.com/certificates/demo",
+                ),
             )
 
         demo_book.virtual_stock = (
@@ -158,6 +166,7 @@ def _get_or_create_demo_book(
         title=DEMO_OUTBOUND_BOOK_TITLE,
         isbn=DEMO_OUTBOUND_BOOK_ISBN,
         publisher="Demo Outbound Publisher",
+        category=BookCategory.NOVEL,
         standard_size=StandardSize.A5,
         thickness_mm=20,
         base_price=18000,
