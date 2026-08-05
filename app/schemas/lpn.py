@@ -94,6 +94,6 @@ class LpnDetailResponse(BaseModel):
         description="단품 재고의 현재 물리적 보관 위치",
     )
     stocked_at: datetime = Field(description="판매 가능 재고에 편입된 시각")
-    certificate_url: str = Field(
+    certificate_url: str | None = Field(
         description="LPN 라벨 QR에 인코딩할 공개 품질보증서 URL",
     )

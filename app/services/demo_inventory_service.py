@@ -125,7 +125,7 @@ def ensure_demo_outbound_inventory(
                     sale_price=demo_book.base_price,
                     condition_grade=ConditionGrade.EXCELLENT,
                     status=UsedInventoryStatus.AVAILABLE,
-                    certificate_url="https://example.com/certificates/demo",
+                    certificate_url=None,
                 ),
             )
 
