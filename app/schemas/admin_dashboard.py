@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date as Date, datetime
 from uuid import UUID
 from decimal import Decimal
 
@@ -63,4 +63,31 @@ class OutboundDashboardSummaryResponse(BaseModel):
     )
     recent_orders: list[OutboundDashboardOrderResponse] = Field(
         description="최근 생성된 B2B 출고 주문 목록"
+    )
+
+class DashboardFlowTrendItem(BaseModel):
+    date: Date = Field(
+        description="집계 기준 일자",
+    )
+    inbound_quantity: int = Field(
+        ge=0,
+        description="해당 일자의 입고 처리 수량",
+    )
+    outbound_quantity: int = Field(
+        ge=0,
+        description="해당 일자의 출고 처리 수량",
+    )
+    average_inspection_processing_seconds: float = Field(
+        ge=0,
+        description="해당 일자에 완료된 AI 검수 건의 평균 처리 시간(초)",
+    )
+
+
+class DashboardFlowTrendResponse(BaseModel):
+    days: int = Field(
+        ge=1,
+        description="조회 기간(일)",
+    )
+    items: list[DashboardFlowTrendItem] = Field(
+        description="오래된 날짜 순 일별 입출고·검수 처리 시간 추이",
     )

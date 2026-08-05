@@ -25,11 +25,11 @@ spec:
                   name: fds-db-secret
                   key: DATABASE_URL
             - name: REDIS_URL
-              value: "redis://host.docker.internal:6379/0"
+              value: "redis://host.docker.internal:6380/0"
             - name: CHROMA_SERVER_HOST
               value: "host.docker.internal"
             - name: CHROMA_SERVER_PORT
-              value: "8001"
+              value: "8002"
             - name: INITIAL_MASTER_EMPLOYEE_ID
               valueFrom:
                 secretKeyRef:

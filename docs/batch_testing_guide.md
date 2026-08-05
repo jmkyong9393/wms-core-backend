@@ -22,7 +22,7 @@ choco install kind
 ### 방법 B: 직접 다운로드하여 프로젝트 폴더에 배치
 인터넷 방화벽 등으로 패키지 매니저 사용이 어려운 경우 직접 다운로드하여 프로젝트 루트에 위치시킵니다.
 1. [Kind 공식 GitHub Releases](https://github.com/kubernetes-sigs/kind/releases)에서 `kind-windows-amd64` 파일을 다운로드합니다.
-2. 파일 이름을 `kind-windows-amd64.exe`로 변경한 후, 백엔드 레포지토리 루트(`ai-workspace/`) 폴더에 저장합니다.
+2. 파일 이름을 `kind-windows-amd64.exe`로 변경한 후, 백엔드 레포지토리 루트(`wms-core-backend/`) 폴더에 저장합니다.
 3. 이 경우, 모든 명령어 입력 시 `kind` 대신 **`.\kind-windows-amd64.exe`**로 대체하여 입력해야 합니다.
 
 ---
@@ -34,7 +34,7 @@ choco install kind
 ### 📁 1. `k8s/wms-master-secret.yaml` 생성
 최초 부팅 시 DB에 자동 인서트될 최고 관리자 계정 정보를 담고 있습니다.
 
-* **생성 경로:** `ai-workspace/k8s/wms-master-secret.yaml`
+* **생성 경로:** `wms-core-backend/k8s/wms-master-secret.yaml`
 * **파일 내용:**
 ```yaml
 apiVersion: v1
@@ -45,15 +45,16 @@ metadata:
 type: Opaque
 stringData:
   # 로컬 개발 환경(.env)에 정의된 계정 정보와 완벽히 동기화해 줍니다.
-  INITIAL_MASTER_EMPLOYEE_ID: "MASTER001"
+  INITIAL_MASTER_EMPLOYEE_ID: "NZ0000000"
   INITIAL_MASTER_NAME: "initial_master"
-  INITIAL_MASTER_PASSWORD: "Master1234!"
+  INITIAL_MASTER_PASSWORD: "Newzed1234!"
+  AUTO_PO_TENANT_ID: "33c9450c-cf03-4327-ab52-fd6d14ea0dc8"
 ```
 
 ### 📁 2. `k8s/fds-secret.yaml` 생성
 K8s 환경 내에서 호스트의 PostgreSQL DB에 접근하기 위한 자격 증명입니다.
 
-* **생성 경로:** `ai-workspace/k8s/fds-secret.yaml`
+* **생성 경로:** `wms-core-backend/k8s/fds-secret.yaml`
 * **파일 내용:**
 ```yaml
 apiVersion: v1
@@ -63,8 +64,8 @@ metadata:
   namespace: default
 type: Opaque
 stringData:
-  # 로컬 호스트(PC) Docker DB 포트 5432를 바라보는 커넥션 스트링
-  DATABASE_URL: "postgresql://admin:password@host.docker.internal:5432/wms_db"
+  # 로컬 호스트(PC) Docker DB 포트 5433를 바라보는 커넥션 스트링
+  DATABASE_URL: "postgresql://admin:password@host.docker.internal:5433/wms_db"
 ```
 
 ---
@@ -91,7 +92,7 @@ FDS 및 대시보드 통계 배치(`report_batch.py`)는 매번 DB 트랜잭션�
 이 모든 과정을 하나로 묶은 **자동화 테스트 스크립트**를 활용해 쉽고 빠르게 검증을 마칠 수 있습니다.
 
 ### 🚀 원클릭 통합 자동화 테스트 실행 방법
-백엔드 터미널(`ai-workspace`) 환경에서 아래 명령어를 실행합니다.
+백엔드 터미널(`wms-core-backend`) 환경에서 아래 명령어를 실행합니다.
 ```powershell
 # K8s 시크릿 배포 ➡️ DB 데이터 초기화 ➡️ 시나리오 시딩 ➡️ K8s 수동 잡 생성 및 실시간 로그 스트리밍 수행
 powershell -ExecutionPolicy Bypass -File .\scripts\run_fds_batch_test.ps1
@@ -129,7 +130,7 @@ kubectl logs -l job-name=test-fds-batch-v1 -f
 `auto_po_batch.py`는 재고가 안전재고 이하로 떨어졌을 때 출판사별로 발주서를 자동 생성합니다. 중복 발주 방지(멱등성) 로직이 내장되어 있습니다.
 
 ### 🚀 원클릭 통합 자동화 테스트 실행 방법
-백엔드 터미널(`ai-workspace`) 환경에서 아래 명령어를 실행합니다.
+백엔드 터미널(`wms-core-backend`) 환경에서 아래 명령어를 실행합니다.
 ```powershell
 # K8s 시크릿 배포 ➡️ 기존 AUTO_PO 삭제 ➡️ 시나리오 시딩 ➡️ K8s 수동 잡 생성 ➡️ 로그 스트리밍 ➡️ DB 발주 검증 조회 수행
 powershell -ExecutionPolicy Bypass -File .\scripts\run_auto_po_batch_test.ps1
