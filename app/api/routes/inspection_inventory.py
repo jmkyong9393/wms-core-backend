@@ -145,42 +145,57 @@ def apply_inspection_inventory_result(
         and result.inventory_changed
         and result.inventory_used_item_id is not None
     ):
-        inbound_item = session.get(
-            InboundItem,
-            result.inbound_item_id,
-        )
-        inventory_item = session.get(
-            InventoryUsedItem,
-            result.inventory_used_item_id,
-        )
-        return_job = session.get(
-            ReturnJob,
-            result.return_job_id,
-        )
-
-        if (
-            inbound_item is None
-            or inventory_item is None
-            or return_job is None
-        ):
-            logger.error(
-                "UBCI label print data was not found. "
-                "inbound_item_id=%s inventory_used_item_id=%s",
+        try:
+            inbound_item = session.get(
+                InboundItem,
                 result.inbound_item_id,
+            )
+            inventory_item = session.get(
+                InventoryUsedItem,
                 result.inventory_used_item_id,
+            )
+            return_job = session.get(
+                ReturnJob,
+                result.return_job_id,
+            )
+
+            if (
+                inbound_item is None
+                or inventory_item is None
+                or return_job is None
+            ):
+                logger.error(
+                    "UBCI label print data was not found. "
+                    "inbound_item_id=%s inventory_used_item_id=%s",
+                    result.inbound_item_id,
+                    result.inventory_used_item_id,
+                )
+                label_print_status = LabelPrintStatus.FAILED
+                label_print_error = (
+                    "UBCI 라벨 출력 데이터를 찾을 수 없습니다. "
+                    "수동 출력이 필요합니다."
+                )
+            else:
+                label_print_status, label_print_error = (
+                    _try_print_ubci_label(
+                        inbound_item=inbound_item,
+                        inventory_item=inventory_item,
+                        return_job=return_job,
+                    )
+                )
+        except Exception:
+            # 이 시점의 검수 결과·재고 편입·가격 산정 커밋은 이미 끝났다.
+            # 라벨 후처리 실패가 API 전체 실패가 되지 않게 한다.
+            session.rollback()
+            logger.exception(
+                "Failed to prepare UBCI label printing. "
+                "return_job_id=%s",
+                result.return_job_id,
             )
             label_print_status = LabelPrintStatus.FAILED
             label_print_error = (
-                "UBCI 라벨 출력 데이터를 찾을 수 없습니다. "
+                "UBCI 라벨 출력 처리 중 오류가 발생했습니다. "
                 "수동 출력이 필요합니다."
-            )
-        else:
-            label_print_status, label_print_error = (
-                _try_print_ubci_label(
-                    inbound_item=inbound_item,
-                    inventory_item=inventory_item,
-                    return_job=return_job,
-                )
             )
 
     return InspectionInventoryResponse(

@@ -21,6 +21,8 @@ from app.schemas.lpn import (
     LpnBookDetail,
     LpnDetailResponse,
     LpnLocationDetail,
+    PrintLpnRequest,
+    PrintLpnResponse,
 )
 from app.schemas.lpn_scan import LpnScanResponse
 from app.services.label_printer_service import (
@@ -28,6 +30,9 @@ from app.services.label_printer_service import (
 )
 from app.services.label_reprint_service import (
     build_label_reprint_zpl,
+)
+from app.services.zpl_label_service import (
+    build_custom_label_zpl,
 )
 from app.services.lpn_scan_service import get_lpn_scan_detail
 from app.services.lpn_service import build_public_qr_url
@@ -228,4 +233,52 @@ def get_lpn_detail(
         ),
         stocked_at=inventory_item.stocked_at,
         certificate_url=build_public_qr_url(inbound_item.certificate_token),
+    )
+
+
+@router.post(
+    "/print",
+    response_model=PrintLpnResponse,
+    operation_id="printLpnLabel",
+    summary="네트워크 라벨 프린터 직접 출력",
+    description=(
+        "프론트엔드 모달에서 입력된 정보(LPN 바코드, 도서명, ISBN, 작업자ID)를 "
+        "기반으로 ZPL 템플릿을 렌더링한 후, 창고 내 LAN 네트워크 라벨 프린터로 "
+        "직접 TCP 소켓 전송을 수행합니다."
+    ),
+    responses={
+        401: {"description": "인증 토큰이 없거나 유효하지 않음"},
+        403: {"description": "WMS 작업자 권한이 없음"},
+        500: {"description": "프린터 TCP 연결 실패 또는 네트워크 오류"},
+    },
+)
+def print_lpn_label_direct(
+    request: PrintLpnRequest,
+    _: User = Depends(require_wms_operator),
+) -> PrintLpnResponse:
+    zpl = build_custom_label_zpl(
+        lpn_barcode=request.lpn_barcode,
+        title=request.title,
+        isbn=request.isbn,
+        worker_id=request.worker_id,
+    )
+
+    try:
+        print_result = send_zpl_to_label_printer(zpl)
+    except Exception as e:
+        logger.exception("Failed to print custom LPN label directly.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"라벨 출력에 실패했습니다. (사유: {str(e)})",
+        )
+
+    if print_result.skipped:
+        return PrintLpnResponse(
+            success=True,
+            message="프린터 연결이 비활성화되어 출력을 건너뛰었습니다.",
+        )
+
+    return PrintLpnResponse(
+        success=True,
+        message="라벨 인쇄 명령이 성공적으로 전송되었습니다.",
     )
