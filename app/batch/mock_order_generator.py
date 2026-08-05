@@ -6,9 +6,6 @@ import time
 from sqlmodel import Session
 
 from app.core.database import engine
-from app.services.demo_inventory_service import (
-    ensure_demo_outbound_inventory,
-)
 from app.services.mock_order_generator_service import (
     create_mock_outbound_order,
 )
@@ -26,10 +23,10 @@ def run_mock_order_generator(
     target_isbn: str | None = None,
 ) -> None:
     """
-    데모 전용 신간·중고 재고를 자동 보충한 뒤 PENDING 주문을 생성한다.
+    판매 가능한 실제 신간 또는 중고 LPN 재고를 기준으로
+    PENDING 출고 주문을 생성한다.
 
-    max_orders가 None이면 무한 실행한다.
-    max_orders는 생성 시도 횟수가 아니라 실제 생성된 주문 건수다.
+    max_orders가 없으면 판매 가능한 실제 재고가 소진될 때까지 생성한다.
     """
     if interval_seconds <= 0:
         raise ValueError(
@@ -65,60 +62,34 @@ def run_mock_order_generator(
                         target_isbn=target_isbn,
                     )
 
-                    # ISBN을 지정하지 않았고 실재고 후보가 없을 때만
-                    # 시연용 재고를 보충해 fallback 주문을 만든다.
-                    if result is None and target_isbn is None:
-                        ensure_result = (
-                            ensure_demo_outbound_inventory(session)
-                        )
-
-                        if (
-                            ensure_result.added_new_stock_quantity > 0
-                            or ensure_result.added_used_lpn_quantity > 0
-                        ):
-                            logger.info(
-                                "Demo inventory replenished. "
-                                "added_new_stock_quantity=%s "
-                                "added_used_lpn_quantity=%s",
-                                ensure_result.added_new_stock_quantity,
-                                ensure_result.added_used_lpn_quantity,
-                            )
-
-                        result = create_mock_outbound_order(
-                            session,
-                            target_isbn=(
-                                ensure_result.demo_book.isbn
-                            ),
-                        )
-
                     if result is None:
                         logger.info(
-                            "No demo inventory is available. "
-                            "Mock order was not created."
+                            "No sellable real inventory is available. "
+                            "Mock order generator stopped."
                         )
-                    else:
-                        session.commit()
-                        created_count += 1
+                        break
 
-                        logger.info(
-                            "Mock order created. "
-                            "order_id=%s order_item_id=%s "
-                            "source=%s book_id=%s "
-                            "condition_grade=%s total_price=%s "
-                            "created_count=%s",
-                            result.order_id,
-                            result.order_item_id,
-                            result.source,
-                            result.book_id,
-                            (
-                                result.condition_grade.value
-                                if result.condition_grade is not None
-                                else None
-                            ),
-                            result.total_price,
-                            created_count,
-                        )
+                    session.commit()
+                    created_count += 1
 
+                    logger.info(
+                        "Mock order created. "
+                        "order_id=%s order_item_id=%s "
+                        "source=%s book_id=%s "
+                        "condition_grade=%s total_price=%s "
+                        "created_count=%s",
+                        result.order_id,
+                        result.order_item_id,
+                        result.source,
+                        result.book_id,
+                        (
+                            result.condition_grade.value
+                            if result.condition_grade is not None
+                            else None
+                        ),
+                        result.total_price,
+                        created_count,
+                    )
                 except Exception:
                     session.rollback()
                     logger.exception(
@@ -180,7 +151,8 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=(
             "Number of orders to create. "
-            "Omit this option for infinite execution."
+            "Omit this option to keep generating orders "
+            "until sellable real inventory is exhausted."
         ),
     )
 
