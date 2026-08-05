@@ -53,6 +53,8 @@ def restock_agent(
         model=settings.RESTOCK_AGENT_MODEL,
         temperature=settings.RESTOCK_AGENT_TEMPERATURE,
         api_key=settings.OPENAI_API_KEY,
+        timeout=settings.RESTOCK_AGENT_TIMEOUT_SECONDS,
+        max_retries=2,
     )
 
     # Pydantic 스키마 기반 JSON 응답을 강제한다.
