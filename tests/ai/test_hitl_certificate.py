@@ -2,7 +2,10 @@ import json
 import os
 from uuid import uuid4
 
-from app.ai.agents import auto_refund_agent
+from app.ai.agents import (
+    CandidateReview,
+    auto_refund_agent,
+)
 
 import pytest
 
@@ -181,11 +184,35 @@ def test_resume_rejects_unknown_thread():
 
 
 # 재촬영 결정의 Vision 재진입 검증
-def test_recheck_routes_to_vision():
+def test_recheck_routes_to_book_detector():
     assert route_from_supervisor({
         "human_feedback": "RE_CHECK",
         "revision_count": 0,
+    }) == "book_detector"
+
+def test_initial_inspection_routes_to_book_detector():
+    assert route_from_supervisor({
+        "revision_count": 0,
+    }) == "book_detector"
+
+
+def test_completed_book_detector_routes_to_vision():
+    assert route_from_supervisor({
+        "revision_count": 0,
+        "book_regions": [
+            {"image_index": 0},
+            {"image_index": 1},
+            {"image_index": 2},
+        ],
     }) == "vision_agent"
+
+
+def test_failed_book_detector_routes_to_human():
+    assert route_from_supervisor({
+        "revision_count": 0,
+        "book_regions": [],
+        "repair_directive": "책 영역 탐지 실패",
+    }) == "human_node"
 
 
 
@@ -224,11 +251,10 @@ def test_fast_track_creates_refund_report():
     assert report["defects"] == []
     assert report["vision_confidence"] == 0.95
     assert report["overall_confidence"] == 0.95
-    assert "MINT 자동 환불 승인" in (
-        report["message"]
-    )
-    assert "ubci_score" not in report
-    assert "final_grade" not in report
+    assert "MINT 자동 승인" in report["message"]
+    assert report["ubci_score"] == 100.0
+    assert report["predicted_grade"] == "S"
+    assert report["final_grade"] == "S"
 
     with pytest.raises(ValueError):
         auto_refund_agent({
@@ -285,3 +311,35 @@ def test_rechecked_result_returns_to_human():
         "primary_reason_code": "SYS_BLURRY",
         "human_feedback": None,
     }) == "human_node"
+
+
+# REVIEW_REQUIRED 결과의 Vision 재호출 차단 검증
+def test_review_required_routes_directly_to_human():
+    assert route_from_supervisor({
+        "revision_count": 1,
+        "vision_status": "REVIEW_REQUIRED",
+        "vision_reason_code": "VISION_UNCERTAIN_CANDIDATE",
+        "is_mint": None,
+        "defects": [],
+        "vision_confidence": 0.85,
+    }) == "human_node"
+
+
+# 낮은 신뢰도의 확정 후보를 판정보류로 전환하는지 검증
+def test_low_confidence_candidate_becomes_uncertain():
+    review = CandidateReview(
+        candidate_id=0,
+        decision="CONFIRMED",
+        confirmed_type="COVER_TEAR",
+        location="FRONT_COVER",
+        ratio=3.0,
+        review_confidence=0.79,
+    )
+
+    assert review.decision == "UNCERTAIN"
+    assert review.confirmed_type is None
+    assert review.location is None
+    assert (
+        review.reject_reason
+        == "INSUFFICIENT_EVIDENCE"
+    )

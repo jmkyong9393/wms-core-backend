@@ -92,9 +92,10 @@ class WMSInspectionState(TypedDict, total=False):
 
     # YOLO 앙상블 원본 결과
     yolo_model_manifest: Optional[list[dict]] # YOLO 모델 이름, 경로, 역할, 클래스 목록
+    book_regions: Optional[list[dict]]  # 사진별 책 영역 탐지 결과
     raw_yolo_detections: Optional[list[dict]] # 각 YOLO 모델이 출력한 가공 전 탐지 결과
     ensemble_candidates: Optional[list[dict]] # 여러 YOLO 모델의 겹치는 BBOX를 병합한 후보 목록, 이후보가 VLM 2차 검토 입력
-    
+
     # 1. Vision Agent (2차 검토)
     reviewed_candidates: Optional[list[dict]] # CONFIRMED ,REJECTED, UNCERTAIN 결과를 모두 포함
     rejected_candidates: Optional[list[dict]] # 오탐으로 판단한 후보

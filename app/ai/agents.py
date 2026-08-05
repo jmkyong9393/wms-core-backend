@@ -29,8 +29,28 @@ POLICY_VERSION = "UBCI_SPEC_V2.0.0.0"
 load_dotenv()
 
 # 신뢰도가 이 값보다 낮으면 자동 처리하지 않고 재검토
-MIN_VISION_CONFIDENCE = 0.80
-MIN_POLICY_CONFIDENCE = 0.75
+MIN_VISION_CONFIDENCE = float(
+    os.getenv("MIN_VISION_CONFIDENCE", "0.80")
+)
+
+MIN_POLICY_CONFIDENCE = float(
+    os.getenv("MIN_POLICY_CONFIDENCE", "0.75")
+)
+
+VLM_CROP_MIN_SIDE = int(
+    os.getenv("VLM_CROP_MIN_SIDE", "256")
+)
+
+VLM_CROP_CONTEXT_SCALE = float(
+    os.getenv("VLM_CROP_CONTEXT_SCALE", "1.8")
+)
+
+MAX_INSPECTION_IMAGE_PIXELS = int(
+    os.getenv(
+        "MAX_INSPECTION_IMAGE_PIXELS",
+        "40000000",
+    )
+)
 
 NormalizedValue = Annotated[float, Field(ge=0, le=1)]
 
@@ -99,7 +119,6 @@ RejectReason = Literal[
     "COVER_DESIGN",
     "LIGHT_OR_SHADOW",
     "INSUFFICIENT_EVIDENCE",
-    "MODEL_CLASS_CONFLICT",
 ]
 
 ReviewDecision = Literal[
@@ -110,12 +129,7 @@ ReviewDecision = Literal[
 
 
 class CandidateReview(BaseModel):
-    """
-    VLM은 YOLO 후보를 확인할 뿐이다.
-
-    새로운 BBox, MINT, UBCI 점수,
-    등급, Reason Code를 만들 수 없다.
-    """
+    """YOLO 결함 후보에 대한 VLM 검토 결과."""
 
     model_config = ConfigDict(strict=True)
 
@@ -125,7 +139,7 @@ class CandidateReview(BaseModel):
     confirmed_type: DefectCode | None = None
     location: DefectLocation | None = None
 
-    ratio: float = Field(ge=0, le=100)
+    # 결함 존재 여부가 아닌 현재 판정의 확실성
     review_confidence: float = Field(ge=0, le=1)
 
     reject_reason: RejectReason | None = None
@@ -134,7 +148,7 @@ class CandidateReview(BaseModel):
 
     @model_validator(mode="after")
     def normalize_review(self):
-        # 낮은 신뢰도의 확정·거절을 자동 처리하지 않고 HITL 후보로 전환
+        # 낮은 신뢰도의 자동 확정·자동 거절 차단
         if (
             self.review_confidence
             < MIN_VISION_CONFIDENCE
@@ -143,12 +157,11 @@ class CandidateReview(BaseModel):
             self.reject_reason = (
                 "INSUFFICIENT_EVIDENCE"
             )
-        # CONFIRMED 출력의 필수값 검증
+
         confirmed_is_valid = (
             self.confirmed_type is not None
             and self.location is not None
             and self.reject_reason is None
-            and self.ratio > 0
         )
 
         if (
@@ -157,14 +170,11 @@ class CandidateReview(BaseModel):
         ):
             return self
 
-        # 불완전한 CONFIRMED 출력의 HITL 전환
         if self.decision == "CONFIRMED":
             self.decision = "UNCERTAIN"
 
-        # REJECTED·UNCERTAIN 출력 정규화
         self.confirmed_type = None
         self.location = None
-        self.ratio = 0.0
         self.reject_reason = (
             self.reject_reason
             or "INSUFFICIENT_EVIDENCE"
@@ -186,6 +196,32 @@ IMAGE_VIEWS = (
     "FRONT",
     "BACK",
     "INNER",
+)
+
+# 책 전체 영역 탐지 설정
+YOLO_BOOK_MODEL_PATH = os.getenv(
+    "YOLO_BOOK_MODEL_PATH",
+    "models/yolov8n.pt",
+)
+
+YOLO_BOOK_CONFIDENCE = float(
+    os.getenv("YOLO_BOOK_CONFIDENCE", "0.25")
+)
+
+YOLO_BOOK_IMAGE_SIZE = int(
+    os.getenv("YOLO_BOOK_IMAGE_SIZE", "640")
+)
+
+YOLO_BOOK_PADDING = float(
+    os.getenv("YOLO_BOOK_PADDING", "0.05")
+)
+
+# 전체 사진에서 책 영역이 차지해야 하는 최소 비율
+YOLO_BOOK_MIN_AREA_RATIO = float(
+    os.getenv(
+        "YOLO_BOOK_MIN_AREA_RATIO",
+        "0.60",
+    )
 )
 
 YOLO_IMAGE_SIZE = int(
@@ -262,12 +298,6 @@ YOLO_MODEL_SPECS = (
         },
     ),
 )
-
-MODEL_PRIORITY = {
-    "general_binary": 1,
-    "physical4": 2,
-    "doodle": 3,
-}
 
 
 def trace_event(
@@ -398,6 +428,257 @@ def get_yolo_models() -> dict[str, dict]:
 
     return loaded
 
+@lru_cache(maxsize=1)
+def get_book_detector() -> YOLO:
+    """책 영역 탐지 모델의 최초 1회 로딩."""
+
+    model_path = resolve_model_path(
+        YOLO_BOOK_MODEL_PATH
+    )
+
+    if not model_path.is_file():
+        raise FileNotFoundError(
+            "책 영역 탐지 모델 파일이 없습니다: "
+            f"{model_path}"
+        )
+
+    return YOLO(str(model_path))
+
+
+def detect_book_region(
+    image: Image.Image,
+    image_index: int,
+) -> dict:
+    """사진에서 가장 큰 책의 전체 영역 탐지."""
+
+    model = get_book_detector()
+
+    book_class_ids = [
+        int(class_id)
+        for class_id, class_name
+        in model.names.items()
+        if normalize_model_class(
+            str(class_name)
+        ) == "book"
+    ]
+
+    if not book_class_ids:
+        raise ValueError(
+            "책 영역 탐지 모델에 book 클래스가 없습니다."
+        )
+
+    width, height = image.size
+
+    result = model.predict(
+        source=image,
+        classes=book_class_ids,
+        conf=YOLO_BOOK_CONFIDENCE,
+        iou=0.50,
+        imgsz=YOLO_BOOK_IMAGE_SIZE,
+        max_det=3,
+        device=os.getenv("YOLO_DEVICE", "cpu"),
+        verbose=False,
+    )[0]
+
+    if (
+        result.boxes is None
+        or len(result.boxes) == 0
+    ):
+        return {
+            "image_index": image_index,
+            "image_view": IMAGE_VIEWS[image_index],
+            "source_model": "coco_book_detector",
+            "detected": False,
+            "confidence": None,
+            "bbox": None,
+            "pixel_bbox": None,
+            "area_ratio": 0.0,
+            "usable": False,
+            "fallback_used": True,
+        }
+
+    boxes = result.boxes.xyxy.cpu().tolist()
+    confidences = (
+        result.boxes.conf.cpu().tolist()
+    )
+
+    # 여러 책이 잡히면 면적과 신뢰도가 가장 큰 책 선택
+    box, confidence = max(
+        zip(boxes, confidences),
+        key=lambda item: (
+            (item[0][2] - item[0][0])
+            * (item[0][3] - item[0][1])
+            * item[1]
+        ),
+    )
+
+    x1, y1, x2, y2 = box
+
+    padding_x = (
+        (x2 - x1) * YOLO_BOOK_PADDING
+    )
+    padding_y = (
+        (y2 - y1) * YOLO_BOOK_PADDING
+    )
+
+    x1 = max(0, int(round(x1 - padding_x)))
+    y1 = max(0, int(round(y1 - padding_y)))
+    x2 = min(width, int(round(x2 + padding_x)))
+    y2 = min(height, int(round(y2 + padding_y)))
+    area_ratio = (
+        (x2 - x1)
+        * (y2 - y1)
+        / (width * height)
+    )
+
+    usable = (
+        area_ratio
+        >= YOLO_BOOK_MIN_AREA_RATIO
+    )
+
+    return {
+        "image_index": image_index,
+        "image_view": IMAGE_VIEWS[image_index],
+        "source_model": "coco_book_detector",
+        "detected": True,
+        "confidence": round(
+            float(confidence),
+            6,
+        ),
+        "bbox": [
+            round(x1 / width, 6),
+            round(y1 / height, 6),
+            round(x2 / width, 6),
+            round(y2 / height, 6),
+        ],
+        "pixel_bbox": [x1, y1, x2, y2],
+        "area_ratio": round(
+            area_ratio,
+            6,
+        ),
+        "usable": usable,
+        "fallback_used": not usable,
+    }
+
+
+def make_full_image_region(
+    image: Image.Image,
+    image_index: int,
+) -> dict:
+    """속지 사진의 전체 영역 사용 정보."""
+
+    width, height = image.size
+
+    return {
+        "image_index": image_index,
+        "image_view": IMAGE_VIEWS[image_index],
+        "source_model": "full_image_inner",
+        "detected": None,
+        "confidence": None,
+        "bbox": [0.0, 0.0, 1.0, 1.0],
+        "pixel_bbox": [0, 0, width, height],
+        "area_ratio": 1.0,
+        "usable": True,
+        "fallback_used": False,
+    }
+
+
+def crop_to_book_region(
+    image: Image.Image,
+    book_region: dict,
+) -> tuple[
+    Image.Image | None,
+    tuple[int, int, int, int] | None,
+]:
+    """검증된 책 영역 Crop 생성."""
+
+    pixel_bbox = book_region.get("pixel_bbox")
+
+    if (
+        not book_region.get("usable")
+        or pixel_bbox is None
+    ):
+        return None, None
+
+    width, height = image.size
+    x1, y1, x2, y2 = map(int, pixel_bbox)
+
+    x1 = max(0, min(x1, width - 1))
+    y1 = max(0, min(y1, height - 1))
+    x2 = max(x1 + 1, min(x2, width))
+    y2 = max(y1 + 1, min(y2, height))
+
+    return (
+        image.crop((x1, y1, x2, y2)),
+        (x1, y1, x2, y2),
+    )
+
+
+def remap_yolo_coordinates(
+    raw_detections: list[dict],
+    candidates: list[dict],
+    crop_box: tuple[int, int, int, int],
+    original_size: tuple[int, int],
+) -> None:
+    """책 Crop 좌표를 원본 사진 좌표로 복원."""
+
+    offset_x, offset_y, _, _ = crop_box
+    original_width, original_height = (
+        original_size
+    )
+
+    for item in [*raw_detections, *candidates]:
+        x1, y1, x2, y2 = item["pixel_bbox"]
+
+        x1 += offset_x
+        x2 += offset_x
+        y1 += offset_y
+        y2 += offset_y
+
+        item["pixel_bbox"] = [
+            x1,
+            y1,
+            x2,
+            y2,
+        ]
+        item["bbox"] = [
+            round(x1 / original_width, 6),
+            round(y1 / original_height, 6),
+            round(x2 / original_width, 6),
+            round(y2 / original_height, 6),
+        ]
+
+
+def calculate_bbox_area_ratio(
+    candidate_bbox: list[float],
+    book_bbox: list[float],
+) -> float:
+    """전체 책 면적 대비 결함 BBox 면적 계산."""
+
+    x1 = max(candidate_bbox[0], book_bbox[0])
+    y1 = max(candidate_bbox[1], book_bbox[1])
+    x2 = min(candidate_bbox[2], book_bbox[2])
+    y2 = min(candidate_bbox[3], book_bbox[3])
+
+    defect_area = (
+        max(0.0, x2 - x1)
+        * max(0.0, y2 - y1)
+    )
+    book_area = (
+        max(0.0, book_bbox[2] - book_bbox[0])
+        * max(0.0, book_bbox[3] - book_bbox[1])
+    )
+
+    if book_area <= 0:
+        raise ValueError(
+            "책 영역 BBox 면적이 올바르지 않습니다."
+        )
+
+    return round(
+        min(100.0, defect_area / book_area * 100),
+        2,
+    )
+
 
 def get_yolo_model_manifest() -> list[dict]:
     return [
@@ -504,6 +785,124 @@ def _load_inspection_image(
         raise ValueError(
             "검수 이미지 파일을 해석할 수 없습니다."
         ) from error
+
+def book_detector_node(
+    state: WMSInspectionState,
+) -> WMSInspectionState:
+    """사진별 책 영역을 찾아 Vision 분석 범위를 준비."""
+
+    print("[Node] Book Detector 실행...")
+    image_paths = state.get("image_paths") or []
+
+    if len(image_paths) != len(IMAGE_VIEWS):
+        message = "앞면, 뒷면, 속지 이미지가 정확히 3장 필요합니다."
+        return {
+            "book_regions": [],
+            "repair_directive": message,
+            "messages": [
+                AIMessage(
+                    content=f"[Book Detector] 실패 - {message}"
+                )
+            ],
+        }
+
+    book_regions: list[dict] = []
+
+    try:
+        for image_index, raw_path in enumerate(image_paths):
+            image = _load_inspection_image(raw_path)
+            image_view = IMAGE_VIEWS[image_index]
+
+            # 펼친 속지는 COCO book 탐지가 불안정하므로 전체 이미지 사용
+            if image_view == "INNER":
+                book_regions.append(
+                    make_full_image_region(image, image_index)
+                )
+                continue
+
+            try:
+                detected_region = detect_book_region(
+                    image,
+                    image_index,
+                )
+            except Exception as error:
+                detected_region = {
+                    "detected": False,
+                    "confidence": None,
+                    "bbox": None,
+                    "pixel_bbox": None,
+                    "area_ratio": 0.0,
+                    "usable": False,
+                    "error": f"{type(error).__name__}: {error}",
+                }
+
+            if detected_region.get("usable"):
+                book_regions.append(detected_region)
+                continue
+
+            # 탐지 실패 시 전체 사진으로 분석을 계속하는 안전한 대체 경로
+            fallback_region = make_full_image_region(
+                image,
+                image_index,
+            )
+            fallback_region.update({
+                "source_model": "full_image_fallback",
+                "detected": detected_region.get("detected"),
+                "confidence": detected_region.get("confidence"),
+                "fallback_used": True,
+                "fallback_reason": "BOOK_REGION_NOT_USABLE",
+                "detector_bbox": detected_region.get("bbox"),
+                "detector_pixel_bbox": detected_region.get(
+                    "pixel_bbox"
+                ),
+                "detector_area_ratio": detected_region.get(
+                    "area_ratio"
+                ),
+                "detector_error": detected_region.get("error"),
+            })
+            book_regions.append(fallback_region)
+
+    except Exception as error:
+        message = (
+            "책 영역 탐지 중 이미지를 처리할 수 없습니다: "
+            f"{type(error).__name__}: {error}"
+        )
+        trace_event("BOOK_DETECTOR_FAILED", {"error": message})
+        return {
+            "book_regions": [],
+            "repair_directive": message,
+            "messages": [
+                AIMessage(
+                    content=f"[Book Detector] 실패 - {message}"
+                )
+            ],
+        }
+
+    fallback_views = [
+        region["image_view"]
+        for region in book_regions
+        if region.get("fallback_used") is True
+    ]
+    trace_event(
+        "BOOK_DETECTOR_COMPLETED",
+        {
+            "book_regions": book_regions,
+            "fallback_views": fallback_views,
+        },
+    )
+
+    return {
+        "book_regions": book_regions,
+        "repair_directive": None,
+        "messages": [
+            AIMessage(
+                content=(
+                    "[Book Detector] 완료 - "
+                    f"fallback={fallback_views}"
+                )
+            )
+        ],
+    }
 
 def image_to_data_url(
     image: Image.Image,
@@ -636,20 +1035,24 @@ def weighted_bbox(
 def choose_proposed_type(
     detections: list[dict],
 ) -> str:
-    selected = max(
-        detections,
-        key=lambda item: (
-            item["mapped_type"]
-            != "OTHER_VISIBLE_DAMAGE",
-            MODEL_PRIORITY.get(
-                item["source_model"],
-                0,
-            ),
-            item["confidence"],
-        ),
+    """YOLO 후보 중 구체적인 최고 신뢰도 클래스 선택."""
+
+    specific_detections = [
+        item
+        for item in detections
+        if item["mapped_type"]
+        != "OTHER_VISIBLE_DAMAGE"
+    ]
+
+    selectable = (
+        specific_detections
+        or detections
     )
 
-    return selected["mapped_type"]
+    return max(
+        selectable,
+        key=lambda item: item["confidence"],
+    )["mapped_type"]
 
 
 def detect_yolo_candidates(
@@ -826,18 +1229,50 @@ def detect_yolo_candidates(
             ),
         )
 
-        padding_x = int(
-            (x2 - x1) * 0.15
+        box_width = x2 - x1
+        box_height = y2 - y1
+        center_x = (x1 + x2) / 2
+        center_y = (y1 + y2) / 2
+
+        target_width = min(
+            width,
+            max(
+                VLM_CROP_MIN_SIDE,
+                int(
+                    box_width
+                    * VLM_CROP_CONTEXT_SCALE
+                ),
+            ),
         )
-        padding_y = int(
-            (y2 - y1) * 0.15
+        target_height = min(
+            height,
+            max(
+                VLM_CROP_MIN_SIDE,
+                int(
+                    box_height
+                    * VLM_CROP_CONTEXT_SCALE
+                ),
+            ),
+        )
+
+        crop_x1 = int(
+            min(
+                max(0, center_x - target_width / 2),
+                width - target_width,
+            )
+        )
+        crop_y1 = int(
+            min(
+                max(0, center_y - target_height / 2),
+                height - target_height,
+            )
         )
 
         crop = image.crop((
-            max(0, x1 - padding_x),
-            max(0, y1 - padding_y),
-            min(width, x2 + padding_x),
-            min(height, y2 + padding_y),
+            crop_x1,
+            crop_y1,
+            crop_x1 + target_width,
+            crop_y1 + target_height,
         ))
 
         specialist_types = {
@@ -901,24 +1336,6 @@ def detect_yolo_candidates(
         candidate["candidate_id"] = (
             candidate_id
         )
-
-    trace_event(
-        "YOLO_ENSEMBLE_COMPLETED",
-        {
-            "image_index": image_index,
-            "raw_detections": raw_detections,
-            "ensemble_candidates": [
-                {
-                    key: value
-                    for key, value
-                    in candidate.items()
-                    if key != "crop"
-                }
-                for candidate in candidates
-            ],
-        },
-    )
-
     return raw_detections, candidates
 
 # 전체 사진에 candidate_id를 표시
@@ -1018,6 +1435,7 @@ def vision_agent(state: WMSInspectionState) -> WMSInspectionState:
         result = {
             **downstream_reset,
             "yolo_model_manifest": None,
+            "book_regions": state.get("book_regions") or [],
             "raw_yolo_detections": [],
             "ensemble_candidates": [],
             "reviewed_candidates": [],
@@ -1062,59 +1480,140 @@ def vision_agent(state: WMSInspectionState) -> WMSInspectionState:
 
         return result
 
-    if not image_paths:
+    if len(image_paths) != len(IMAGE_VIEWS):
         return failure_result(
-            "검사할 image_paths가 없습니다."
+            "앞면, 뒷면, 속지 이미지가 "
+            "정확히 3장 필요합니다."
         )
 
+    stored_book_regions = state.get("book_regions")
+    if (
+        type(stored_book_regions) is not list
+        or len(stored_book_regions) != len(IMAGE_VIEWS)
+    ):
+        return failure_result(
+            "Book Detector 결과가 없거나 불완전합니다."
+        )
+
+    region_by_index = {
+        region.get("image_index"): dict(region)
+        for region in stored_book_regions
+        if type(region) is dict
+    }
+    if set(region_by_index) != set(range(len(IMAGE_VIEWS))):
+        return failure_result(
+            "Book Detector 사진 인덱스가 올바르지 않습니다."
+        )
+
+    book_regions = [
+        region_by_index[index]
+        for index in range(len(IMAGE_VIEWS))
+    ]
+
     prompt = """
-당신은 중고 도서 검수 시스템의 2차 확인자입니다.
+당신은 중고 도서 검수 시스템의 Vision 2차 검증자입니다.
 
-역할:
-- YOLO가 제안한 candidate_id와 BBox가 실제 결함인지 검증합니다.
-- YOLO 제안은 결함 확정이 아니라 확인이 필요한 후보일 뿐입니다.
+[역할]
+- YOLO가 제안한 candidate_id와 BBox가 실제 도서 결함인지 검증합니다.
+- YOLO 후보는 결함 확정값이 아니라 검토 대상입니다.
+- 현재 사진 유형은 FRONT, BACK, INNER 중 하나입니다.
 
-금지사항:
-1. 새로운 candidate 또는 BBox를 만들지 않습니다.
-2. BBox 좌표를 변경하지 않습니다.
+[금지 사항]
+1. 새로운 candidate_id 또는 BBox를 만들지 않습니다.
+2. 입력받은 BBox 좌표를 변경하지 않습니다.
 3. is_mint, UBCI 점수, 등급, reason_code를 결정하지 않습니다.
-4. 입력된 candidate_id를 정확히 한 번씩 반환합니다.
+4. 모든 candidate_id를 정확히 한 번씩 반환합니다.
 5. BBox가 있다는 이유만으로 결함을 확정하지 않습니다.
 
-정상 요소:
-- 표지 제목, 인쇄 글자, 로고, 일러스트, 무늬
-- 그림자, 빛 반사, 책상과 배경 물체
-- 속지에 인쇄된 문제, 지문, 해설, 표와 선
+[후보별 판정 순서]
+1. BBox가 실제 책 표면 또는 책 모서리에 위치하는지 확인합니다.
+2. 찢김, 섬유 단절, 눌림, 주름, 오염 확산, 코팅 손실,
+   페이지 분리, 비정상 필기처럼 물리적 변화가 보이는지 확인합니다.
+3. 표지 디자인, 인쇄물, 조명, 그림자, 반사, 배경 물체로
+   동일한 모습을 설명할 수 있는지 확인합니다.
+
+[정상 요소]
+- 표지 제목, 로고, 삽화, 무늬, 띠지, 정상 스티커
+- 코팅 반사, 플래시 반사, 그림자, 조명 명암
+- 책상, 바닥, 다른 책 등 배경 물체
+- 속지의 인쇄된 문제, 해설, 표, 선, 페이지 번호
 - 정상적인 종이 질감과 미세한 사용 흔적
 
-결함 요소:
-- 찢어짐, 접힘, 모서리 눌림, 심한 마모
-- 영구 얼룩, 물 젖음, 종이 우글거림
-- 제본 손상, 페이지 분리
-- 인쇄체와 구분되는 필기, 낙서, 형광펜
+[결함 판정 근거]
+- COVER_SCRATCH: 표면 코팅을 가로지르는 비정상 긁힘
+- COVER_TEAR: 종이 섬유가 끊기거나 벌어진 찢김
+- CORNER_CRUSH: 모서리 형태가 눌리거나 찌그러진 상태
+- EDGE_WEAR: 책 가장자리의 국소적인 코팅 손실 또는 심한 마모
+- GENERAL_STAIN: 인쇄가 아닌 불규칙한 색 번짐 또는 잔류 오염
+- WATER_DAMAGE: 물결 자국, 테두리형 얼룩, 변색과 주름이 함께 보이는 상태
+- PAGE_WARPING: 페이지 전체에 반복되는 물결 모양 변형
+- PAGE_FOLD: 명확한 접힘선과 페이지 형상 변화
+- LOOSE_BINDING: 페이지 벌어짐, 분리 또는 비정상적인 제본 틈
+- FADING: 조명 명암이 아닌 넓은 범위의 불균일한 색 손실
+- WRITING: 인쇄 글자와 굵기, 정렬, 색상 또는 형태가 다른 손글씨
+- HIGHLIGHTING: 인쇄 내용 위에 추가된 형광펜 또는 표시선
 
-판정:
-- CONFIRMED: 물리적 결함의 시각적 근거가 분명함
-- REJECTED: 정상 인쇄·디자인·배경·반사·그림자임
-- UNCERTAIN: 흐림·가림·증거 부족·모델 충돌로 확정 불가
+[사진 유형별 주의 사항]
+- FRONT/BACK:
+  표지 글자, 삽화, 패턴, 코팅 반사를 결함으로 판단하지 않습니다.
+- INNER:
+  인쇄된 문제, 밑줄, 표, 해설을 필기로 판단하지 않습니다.
+  인쇄 정렬과 다른 자유로운 획이 확인될 때만 WRITING을 확정합니다.
 
-결함 유형:
-- proposed_type이 OTHER_VISIBLE_DAMAGE가 아니면
-  CONFIRMED의 confirmed_type을 proposed_type과 동일하게 유지합니다.
-- 전문 모델의 proposed_type과 다르게 보이면
-  임의로 유형을 바꾸지 말고 UNCERTAIN을 반환합니다.
+[결정]
+- CONFIRMED:
+  BBox 안에서 물리적 결함의 직접적인 시각 근거가 확인된 경우
+- REJECTED:
+  배경 물체, 표지 디자인, 조명·그림자 등 정상 요소인 경우
+- UNCERTAIN:
+  흐림, 가림, 근거 부족 또는 모델 클래스 충돌로 확정할 수 없는 경우
 
-필드:
-- CONFIRMED: confirmed_type, location 필수, ratio > 0
-- REJECTED/UNCERTAIN: confirmed_type=null, location=null, ratio=0
-- missed_defect_suspected는 후보 밖에 명확한 결함이 보일 때만 true
+[필드 규칙]
+- CONFIRMED:
+  confirmed_type과 location이 필수이며 reject_reason은 null입니다.
+- REJECTED:
+  confirmed_type=null, location=null이며 정상 요소에 해당하는
+  reject_reason을 반환합니다.
+- UNCERTAIN:
+  confirmed_type=null, location=null이며
+  reject_reason=INSUFFICIENT_EVIDENCE를 반환합니다.
+- review_confidence는 결함 가능성이 아니라 현재 판정의 확실성입니다.
+- 최상위 review_confidence는 사진 품질과 후보 외 결함 검토를 포함한
+  사진 전체 검토의 확실성입니다.
+- review_confidence:
+  0.90 이상은 직접적인 결함 근거가 명확한 경우,
+  0.80~0.89는 결함이 보이지만 범위가 제한적인 경우,
+  0.80 미만은 반드시 UNCERTAIN으로 반환합니다.
+- missed_defect_suspected:
+  모든 후보 BBox 밖에 명확한 추가 결함이 보일 때만 true로 반환합니다.
+  단순한 의심만으로 true를 반환하지 않습니다.
+
+[신뢰도 규칙]
+- review_confidence는 결함 존재 가능성이 아니라 현재 판정의 확실성입니다.
+- 정상 요소임이 명확한 REJECTED도 높은 신뢰도를 사용할 수 있습니다.
+- YOLO confidence를 그대로 복사하지 않습니다.
+- 흐림, 가림 또는 시각 근거 부족일 때만 낮은 신뢰도를 사용합니다.
+
+[후보 종류 규칙]
+- proposed_type은 YOLO가 제공한 참고 힌트일 뿐입니다.
+- 직접 보이는 시각 근거가 다른 결함을 나타내면 confirmed_type을 올바른 결함으로 반환합니다.
+- UNCERTAIN:
+  흐림, 가림, 초점 불량 또는 시각 근거 부족으로 확정할 수 없는 경우
+
+[후보가 없는 경우]
+- reviews는 빈 배열로 반환합니다.
+- 사진 품질과 후보 밖의 명확한 결함 존재 여부는 전체 이미지로 검토합니다.
+- 명확한 추가 결함이 없다면 missed_defect_suspected=false로 반환합니다.
 """
 
     try:
         review_model = ChatOpenAI(
             model=os.getenv(
-                "OPENAI_MODEL",
-                "gpt-4o-mini",
+                "OPENAI_VISION_MODEL",
+                os.getenv(
+                    "OPENAI_MODEL",
+                    "gpt-4o-mini",
+                ),
             ),
             temperature=0,
             timeout=60,
@@ -1143,32 +1642,79 @@ def vision_agent(state: WMSInspectionState) -> WMSInspectionState:
             image_index,
             raw_path,
         ) in enumerate(image_paths):
-            image = _load_inspection_image(
-                raw_path
+            image = _load_inspection_image(raw_path)
+
+            book_region = book_regions[image_index]
+
+            analysis_image, crop_box = crop_to_book_region(
+                image,
+                book_region,
             )
 
-            (
+            if analysis_image is None or crop_box is None:
+                book_region["analysis_skipped"] = True
+                all_image_quality_ok = False
+
+                trace_event(
+                    "BOOK_REGION_REJECTED",
+                    book_region,
+                )
+                continue
+
+            raw_detections, candidates = (
+                detect_yolo_candidates(
+                    analysis_image,
+                    image_index,
+                )
+            )
+
+            # 분석 이미지 좌표로 먼저 시각화
+            annotated = draw_candidates(
+                analysis_image,
+                candidates,
+            )
+
+            # 저장·프론트 전달용 원본 좌표 복원
+            remap_yolo_coordinates(
                 raw_detections,
                 candidates,
-            ) = detect_yolo_candidates(
-                image,
-                image_index,
+                crop_box,
+                image.size,
+            )
+
+            book_region.update({
+                "crop_applied": crop_box != (
+                    0,
+                    0,
+                    image.width,
+                    image.height,
+                ),
+                "analysis_skipped": False,
+                "candidate_count_before": len(candidates),
+                "candidate_count_after": len(candidates),
+            })
+
+            trace_event(
+                "YOLO_ENSEMBLE_COMPLETED",
+                {
+                    "image_index": image_index,
+                    "coordinate_space": "ORIGINAL_IMAGE",
+                    "book_region": book_region,
+                    "raw_detections": raw_detections,
+                    "ensemble_candidates": [
+                        state_safe_candidate(candidate)
+                        for candidate in candidates
+                    ],
+                },
             )
 
             all_raw_detections.extend(
                 raw_detections
             )
 
-            all_ensemble_candidates.extend([
-                state_safe_candidate(
-                    candidate
-                )
+            all_ensemble_candidates.extend(
+                state_safe_candidate(candidate)
                 for candidate in candidates
-            ])
-
-            annotated = draw_candidates(
-                image,
-                candidates,
             )
 
             candidate_metadata = [
@@ -1260,7 +1806,7 @@ def vision_agent(state: WMSInspectionState) -> WMSInspectionState:
                             max_side=512,
                             quality=75,
                         ),
-                        "detail": "low",
+                        "detail": "high",
                         },
                     },
                 ])
@@ -1298,9 +1844,15 @@ def vision_agent(state: WMSInspectionState) -> WMSInspectionState:
                 and review.image_quality_ok
             )
 
-            image_confidence_values.append(
-                review.review_confidence
-            )
+            if review.reviews:
+                image_confidence_values.extend(
+                    item.review_confidence
+                    for item in review.reviews
+                )
+            else:
+                image_confidence_values.append(
+                    review.review_confidence
+                )
 
             missed_defect_suspected = (
                 missed_defect_suspected
@@ -1362,42 +1914,14 @@ def vision_agent(state: WMSInspectionState) -> WMSInspectionState:
                     "proposed_type"
                 ]
 
-                if (
-                    proposed_type
-                    != "OTHER_VISIBLE_DAMAGE"
-                    and item.confirmed_type
-                    != proposed_type
-                ):
-                    uncertain_payload = {
-                        **review_payload,
-                        "decision": "UNCERTAIN",
-                        "confirmed_type": None,
-                        "location": None,
-                        "ratio": 0.0,
-                        "reject_reason": (
-                            "MODEL_CLASS_CONFLICT"
-                        ),
-                    }
-
-                    uncertain_record = {
-                        **safe_candidate,
-                        "vlm_review": uncertain_payload,
-                    }
-
-                    # 전체 검토 목록과 보류 목록의 상태 통일
-                    reviewed_candidates[-1] = (
-                        uncertain_record
-                    )
-                    uncertain_candidates.append(
-                        uncertain_record
-                    )
-                    continue
-
                 defect = DefectOutput(
                     type=item.confirmed_type,
                     location=item.location,
                     bbox=candidate["bbox"],
-                    ratio=item.ratio,
+                    ratio=calculate_bbox_area_ratio(
+                    candidate["bbox"],
+                    book_region["bbox"],
+                    ),
                     confidence=(
                         item.review_confidence
                     ),
@@ -1411,6 +1935,7 @@ def vision_agent(state: WMSInspectionState) -> WMSInspectionState:
                 ).model_dump()
 
                 defect.update({
+                    "ratio_source": "BBOX_AREA",
                     "candidate_id": (
                         item.candidate_id
                     ),
@@ -1492,34 +2017,34 @@ def vision_agent(state: WMSInspectionState) -> WMSInspectionState:
         )
         revision_count += 1
 
+    elif missed_defect_suspected:
+            vision_status = "REVIEW_REQUIRED"
+            vision_reason_code = (
+                "VISION_MISSED_DEFECT_SUSPECTED"
+            )
+            repair_directive = (
+                "YOLO 후보 밖에서 추가 결함이 의심됩니다. "
+                "관리자 확인이 필요합니다."
+            )
+            revision_count += 1
+
+    elif uncertain_candidates:
+            vision_status = "REVIEW_REQUIRED"
+            vision_reason_code = (
+                "VISION_UNCERTAIN_CANDIDATE"
+            )
+            repair_directive = (
+                "결함 여부를 확정하지 못한 후보가 있습니다. "
+                "표시된 BBox를 관리자가 확인해야 합니다."
+            )
+            revision_count += 1
+
     elif vision_confidence < MIN_VISION_CONFIDENCE:
         vision_status = "REVIEW_REQUIRED"
         vision_reason_code = "VISION_LOW_CONFIDENCE"
         repair_directive = (
             "Vision 판단 신뢰도가 기준보다 낮아 "
             "관리자 확인이 필요합니다."
-        )
-        revision_count += 1
-
-    elif missed_defect_suspected:
-        vision_status = "REVIEW_REQUIRED"
-        vision_reason_code = (
-            "VISION_MISSED_DEFECT_SUSPECTED"
-        )
-        repair_directive = (
-            "YOLO 후보 밖에서 추가 결함이 의심됩니다. "
-            "관리자 확인이 필요합니다."
-        )
-        revision_count += 1
-
-    elif uncertain_candidates:
-        vision_status = "REVIEW_REQUIRED"
-        vision_reason_code = (
-            "VISION_UNCERTAIN_CANDIDATE"
-        )
-        repair_directive = (
-            "결함 여부를 확정하지 못한 후보가 있습니다. "
-            "표시된 BBox를 관리자가 확인해야 합니다."
         )
         revision_count += 1
 
@@ -1534,6 +2059,7 @@ def vision_agent(state: WMSInspectionState) -> WMSInspectionState:
         "yolo_model_manifest": (
             model_manifest
         ),
+        "book_regions": book_regions,
         "raw_yolo_detections": (
             all_raw_detections
         ),
@@ -1603,6 +2129,7 @@ def vision_agent(state: WMSInspectionState) -> WMSInspectionState:
             "model_manifest": (
                 model_manifest
             ),
+            "book_regions": book_regions,
             "raw_detection_count": (
                 len(all_raw_detections)
             ),
@@ -2328,21 +2855,41 @@ def auto_refund_agent(state: WMSInspectionState) -> WMSInspectionState:
         )
 
     overall_confidence = float(vision_confidence)
+    ubci_score = 100.0
+    final_grade = "S"
 
     report = {
         "result": "AUTO_REFUND_APPROVED",
         "decision": "AI_FAST_TRACK",
         "is_mint": True,
         "defects": [],
+        "ubci_score": ubci_score,
+        "predicted_grade": final_grade,
+        "final_grade": final_grade,
+        "score_breakdown": [],
+        "fatal_defect_detected": False,
+        "grade_reason_code": "NO_VISIBLE_DEFECT",
+        "rule_reference": POLICY_VERSION,
+        "reason_code": None,
         "vision_confidence": overall_confidence,
+        "policy_confidence": None,
         "overall_confidence": overall_confidence,
         "message": (
-            "외관상 확인된 결함이 없고 Vision 신뢰도가 기준 이상이어서 "
-            "MINT 자동 환불 승인 처리되었습니다."
+            "앞면, 뒷면, 속지에서 확인 가능한 결함이 없어 "
+            "MINT 자동 승인 처리되었습니다."
         ),
     }
 
     return {
+        "is_mint": True,
+        "ubci_score": ubci_score,
+        "predicted_grade": final_grade,
+        "score_breakdown": [],
+        "fatal_defect_detected": False,
+        "grade_reason_code": "NO_VISIBLE_DEFECT",
+        "rule_reference": POLICY_VERSION,
+        "policy_confidence": None,
+        "final_grade": final_grade,
         "final_report": json.dumps(
             report,
             ensure_ascii=False,
@@ -2351,7 +2898,10 @@ def auto_refund_agent(state: WMSInspectionState) -> WMSInspectionState:
         "human_feedback": None,
         "messages": [
             AIMessage(
-                content="[Auto Refund Agent] MINT 자동 환불 승인 사유서 생성 완료"
+                content=(
+                    "[Auto Refund Agent] "
+                    "MINT 자동 승인 및 품질보증서 생성 완료"
+                )
             )
         ],
     }

@@ -6,7 +6,9 @@ import json
 from app.schemas.hitl import HITLAction, HITLReasonCode
 from .state import WMSInspectionState
 from .agents import (
+    IMAGE_VIEWS,
     MIN_VISION_CONFIDENCE,
+    book_detector_node,
     vision_agent,
     policy_agent,
     critic_agent,
@@ -128,9 +130,23 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
     # 관리자 입력을 가장 먼저 처리
     if human_feedback is not None:
         if human_feedback == "RE_CHECK":
+            book_regions = state.get("book_regions")
+            if book_regions is None:
+                return route(
+                    "book_detector",
+                    "관리자 재검수·재촬영 요청",
+                )
+            if (
+                type(book_regions) is list
+                and len(book_regions) == len(IMAGE_VIEWS)
+            ):
+                return route(
+                    "vision_agent",
+                    "재촬영 이미지의 책 영역 탐지 완료",
+                )
             return route(
-                "vision_agent",
-                "관리자 재검수·재촬영 요청",
+                "human_node",
+                "재촬영 이미지의 책 영역 탐지 실패",
             )
 
         if (
@@ -259,11 +275,27 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
     )
 
     if vision_output_missing:
+        book_regions = state.get("book_regions")
+        if book_regions is None:
+            return route(
+                "book_detector",
+                "책 영역 탐지 결과 없음",
+            )
+
+        if (
+            type(book_regions) is not list
+            or len(book_regions) != len(IMAGE_VIEWS)
+        ):
+            return route(
+                "human_node",
+                state.get("repair_directive")
+                or "Book Detector 출력이 불완전함",
+            )
+
         return route(
             "vision_agent",
-            "Vision 출력 없음",
+            "책 영역 탐지 완료 후 Vision 분석 필요",
         )
-
     if reason_code in HITL_REASON_CODES:
         return route(
             "human_node",
@@ -433,6 +465,7 @@ def build_supervisor_graph():
     builder = StateGraph(WMSInspectionState)
 
     # 1. 노드 등록 (add_node)
+    builder.add_node("book_detector", book_detector_node)
     builder.add_node("supervisor", supervisor_node)
     builder.add_node("vision_agent", vision_agent)
     builder.add_node("policy_agent", policy_agent)
@@ -452,6 +485,7 @@ def build_supervisor_graph():
         "supervisor",
         route_from_supervisor,
          {
+        "book_detector": "book_detector",
         "vision_agent": "vision_agent",
         "policy_agent": "policy_agent",
         "critic_agent": "critic_agent",
@@ -463,6 +497,7 @@ def build_supervisor_graph():
     
     # 4. Star Topology: 워커 에이전트 작업 후 다시 supervisor로 반환
     # TODO: 모든 일반 노드의 종료 엣지를 supervisor로 연결
+    builder.add_edge("book_detector", "supervisor")
     builder.add_edge("vision_agent","supervisor")
     builder.add_edge("policy_agent", "supervisor")
     builder.add_edge("critic_agent", "supervisor")
@@ -584,12 +619,25 @@ def resume_hitl(
 
     if decision == "RE_CHECK":
         update.update({
+            "book_regions": None,
+            "yolo_model_manifest": None,
+            "raw_yolo_detections": None,
+            "ensemble_candidates": None,
+            "reviewed_candidates": None,
+            "rejected_candidates": None,
+            "uncertain_candidates": None,
+            "image_quality_ok": None,
+            "vision_status": None,
+            "vision_reason_code": None,
+            "missed_defect_suspected": None,
             "is_mint": None,
             "defects": None,
             "vision_confidence": None,
             "ubci_score": None,
             "predicted_grade": None,
             "score_breakdown": None,
+            "fatal_defect_detected": None,
+            "grade_reason_code": None,
             "rule_reference": None,
             "policy_confidence": None,
             "reason_code": None,
