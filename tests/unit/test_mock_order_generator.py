@@ -1,6 +1,8 @@
 from decimal import Decimal
 from uuid import UUID
 
+import app.services.mock_order_generator_service as mock_order_generator_service
+
 from app.models.wms import (
     Book,
     ConditionGrade,
@@ -100,6 +102,44 @@ def test_creates_new_stock_order_when_virtual_quantity_remains():
     assert session.added_items[1].condition_grade is None
     assert session.added_items[1].quantity == 1
 
+def test_creates_new_stock_order_up_to_three_items(
+    monkeypatch,
+):
+    book = build_book(
+        "00000000-0000-4000-8000-000000000005",
+        "신간 다권 주문 테스트 도서",
+        "18000",
+    )
+
+    monkeypatch.setattr(
+        mock_order_generator_service.random,
+        "randint",
+        lambda _minimum, maximum: maximum,
+    )
+
+    session = FakeSession(
+        exec_results=[
+            # PENDING 신간 주문 없음
+            [],
+            # 실제 출고 가능 신간 재고 5권
+            [(book.id, 5)],
+            # PENDING 중고 주문 없음
+            [],
+            # AVAILABLE 중고 LPN 없음
+            [],
+        ],
+        books_by_id={book.id: book},
+    )
+
+    result = create_mock_outbound_order(session)
+
+    order_item = session.added_items[1]
+
+    assert result is not None
+    assert result.source == "NEW_STOCK"
+    assert order_item.quantity == 3
+    assert order_item.final_price == Decimal("54000")
+    assert result.total_price == Decimal("54000")
 
 def test_does_not_create_new_stock_order_when_pending_orders_use_all_stock():
     book = build_book(

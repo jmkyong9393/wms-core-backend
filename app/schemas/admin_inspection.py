@@ -173,6 +173,7 @@ class InspectionDetailResponse(BaseModel):
     ubci_score: int | None = None
     final_report: str | None = None
     lpn_barcode: str | None = None
+    label_scan_url: str | None = None
 
     original_image_urls: list[str] = Field(default_factory=list)
 
