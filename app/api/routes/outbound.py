@@ -449,19 +449,20 @@ def create_picking_instruction(
         order.updated_at = datetime.utcnow()
         session.add(order)
 
+        # 커밋 전에 ORM 값을 일반 응답 모델로 모두 복사한다.
+        response = PickResponse(
+            order_id=order.id,
+            status=order.status,
+            total_price=order.total_price,
+            recommended_box="MEDIUM",
+            picking_groups=build_picking_groups(picking_rows),
+        )
+
         session.commit()
-        session.refresh(order)
+        return response
     except Exception:
         session.rollback()
         raise
-
-    return PickResponse(
-        order_id=order.id,
-        status=order.status,
-        total_price=order.total_price,
-        recommended_box="MEDIUM",
-        picking_groups=build_picking_groups(picking_rows),
-    )
 
 
 @router.get(
@@ -747,9 +748,8 @@ def scan_picking_item(
             allocation.picked_quantity += 1
             allocation.updated_at = datetime.utcnow()
             session.add(allocation)
-            session.commit()
 
-            return PickingScanResponse(
+            response = PickingScanResponse(
                 order_id=order.id,
                 allocation_type=PickingAllocationType.NEW_STOCK,
                 allocation_id=allocation.id,
@@ -761,6 +761,9 @@ def scan_picking_item(
                 ),
                 message="신간 ISBN 스캔이 확인되었습니다.",
             )
+
+            session.commit()
+            return response
 
         row = session.exec(
             select(
@@ -835,9 +838,8 @@ def scan_picking_item(
         allocation.picked_at = datetime.utcnow()
         allocation.updated_at = allocation.picked_at
         session.add(allocation)
-        session.commit()
 
-        return PickingScanResponse(
+        response = PickingScanResponse(
             order_id=order.id,
             allocation_type=PickingAllocationType.USED_ITEM,
             allocation_id=allocation.id,
@@ -847,6 +849,9 @@ def scan_picking_item(
             is_completed=True,
             message="중고 LPN 스캔이 확인되었습니다.",
         )
+
+        session.commit()
+        return response
     except Exception:
         session.rollback()
         raise
@@ -1159,21 +1164,21 @@ def confirm_shipment(
         order.updated_at = now
         session.add(order)
 
+        response = ShipmentConfirmResponse(
+            order_id=order.id,
+            status=order.status,
+            waybill_number=waybill.waybill_number,
+            shipping_carrier=waybill.shipping_carrier,
+            waybill_barcode=waybill.barcode_value,
+            shipped_at=now,
+            shipping_label=_build_demo_shipping_label(
+                order=order,
+                shipped_at=now,
+            ),
+        )
+
         session.commit()
-        session.refresh(order)
+        return response
     except Exception:
         session.rollback()
         raise
-
-    return ShipmentConfirmResponse(
-        order_id=order.id,
-        status=order.status,
-        waybill_number=waybill.waybill_number,
-        shipping_carrier=waybill.shipping_carrier,
-        waybill_barcode=waybill.barcode_value,
-        shipped_at=order.shipped_at,
-        shipping_label=_build_demo_shipping_label(
-            order=order,
-            shipped_at=order.shipped_at,
-        ),
-    )

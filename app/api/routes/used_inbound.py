@@ -155,8 +155,12 @@ def create_used_book_inbound(
                     detail="Idempotency-Key is already used by another request",
                 )
 
+            response = _build_response(
+                existing_job,
+                existing_item,
+            )
             session.commit()
-            return _build_response(existing_job, existing_item)
+            return response
 
         book = session.exec(
             select(Book).where(Book.id == request.book_id)

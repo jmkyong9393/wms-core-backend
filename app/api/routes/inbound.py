@@ -153,14 +153,14 @@ def create_new_stock_inbound(
                     detail="Idempotency-Key is already used by another request",
                 )
 
-            session.commit()
-            return _build_new_stock_response(
+            response = _build_new_stock_response(
                 existing_job,
                 existing_item,
                 existing_location,
                 existing_inventory,
             )
-
+            session.commit()
+            return response
         _lock_new_stock_isbn(session, request.isbn)
         book = session.exec(
             select(Book).where(Book.isbn == request.isbn)
