@@ -20,14 +20,16 @@ from app.models.wms import (
     BookCategory,
 )
 
+from app.services.location_assignment_service import (
+    assign_graded_inventory_location,
+    assign_new_stock_location,
+)
+
 
 # 데모 주문 생성기가 사용할 단일 도서 마스터
 DEMO_OUTBOUND_BOOK_ISBN = "9790000000001"
 DEMO_OUTBOUND_BOOK_TITLE = "Demo Outbound Book"
 
-# 신간·중고 피킹 위치를 구분하기 위한 데모 로케이션
-DEMO_NEW_STOCK_LOCATION_BARCODE = "DEMO-A-2-1"
-DEMO_USED_LPN_LOCATION_BARCODE = "DEMO-B-1-2"
 
 # 가상 가용 재고가 기준 이하일 때 자동 보충한다.
 MIN_NEW_STOCK_VIRTUAL_AVAILABLE = 20
@@ -61,12 +63,10 @@ def ensure_demo_outbound_inventory(
     """
     demo_book = _get_or_create_demo_book(session)
 
-    new_location = _get_or_create_location(
+    new_location = assign_new_stock_location(
         session=session,
-        barcode=DEMO_NEW_STOCK_LOCATION_BARCODE,
-        zone="A",
-        rack="2",
-        shelf="1",
+        book=demo_book,
+        quantity=NEW_STOCK_REPLENISH_QUANTITY,
     )
     new_inventory = _get_or_create_inventory(
         session=session,
@@ -82,12 +82,10 @@ def ensure_demo_outbound_inventory(
 
     session.add(new_inventory)
 
-    used_location = _get_or_create_location(
+    used_location = assign_graded_inventory_location(
         session=session,
-        barcode=DEMO_USED_LPN_LOCATION_BARCODE,
-        zone="B",
-        rack="1",
-        shelf="2",
+        book=demo_book,
+        grade=ConditionGrade.EXCELLENT,
     )
 
     # 신간 가상 가용 수량이 부족하면 묶음 재고를 보충한다.
@@ -127,7 +125,7 @@ def ensure_demo_outbound_inventory(
                     sale_price=demo_book.base_price,
                     condition_grade=ConditionGrade.EXCELLENT,
                     status=UsedInventoryStatus.AVAILABLE,
-                    certificate_url="https://example.com/certificates/demo",
+                    certificate_url=None,
                 ),
             )
 
@@ -178,31 +176,6 @@ def _get_or_create_demo_book(
     return book
 
 
-# 바코드 기준으로 데모 로케이션을 조회하고, 없으면 생성한다.
-def _get_or_create_location(
-    session: Session,
-    barcode: str,
-    zone: str,
-    rack: str,
-    shelf: str,
-) -> Location:
-    location = session.exec(
-        select(Location).where(Location.barcode == barcode)
-    ).first()
-
-    if location is not None:
-        return location
-
-    location = Location(
-        zone=zone,
-        rack=rack,
-        shelf=shelf,
-        barcode=barcode,
-    )
-    session.add(location)
-    session.flush()
-
-    return location
 
 
 # 특정 도서·로케이션의 신간 재고 행을 조회하고, 없으면 생성한다.
@@ -269,6 +242,8 @@ def _get_used_lpn_virtual_available_quantity(
             == ConditionGrade.EXCELLENT,
             InventoryUsedItem.status
             == UsedInventoryStatus.AVAILABLE,
+            InventoryUsedItem.discount_rate.is_not(None),
+            InventoryUsedItem.sale_price.is_not(None),
         )
     ).one()
 
