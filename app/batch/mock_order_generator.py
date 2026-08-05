@@ -23,6 +23,7 @@ DEFAULT_INTERVAL_SECONDS = 1.0
 def run_mock_order_generator(
     interval_seconds: float = DEFAULT_INTERVAL_SECONDS,
     max_orders: int | None = None,
+    target_isbn: str | None = None,
 ) -> None:
     """
     데모 전용 신간·중고 재고를 자동 보충한 뒤 PENDING 주문을 생성한다.
@@ -58,25 +59,37 @@ def run_mock_order_generator(
 
             with Session(engine) as session:
                 try:
-                    # 부족한 데모 신간·중고 재고를 먼저 자동 보충한다.
-                    ensure_result = ensure_demo_outbound_inventory(
-                        session
+                    # 우선 실제 판매 가능 재고에서 주문을 생성한다.
+                    result = create_mock_outbound_order(
+                        session,
+                        target_isbn=target_isbn,
                     )
 
-                    if (
-                        ensure_result.added_new_stock_quantity > 0
-                        or ensure_result.added_used_lpn_quantity > 0
-                    ):
-                        logger.info(
-                            "Demo inventory replenished. "
-                            "added_new_stock_quantity=%s "
-                            "added_used_lpn_quantity=%s",
-                            ensure_result.added_new_stock_quantity,
-                            ensure_result.added_used_lpn_quantity,
+                    # ISBN을 지정하지 않았고 실재고 후보가 없을 때만
+                    # 시연용 재고를 보충해 fallback 주문을 만든다.
+                    if result is None and target_isbn is None:
+                        ensure_result = (
+                            ensure_demo_outbound_inventory(session)
                         )
 
-                    # 동일 도서의 신간 또는 중고 EXCELLENT 주문을 생성한다.
-                    result = create_mock_outbound_order(session)
+                        if (
+                            ensure_result.added_new_stock_quantity > 0
+                            or ensure_result.added_used_lpn_quantity > 0
+                        ):
+                            logger.info(
+                                "Demo inventory replenished. "
+                                "added_new_stock_quantity=%s "
+                                "added_used_lpn_quantity=%s",
+                                ensure_result.added_new_stock_quantity,
+                                ensure_result.added_used_lpn_quantity,
+                            )
+
+                        result = create_mock_outbound_order(
+                            session,
+                            target_isbn=(
+                                ensure_result.demo_book.isbn
+                            ),
+                        )
 
                     if result is None:
                         logger.info(
@@ -171,6 +184,16 @@ def parse_args() -> argparse.Namespace:
         ),
     )
 
+    parser.add_argument(
+        "--isbn",
+        type=str,
+        default=None,
+        help=(
+            "ISBN of the book to use for mock order generation. "
+            "If omitted, selects sellable real inventory first."
+        ),
+    )
+
     return parser.parse_args()
 
 
@@ -188,6 +211,7 @@ def main() -> None:
     run_mock_order_generator(
         interval_seconds=args.interval_seconds,
         max_orders=args.max_orders,
+        target_isbn=args.isbn,
     )
 
 
