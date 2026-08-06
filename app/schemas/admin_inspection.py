@@ -2,7 +2,12 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    model_validator,
+)
 
 from app.models.wms import ReturnJobStatus
 
@@ -124,6 +129,47 @@ class InspectionAIResult(BaseModel):
     revision_count: int = 0
     repair_directive: str | None = None
 
+class VisionDefect(BaseModel):
+    """
+    원본 이미지 위 결함 영역을 표시하기 위한 Vision 결과.
+    기존 defects의 확장 형식이며, BBOX가 완전한 데이터만 반환한다.
+    """
+
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,
+    )
+
+    image_index: int = Field(ge=0)
+    image_view: Literal["FRONT", "BACK", "INSIDE"]
+    image_url: str = Field(min_length=1)
+
+    # 기존 Policy/Critic 호환용
+    type: str = Field(min_length=1)
+    ratio: float = Field(ge=0, le=100)
+
+    # 화면 표시용
+    defect_type: str = Field(min_length=1)
+    confidence: float = Field(ge=0, le=1)
+    yolo_confidence: float = Field(ge=0, le=1)
+    bbox: list[float] = Field(min_length=4, max_length=4)
+    coordinate_space: Literal["ORIGINAL_IMAGE_NORMALIZED"]
+
+    @model_validator(mode="after")
+    def validate_original_image_bbox(self):
+        x1, y1, x2, y2 = self.bbox
+
+        if not (
+            0 <= x1 < x2 <= 1
+            and 0 <= y1 < y2 <= 1
+        ):
+            raise ValueError(
+                "bbox must be [x1, y1, x2, y2] in "
+                "ORIGINAL_IMAGE_NORMALIZED coordinates"
+            )
+
+        return self
+
 
 class HITLHistoryItem(BaseModel):
     model_config = ConfigDict(
@@ -176,6 +222,14 @@ class InspectionDetailResponse(BaseModel):
     label_scan_url: str | None = None
 
     original_image_urls: list[str] = Field(default_factory=list)
+
+    vision_detections: list[VisionDefect] = Field(
+        default_factory=list,
+        description=(
+            "원본 이미지 기준 정규화 BBOX가 포함된 "
+            "Vision 결함 목록"
+        ),
+    )
 
     ai_result: InspectionAIResult
     hitl: dict[str, Any] = Field(default_factory=dict)
