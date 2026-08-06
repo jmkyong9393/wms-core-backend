@@ -271,8 +271,9 @@ def test_applies_grid_filters_to_inventory_count_and_list_queries():
         parameters = statement.compile().params.values()
         statement_sql = str(statement).lower()
 
-        # 도서명·ISBN 검색 조건이 신간/중고 양쪽에 적용된다.
-        assert list(parameters).count("%테스트%") == 2
+        # 신간은 도서명·ISBN, 중고는 도서명·ISBN·LPN으로 검색한다.
+        assert list(parameters).count("%테스트%") == 5
+        assert "inventory_used_items.lpn_barcode" in statement_sql
 
         # 입력 구역은 대문자로 정규화되어 양쪽 쿼리에 적용된다.
         assert list(parameters).count("B") == 2
