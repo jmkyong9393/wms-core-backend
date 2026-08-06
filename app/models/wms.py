@@ -497,6 +497,9 @@ class ReturnJob(SQLModel, table=True):
         default=None,
     )
 
+    hitl_reviewer_id: UUID | None = Field(default=None,foreign_key="users.id",index=True,)
+    hitl_review_started_at: datetime | None = Field(default=None,)
+
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
