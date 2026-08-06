@@ -7,6 +7,8 @@ from fastapi import HTTPException, status
 from sqlalchemy import func
 from sqlmodel import Session, select
 
+from pydantic import ValidationError
+
 
 from app.models.wms import (
     Book,
@@ -24,6 +26,7 @@ from app.schemas.admin_inspection import (
     InspectionErrorDetail,
     InspectionHistoryRow,
     InspectionHistoryListResponse,
+    VisionDefect,
 )
 from app.services.lpn_service import build_label_scan_qr_url
 
@@ -564,6 +567,7 @@ def get_inspection_detail(
             str(image_path)
             for image_path in (return_job.image_paths or [])
         ],
+        vision_detections=_build_vision_detections(defects),
         ai_result=InspectionAIResult(
             decision=logs.get("ai_decision"),
             reason_code=ai_reason_code,
@@ -597,3 +601,30 @@ def get_inspection_detail(
         inspected_at=return_job.created_at,
         updated_at=return_job.updated_at,
     )
+
+def _build_vision_detections(
+    defects: list[object],
+) -> list[VisionDefect]:
+    """
+    기존 defects 중 원본 이미지 BBOX 계약을 만족하는 항목만
+    프론트 오버레이용 VisionDefect로 반환한다.
+
+    과거 검수 데이터(type/ratio만 존재)는 무시하고,
+    기존 ai_result.defects를 통해서는 계속 반환한다.
+    """
+    detections: list[VisionDefect] = []
+
+    for defect in defects:
+        if not isinstance(defect, dict):
+            continue
+
+        try:
+            detections.append(
+                VisionDefect.model_validate(defect)
+            )
+        except ValidationError:
+            # 과거 형식 또는 불완전한 Agent 출력은
+            # 검수 상세 API 전체 실패 대신 오버레이에서만 제외한다.
+            continue
+
+    return detections
