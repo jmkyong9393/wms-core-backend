@@ -10,8 +10,8 @@
 - `docker compose down -v`는 DB를 의도적으로 폐기할 때만 사용한다.
 - migration 적용 전에는 DB를 백업하고 쓰기 트래픽을 중단한다.
 - 자동 생성된 migration은 실행 전에 SQL, 데이터 보정, downgrade를 검토한다.
-- 운영 DB에서 `alembic downgrade base`를 실행하지 않는다. baseline의
-  downgrade는 모든 업무 테이블을 제거한다.
+- baseline 아래 downgrade는 migration에서 차단한다. baseline 이전 상태가
+  필요하면 검증된 DB 백업을 별도 환경에 복원한다.
 
 현재 baseline revision은 다음과 같다.
 
@@ -239,12 +239,15 @@ DB에 성공 적용된 적 없는 migration은 수정할 수 있다. 한 환경�
 
 ## 7. 금지 사항
 
-다음 작업은 명시적인 DB 폐기 또는 복구 승인이 없으면 수행하지 않는다.
+다음 작업은 명시적인 DB 폐기 승인이 없으면 수행하지 않는다.
 
 ```bash
 docker compose down -v
-alembic downgrade base
 ```
+
+`alembic downgrade base`는 전체 업무 테이블 삭제를 방지하기 위해 baseline
+migration에서 항상 실패하도록 구현되어 있다. baseline 이전 상태가 필요하면
+schema downgrade 대신 검증된 DB 백업을 별도 환경에 복원한다.
 
 다음 행동도 금지한다.
 
