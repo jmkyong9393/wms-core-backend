@@ -27,7 +27,7 @@ from app.api.routes import (
     used_inbound,
 )
 from app.core.config import settings
-from app.core.database import init_db
+from app.core.database import initialize_application_data
 from app.core.exceptions import AppException
 
 WMS_OPENAPI_TAGS = [
@@ -112,7 +112,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 def on_startup():
-    init_db()
+    initialize_application_data()
 
 # 인증 및 관리자 API
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])

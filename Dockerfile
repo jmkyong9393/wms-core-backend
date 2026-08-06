@@ -27,6 +27,8 @@ WORKDIR /app
 # Copy the virtual environment from builder stage
 COPY --from=builder /app/.venv /app/.venv
 COPY app/ ./app/
+COPY alembic.ini ./alembic.ini
+COPY alembic/ ./alembic/
 
 # Add virtual environment to PATH
 ENV PATH="/app/.venv/bin:$PATH"
