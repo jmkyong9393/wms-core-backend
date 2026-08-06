@@ -29,6 +29,7 @@ dependencies = [
     "pandas>=3.0.3",
     "openpyxl>=3.1.5",
     "python-multipart>=0.0.9",
+    "alembic>=1.13.0",
 ]
 
 [build-system]
