@@ -4,15 +4,15 @@ from sqlmodel import Session, SQLModel, text, select
 from app.core.database import engine
 from app.models.wms import (
     Tenant, Book, Location, Order, OrderItem, ReturnJob, Inventory,
-    InboundItem, InboundJob, FdsPolicy, RejectedItem,
+    InboundItem, InboundJob, FdsPolicy, RejectedItem, InventoryLog,
     StandardSize, InboundType, InboundStatus, ConditionGrade, BookCategory,
-    OrderType, OrderStatus, ReturnJobStatus, InspectionMode
+    OrderType, OrderStatus, ReturnJobStatus, InspectionMode, InventoryTransactionType
 )
 
 def seed_db():
     with Session(engine) as session:
         # 0. Clean up transaction and master tables to ensure idempotence
-        session.execute(text("TRUNCATE TABLE rejected_items, inbound_items, inbound_jobs, return_jobs, order_items, orders, inventory, weekly_insights, fds_reports, fds_policies, books, locations CASCADE"))
+        session.execute(text("TRUNCATE TABLE rejected_items, inbound_items, inbound_jobs, return_jobs, order_items, orders, inventory_logs, inventory, weekly_insights, fds_reports, fds_policies, books, locations CASCADE"))
         session.commit()
         
         # 1. Tenant
@@ -115,34 +115,52 @@ def seed_db():
         # 9. Return Jobs (for FDS & Hotspots)
         now = datetime.now()
         
-        # 홍길동: 최근 30일 4회 반품, 90일 5회. 평균 UBCI 매우 낮음 (파손)
+        # 홍길동: 최근 30일 4회 반품, 90일 5회. 평균 UBCI 매우 낮음 (파손) -> REJECTED로 처리되어 불량 도서 통계에 잡힘
         bad_returns = []
         for i in range(4):
+            created_time = now - timedelta(days=2, hours=i)
             rj = ReturnJob(
                 id=uuid.uuid4(), tenant_id=tenant.id, order_id=order_bad.id, book_id=book1.id, 
-                mode=InspectionMode.RETURN, status=ReturnJobStatus.APPROVED,
-                ubci_score=25.5, final_report="파손", created_at=now - timedelta(days=2)
+                mode=InspectionMode.RETURN, status=ReturnJobStatus.REJECTED, condition_grade=ConditionGrade.REJECT,
+                ubci_score=25.5, final_report="파손", created_at=created_time,
+                ai_inspection_started_at=created_time, ai_inspection_completed_at=created_time + timedelta(seconds=1.5)
             )
             bad_returns.append(rj)
         
-        # 김철수: 최근 30일 2회, 90일 6회. 환불 금액 과다. UBCI는 양호(단순변심)
+        # 김철수: 최근 30일 2회, 90일 6회. 환불 금액 과다. UBCI는 양호(단순변심) -> 정상(APPROVED)
         watch_returns = []
         for i in range(2):
+            created_time = now - timedelta(days=5, hours=i)
             rj = ReturnJob(
                 id=uuid.uuid4(), tenant_id=tenant.id, order_id=order_watch.id, book_id=book1.id, 
-                mode=InspectionMode.RETURN, status=ReturnJobStatus.APPROVED,
-                ubci_score=85.0, final_report="단순변심", created_at=now - timedelta(days=5)
+                mode=InspectionMode.RETURN, status=ReturnJobStatus.APPROVED, condition_grade=ConditionGrade.EXCELLENT,
+                ubci_score=85.0, final_report="단순변심", created_at=created_time,
+                ai_inspection_started_at=created_time, ai_inspection_completed_at=created_time + timedelta(seconds=2.1)
             )
             watch_returns.append(rj)
             
-        # 이영희: 정상(오주문 1회)
+        # 이영희: 정상(오주문 1회) -> 정상(APPROVED)
+        created_time = now - timedelta(days=1)
         good_return = ReturnJob(
             id=uuid.uuid4(), tenant_id=tenant.id, order_id=order_good.id, book_id=book2.id, 
-            mode=InspectionMode.RETURN, status=ReturnJobStatus.APPROVED,
-            ubci_score=95.0, final_report="오주문", created_at=now - timedelta(days=1)
+            mode=InspectionMode.RETURN, status=ReturnJobStatus.APPROVED, condition_grade=ConditionGrade.MINT,
+            ubci_score=95.0, final_report="오주문", created_at=created_time,
+            ai_inspection_started_at=created_time, ai_inspection_completed_at=created_time + timedelta(seconds=1.8)
         )
         
-        session.add_all(bad_returns + watch_returns + [good_return])
+        # 검수시간 0 방지용: 최근 7일간 매일 1건씩 정상(APPROVED) 반품 건 추가
+        daily_returns = []
+        for day_offset in range(7):
+            created_time = now - timedelta(days=day_offset, hours=12)
+            rj = ReturnJob(
+                id=uuid.uuid4(), tenant_id=tenant.id, order_id=order_good.id, book_id=book2.id, 
+                mode=InspectionMode.RETURN, status=ReturnJobStatus.APPROVED, condition_grade=ConditionGrade.MINT,
+                ubci_score=99.0, final_report="단순변심", created_at=created_time,
+                ai_inspection_started_at=created_time, ai_inspection_completed_at=created_time + timedelta(seconds=1.7 + (day_offset % 3)*0.2)
+            )
+            daily_returns.append(rj)
+
+        session.add_all(bad_returns + watch_returns + [good_return] + daily_returns)
         
         # 10. RejectedItem (for REJECT/SCRAP items count)
         rejected_inbound = InboundJob(
@@ -171,6 +189,27 @@ def seed_db():
                     lpn_barcode=lpn_barcode,
                 )
             )
+            
+        # 11. InventoryLogs (for Flow Trend Dashboard)
+        # 입출고 추이 그래프용 더미 데이터
+        for day_offset in range(7):
+            log_date = now - timedelta(days=day_offset)
+            # 입고 로그 (일별 5~15권 임의 지정)
+            session.add(InventoryLog(
+                transaction_type=InventoryTransactionType.INBOUND,
+                book_id=book1.id,
+                condition_grade=ConditionGrade.MINT,
+                quantity_change=10 + (day_offset % 3),
+                created_at=log_date
+            ))
+            # 출고 로그 (일별 3~10권 임의 지정, 출고는 음수로 기록됨)
+            session.add(InventoryLog(
+                transaction_type=InventoryTransactionType.OUTBOUND,
+                book_id=book1.id,
+                condition_grade=ConditionGrade.MINT,
+                quantity_change=-(5 + (day_offset % 2)),
+                created_at=log_date
+            ))
         
         session.commit()
         print("[SUCCESS] DB Seed Data Insertion Completed!")

@@ -152,7 +152,8 @@ def fetch_defective_publishers(session: Session) -> Dict[str, int]:
     SELECT b.publisher, COUNT(*) AS count
     FROM return_jobs r
     JOIN books b ON r.book_id = b.id
-    WHERE r.created_at >= NOW() - INTERVAL '7 days' AND r.status = 'APPROVED'
+    WHERE r.created_at >= NOW() - INTERVAL '7 days' 
+      AND (r.status = 'REJECTED' OR r.condition_grade = 'REJECT')
     GROUP BY b.publisher
     ORDER BY count DESC LIMIT 2;
     """)
@@ -257,10 +258,15 @@ def generate_weekly_insights(
     logger.info("대시보드용 주간 인사이트 통합 분석을 시작합니다 (SQL Push-down)...")
     
     if not raw_return_data:
-        return {}
+        # FDS 데이터가 없더라도 인건비 절감액은 계산될 수 있도록 빈 딕셔너리 반환하지 않음 (이전 로직 수정)
+        logger.info("최근 반품 데이터(raw_return_data)가 없지만 전체 검수 건수 집계는 계속 진행합니다.")
         
-    total_returns_this_week = sum(record.get("weekly_return_count", 0) for record in raw_return_data)
-    saved_labor_cost_krw = int(total_returns_this_week * 90 * 9860 / 3600)
+    # 반품 성공/실패, 중고 입고 성공/실패 여부와 관계없이(단, 사람이 개입한 HITL 제외) 최근 7일 내 AI가 온전히 검수를 마친 건만 조회
+    total_ai_inspections = session.execute(
+        text("SELECT COUNT(*) FROM return_jobs WHERE created_at >= NOW() - INTERVAL '7 days' AND status IN ('APPROVED', 'REJECTED')")
+    ).scalar() or 0
+    
+    saved_labor_cost_krw = int(total_ai_inspections * 90 * 9860 / 3600)
     
     top_defective_publishers = fetch_defective_publishers(session)
     location_hotspots = fetch_location_hotspots(session)
