@@ -386,19 +386,31 @@ def list_inventory(
     normalized_keyword = (keyword or "").strip()
 
     if normalized_keyword:
-        keyword_condition = or_(
+        search_pattern = f"%{normalized_keyword}%"
+        new_stock_keyword_condition = or_(
             Book.title.ilike(
-                f"%{normalized_keyword}%",
+                search_pattern,
             ),
             Book.isbn.ilike(
-                f"%{normalized_keyword}%",
+                search_pattern,
+            ),
+        )
+        used_item_keyword_condition = or_(
+            Book.title.ilike(
+                search_pattern,
+            ),
+            Book.isbn.ilike(
+                search_pattern,
+            ),
+            InventoryUsedItem.lpn_barcode.ilike(
+                search_pattern,
             ),
         )
         new_stock_statement = new_stock_statement.where(
-            keyword_condition,
+            new_stock_keyword_condition,
         )
         used_item_statement = used_item_statement.where(
-            keyword_condition,
+            used_item_keyword_condition,
         )
 
     if grade is not None:
