@@ -4,6 +4,8 @@ from typing import Any
 
 from sqlmodel import Session, select
 
+from fastapi import HTTPException, status
+
 from app.core.exceptions import (
     HITLJobNotFoundException,
     InvalidHITLStateException,
@@ -63,6 +65,56 @@ def validate_hitl_required_status(
         raise InvalidHITLStateException(
             current_status=current_status,
         )
+
+def start_hitl_review(
+    *,
+    session: Session,
+    job_id: UUID,
+    current_admin: User,
+) -> tuple[ReturnJob, bool]:
+    """
+    HITL 검수 건을 현재 관리자가 선점한다.
+
+    반환값의 bool은 같은 관리자가 이미 선점했던 건인지 여부다.
+    다른 관리자가 선점한 건은 409를 반환한다.
+    """
+    return_job = get_hitl_job_for_update(
+        session=session,
+        job_id=job_id,
+        tenant_id=current_admin.tenant_id,
+    )
+    validate_hitl_required_status(return_job)
+
+    if return_job.hitl_reviewer_id is not None:
+        if return_job.hitl_reviewer_id != current_admin.id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "message": "다른 관리자가 이미 검토 중인 건입니다.",
+                    "reviewer_id": str(
+                        return_job.hitl_reviewer_id
+                    ),
+                    "review_started_at": (
+                        return_job.hitl_review_started_at
+                        .isoformat()
+                        if return_job.hitl_review_started_at
+                        else None
+                    ),
+                },
+            )
+
+        return return_job, True
+
+    now = datetime.utcnow()
+    return_job.hitl_reviewer_id = current_admin.id
+    return_job.hitl_review_started_at = now
+    return_job.updated_at = now
+
+    save_return_job(
+        session=session,
+        return_job=return_job,
+    )
+    return return_job, False
     
     
 # 관리자 HITL 판단 내용을 DB 로그에 저장할 수 있는 형태로 생성
@@ -227,6 +279,11 @@ def apply_hitl_recheck_decision(
 
     # 아직 실행할 Celery 작업이 없으므로 초기화
     return_job.task_id = None
+
+    # 재촬영 대기 건은 기존 관리자의 검토 선점을 해제한다.
+    # 새 사진 재검수 후 다시 HITL로 오면 검토 대기부터 다시 시작한다.
+    return_job.hitl_reviewer_id = None
+    return_job.hitl_review_started_at = None
 
     # 기존 결과가 새 검수 결과처럼 노출되지 않도록 초기화
     return_job.ubci_score = None

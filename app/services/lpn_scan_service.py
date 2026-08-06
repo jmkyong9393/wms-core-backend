@@ -1,5 +1,6 @@
 from fastapi import HTTPException, status
 from sqlmodel import Session, select
+from sqlalchemy import or_
 
 from app.models.wms import (
     Book,
@@ -20,7 +21,7 @@ from app.schemas.lpn_scan import LpnScanResponse
 
 def get_lpn_scan_detail(
     session: Session,
-    certificate_token: str,
+    scan_value: str,
 ) -> LpnScanResponse:
     """
     작업자 앱의 LPN QR 스캔 상세 정보를 조회한다.
@@ -30,14 +31,17 @@ def get_lpn_scan_detail(
     """
     inbound_item = session.exec(
         select(InboundItem).where(
-            InboundItem.certificate_token
-            == certificate_token
+            or_(
+                InboundItem.certificate_token == scan_value,
+                InboundItem.lpn_barcode == scan_value,
+            )
         )
     ).first()
+
     if inbound_item is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="LPN scan token was not found",
+            detail="LPN barcode or certificate token was not found",
         )
 
     if inbound_item.lpn_barcode is None:

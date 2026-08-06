@@ -43,7 +43,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 @router.get(
-    "/scan/{certificate_token}",
+    "/scan/{scan_value}",
     response_model=LpnScanResponse,
     operation_id="getLpnScanDetail",
     summary="작업자용 LPN QR 스캔 상세 조회",
@@ -58,10 +58,10 @@ logger = logging.getLogger(__name__)
     },
 )
 def get_lpn_scan(
-    certificate_token: str = Path(
-        min_length=32,
+    scan_value: str = Path(
+        min_length=1,
         max_length=128,
-        description="LPN QR에 포함된 공개 스캔 토큰",
+        description="LPN 바코드 또는 품질보증서 QR 토큰",
     ),
     session: Session = Depends(get_session),
     _: User = Depends(require_wms_operator),
@@ -71,7 +71,7 @@ def get_lpn_scan(
     """
     return get_lpn_scan_detail(
         session=session,
-        certificate_token=certificate_token,
+        scan_value=scan_value,
     )
 
 @router.post(

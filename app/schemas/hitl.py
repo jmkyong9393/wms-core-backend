@@ -1,3 +1,4 @@
+from datetime import datetime
 from enum import Enum
 from uuid import UUID
 
@@ -14,6 +15,11 @@ class HITLAction(str, Enum):
     REJECT_DISCARD = "REJECT_DISCARD"
     RE_CHECK = "RE_CHECK"
 
+class HITLQueueBucket(str, Enum):
+    PENDING = "PENDING"
+    IN_REVIEW = "IN_REVIEW"
+    RECHECK = "RECHECK"
+    COMPLETED = "COMPLETED"
 
 # 관리자 판단 사유 코드
 class HITLReasonCode(str, Enum):
@@ -90,4 +96,13 @@ class HITLDecisionResponse(BaseModel):
     # RE_CHECK는 즉시 Celery 작업을 생성하지 않으므로 None 가능
     task_id: str | None = None
 
+    message: str
+
+class HITLReviewStartResponse(BaseModel):
+    job_id: UUID
+    status: ReturnJobStatus
+    reviewer_id: UUID
+    reviewer_employee_id: str
+    review_started_at: datetime
+    already_claimed_by_me: bool = False
     message: str

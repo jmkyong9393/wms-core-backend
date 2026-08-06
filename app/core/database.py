@@ -1,8 +1,7 @@
-from sqlmodel import SQLModel, Session, create_engine, select
+from sqlmodel import Session, create_engine, select
 
 from app.core.config import settings
 from app.core.security import hash_password
-from app.models import wms
 from app.models.wms import (
     Tenant,
     User,
@@ -79,8 +78,7 @@ def create_initial_master() -> None:
         session.commit()
 
 
-def init_db() -> None:
-    SQLModel.metadata.create_all(engine)
+def initialize_application_data() -> None:
     create_initial_master()
 
 

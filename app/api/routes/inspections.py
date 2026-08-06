@@ -32,12 +32,14 @@ from app.schemas.hitl import (
     HITLAction,
     HITLDecisionRequest,
     HITLDecisionResponse,
+    HITLReviewStartResponse,
 )
 
 from app.services.hitl_service import (
     clear_hitl_dispatch_backup,
     restore_hitl_after_dispatch_failure,
-    save_hitl_decision
+    save_hitl_decision,
+    start_hitl_review,
 ) 
 from app.services.hitl_task_service import (
     create_hitl_task_id,
@@ -514,6 +516,41 @@ def recheck_inspection(
         stream_ticket_url=(
             f"/api/v1/inspections/"
             f"{return_job.id}/stream-ticket"
+        ),
+    )
+
+@router.post(
+    "/{job_id}/hitl/start",
+    response_model=HITLReviewStartResponse,
+    operation_id="startInspectionHitlReview",
+    summary="HITL 검토 시작",
+    responses={
+        404: {"description": "검수 작업을 찾을 수 없음"},
+        409: {"description": "이미 다른 관리자가 검토 중이거나 HITL 대상이 아님"},
+    },
+)
+def start_inspection_hitl_review(
+    job_id: UUID,
+    current_admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> HITLReviewStartResponse:
+    return_job, already_claimed_by_me = start_hitl_review(
+        session=session,
+        job_id=job_id,
+        current_admin=current_admin,
+    )
+
+    return HITLReviewStartResponse(
+        job_id=return_job.id,
+        status=return_job.status,
+        reviewer_id=current_admin.id,
+        reviewer_employee_id=current_admin.employee_id,
+        review_started_at=return_job.hitl_review_started_at,
+        already_claimed_by_me=already_claimed_by_me,
+        message=(
+            "이미 내가 검토 중인 건입니다."
+            if already_claimed_by_me
+            else "검토를 시작했습니다."
         ),
     )
 
