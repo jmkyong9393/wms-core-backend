@@ -152,7 +152,8 @@ def fetch_defective_publishers(session: Session) -> Dict[str, int]:
     SELECT b.publisher, COUNT(*) AS count
     FROM return_jobs r
     JOIN books b ON r.book_id = b.id
-    WHERE r.created_at >= NOW() - INTERVAL '7 days' AND r.status = 'APPROVED'
+    WHERE r.created_at >= NOW() - INTERVAL '7 days' 
+      AND (r.status = 'REJECTED' OR r.condition_grade = 'REJECT')
     GROUP BY b.publisher
     ORDER BY count DESC LIMIT 2;
     """)
