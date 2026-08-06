@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -13,9 +13,11 @@ from pydantic import ValidationError
 from app.models.wms import (
     Book,
     ConditionGrade,
+    InboundItem,
+    Location,
     ReturnJob,
     ReturnJobStatus,
-    InboundItem,
+    User,
 )
 from app.schemas.admin_inspection import (
     AgentLogStep,
@@ -27,7 +29,11 @@ from app.schemas.admin_inspection import (
     InspectionHistoryRow,
     InspectionHistoryListResponse,
     VisionDefect,
+    HITLBoardItem,
+    HITLQueueListResponse,
+    HITLQueueMetricsResponse,
 )
+from app.schemas.hitl import HITLQueueBucket
 from app.services.lpn_service import build_label_scan_qr_url
 
 VALID_FINAL_GRADES = {
@@ -392,6 +398,221 @@ def get_inspection_history(
         page=page,
         size=size,
         total_pages=total_pages,
+    )
+
+def _apply_hitl_queue_bucket_filter(
+    statement,
+    *,
+    tenant_id: UUID,
+    bucket: HITLQueueBucket,
+):
+    statement = statement.where(
+        ReturnJob.tenant_id == tenant_id,
+    )
+
+    if bucket == HITLQueueBucket.PENDING:
+        return statement.where(
+            ReturnJob.status == ReturnJobStatus.HITL_REQUIRED,
+            ReturnJob.hitl_reviewer_id.is_(None),
+        )
+
+    if bucket == HITLQueueBucket.IN_REVIEW:
+        return statement.where(
+            ReturnJob.status == ReturnJobStatus.HITL_REQUIRED,
+            ReturnJob.hitl_reviewer_id.is_not(None),
+        )
+
+    if bucket == HITLQueueBucket.RECHECK:
+        return statement.where(
+            ReturnJob.status == ReturnJobStatus.RECHECK_REQUIRED,
+        )
+
+    return statement.where(
+        ReturnJob.status.in_(
+            [
+                ReturnJobStatus.APPROVED,
+                ReturnJobStatus.REJECTED,
+            ]
+        ),
+    )
+
+
+def get_hitl_queue(
+    *,
+    session: Session,
+    tenant_id: UUID,
+    bucket: HITLQueueBucket,
+    page: int = 1,
+    size: int = 10,
+) -> HITLQueueListResponse:
+    count_statement = select(func.count()).select_from(ReturnJob)
+    count_statement = _apply_hitl_queue_bucket_filter(
+        count_statement,
+        tenant_id=tenant_id,
+        bucket=bucket,
+    )
+    total = session.exec(count_statement).one()
+
+    statement = (
+        select(
+            ReturnJob,
+            Book.title,
+            InboundItem.lpn_barcode,
+            Location.barcode,
+            User.employee_id,
+            User.name,
+        )
+        .join(
+            Book,
+            ReturnJob.book_id == Book.id,
+        )
+        .outerjoin(
+            InboundItem,
+            ReturnJob.inbound_item_id == InboundItem.id,
+        )
+        .outerjoin(
+            Location,
+            InboundItem.location_id == Location.id,
+        )
+        .outerjoin(
+            User,
+            ReturnJob.hitl_reviewer_id == User.id,
+        )
+    )
+
+    statement = _apply_hitl_queue_bucket_filter(
+        statement,
+        tenant_id=tenant_id,
+        bucket=bucket,
+    )
+
+    if bucket == HITLQueueBucket.COMPLETED:
+        statement = statement.order_by(
+            ReturnJob.updated_at.desc(),
+            ReturnJob.id.desc(),
+        )
+    elif bucket == HITLQueueBucket.IN_REVIEW:
+        statement = statement.order_by(
+            ReturnJob.hitl_review_started_at.asc(),
+            ReturnJob.id.asc(),
+        )
+    else:
+        statement = statement.order_by(
+            ReturnJob.created_at.asc(),
+            ReturnJob.id.asc(),
+        )
+
+    rows = session.exec(
+        statement
+        .offset((page - 1) * size)
+        .limit(size)
+    ).all()
+
+    items: list[HITLBoardItem] = []
+
+    for (
+        return_job,
+        book_title,
+        lpn_barcode,
+        location_barcode,
+        reviewer_employee_id,
+        reviewer_name,
+    ) in rows:
+        logs = return_job.agent_logs or {}
+
+        items.append(
+            HITLBoardItem(
+                id=return_job.id,
+                book_id=return_job.book_id,
+                book_title=book_title,
+                lpn_barcode=lpn_barcode,
+                location_barcode=location_barcode,
+                status=return_job.status,
+                ubci_score=return_job.ubci_score,
+                final_grade=_resolve_final_grade(
+                    condition_grade=return_job.condition_grade,
+                    agent_logs=logs,
+                ),
+                reason_codes=_extract_reason_codes(logs),
+                reviewer_id=return_job.hitl_reviewer_id,
+                reviewer_employee_id=reviewer_employee_id,
+                reviewer_name=reviewer_name,
+                review_started_at=(
+                    return_job.hitl_review_started_at
+                ),
+                created_at=return_job.created_at,
+                updated_at=return_job.updated_at,
+            )
+        )
+
+    total_pages = (
+        (total + size - 1) // size
+        if total > 0
+        else 0
+    )
+
+    return HITLQueueListResponse(
+        items=items,
+        total=total,
+        page=page,
+        size=size,
+        total_pages=total_pages,
+        has_more=page < total_pages,
+    )
+
+def get_hitl_queue_metrics(
+    *,
+    session: Session,
+    tenant_id: UUID,
+) -> HITLQueueMetricsResponse:
+    now = datetime.utcnow()
+    today_start = now.replace(
+        hour=0,
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+    overdue_before = now - timedelta(minutes=30)
+
+    pending_count = session.exec(
+        select(func.count())
+        .select_from(ReturnJob)
+        .where(
+            ReturnJob.tenant_id == tenant_id,
+            ReturnJob.status == ReturnJobStatus.HITL_REQUIRED,
+            ReturnJob.hitl_reviewer_id.is_(None),
+        )
+    ).one()
+
+    today_completed_count = session.exec(
+        select(func.count())
+        .select_from(ReturnJob)
+        .where(
+            ReturnJob.tenant_id == tenant_id,
+            ReturnJob.status.in_(
+                [
+                    ReturnJobStatus.APPROVED,
+                    ReturnJobStatus.REJECTED,
+                ]
+            ),
+            ReturnJob.updated_at >= today_start,
+        )
+    ).one()
+
+    overdue_count = session.exec(
+        select(func.count())
+        .select_from(ReturnJob)
+        .where(
+            ReturnJob.tenant_id == tenant_id,
+            ReturnJob.status == ReturnJobStatus.HITL_REQUIRED,
+            ReturnJob.created_at <= overdue_before,
+        )
+    ).one()
+
+    return HITLQueueMetricsResponse(
+        pending_count=pending_count,
+        today_completed_count=today_completed_count,
+        overdue_count=overdue_count,
     )
 
 def _parse_final_report(

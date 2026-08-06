@@ -105,6 +105,65 @@ class InspectionHistoryListResponse(BaseModel):
         description="전체 페이지 수",
     )
 
+class HITLBoardItem(BaseModel):
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,
+    )
+
+    id: UUID
+    book_id: UUID
+    book_title: str
+    lpn_barcode: str | None = None
+    location_barcode: str | None = None
+
+    status: ReturnJobStatus
+    ubci_score: float | None = None
+    final_grade: FinalGrade | None = None
+    reason_codes: list[str] = Field(default_factory=list)
+
+    reviewer_id: UUID | None = None
+    reviewer_employee_id: str | None = None
+    reviewer_name: str | None = None
+    review_started_at: datetime | None = None
+
+    created_at: datetime
+    updated_at: datetime
+
+
+class HITLQueueListResponse(BaseModel):
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,
+    )
+
+    items: list[HITLBoardItem] = Field(
+        default_factory=list,
+    )
+    total: int = Field(ge=0)
+    page: int = Field(ge=1)
+    size: int = Field(ge=1)
+    total_pages: int = Field(ge=0)
+    has_more: bool
+
+class HITLQueueMetricsResponse(BaseModel):
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,
+    )
+
+    pending_count: int = Field(
+        ge=0,
+        description="아직 관리자가 가져가지 않은 HITL 검토 대기 건수",
+    )
+    today_completed_count: int = Field(
+        ge=0,
+        description="오늘 최종 승인 또는 반려 처리된 건수",
+    )
+    overdue_count: int = Field(
+        ge=0,
+        description="30분 이상 미처리 상태인 HITL 건수",
+    )
 
 class InspectionBookDetail(BaseModel):
     model_config = ConfigDict(

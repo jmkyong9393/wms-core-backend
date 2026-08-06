@@ -19,8 +19,10 @@ from app.models.wms import (
 )
 from app.schemas.admin_inspection import (
     AgentLogStep,
+    HITLQueueListResponse,
     InspectionDetailResponse,
     InspectionHistoryListResponse,
+    HITLQueueMetricsResponse,
 )
 from app.schemas.admin_dashboard import (
     WeeklyInsightResponse,
@@ -30,10 +32,13 @@ from app.schemas.admin_dashboard import (
     OutboundDashboardSummaryResponse,
     DashboardFlowTrendResponse,
 )
+from app.schemas.hitl import HITLQueueBucket
 from app.services.admin_inspection_service import (
     get_inspection_agent_logs,
     get_inspection_detail,
     get_inspection_history,
+    get_hitl_queue,
+    get_hitl_queue_metrics,
 )
 from app.services.outbound_dashboard_service import (
     get_outbound_dashboard_summary as get_outbound_dashboard_summary_service,
@@ -232,6 +237,57 @@ def get_admin_inspection_history(
         reason_code=reason_code,
         page=page,
         size=size,
+    )
+
+@router.get(
+    "/inspections/hitl-queue",
+    response_model=HITLQueueListResponse,
+    operation_id="getHitlInspectionQueue",
+    summary="HITL 처리 보드 목록 조회",
+)
+def get_hitl_inspection_queue(
+    bucket: HITLQueueBucket = Query(
+        default=HITLQueueBucket.PENDING,
+        description=(
+            "보드 구분값: "
+            "PENDING, IN_REVIEW, RECHECK, COMPLETED"
+        ),
+    ),
+    page: int = Query(
+        default=1,
+        ge=1,
+        description="해당 보드의 페이지 번호",
+    ),
+    size: int = Query(
+        default=10,
+        ge=1,
+        le=50,
+        description="해당 보드에 한 번에 표시할 카드 수",
+    ),
+    current_admin: User = Depends(require_admin_or_master),
+    session: Session = Depends(get_session),
+) -> HITLQueueListResponse:
+    return get_hitl_queue(
+        session=session,
+        tenant_id=current_admin.tenant_id,
+        bucket=bucket,
+        page=page,
+        size=size,
+    )
+
+@router.get(
+    "/inspections/hitl-queue/metrics",
+    response_model=HITLQueueMetricsResponse,
+    operation_id="getHitlInspectionQueueMetrics",
+    summary="HITL 처리 보드 KPI 조회",
+)
+def get_hitl_inspection_queue_metrics(
+    current_admin: User = Depends(require_admin_or_master),
+    session: Session = Depends(get_session),
+) -> HITLQueueMetricsResponse:
+    return get_hitl_queue_metrics(
+        session=session,
+        tenant_id=current_admin.tenant_id,
     )
 
 @router.get(
