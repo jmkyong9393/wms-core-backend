@@ -137,7 +137,7 @@ def list_outbound_orders(
         items=[
             OrderListItemResponse(
                 id=order.id,
-                customer_name=order.customer_name,
+                customer_name=order.customer_name or "고객사 미지정",
                 status=order.status,
                 total_price=order.total_price,
                 logistics_center=order.logistics_center,
