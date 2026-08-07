@@ -1,17 +1,49 @@
 import secrets
-from uuid import UUID
+from datetime import datetime
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
+
+from sqlalchemy import text
+from sqlmodel import Session
 
 from app.core.config import settings
 
 LABEL_SCAN_PAGE_PREFIX = "/scan"
-LPN_PREFIX = "LPN"
 CERTIFICATE_API_PREFIX = "/api/v1/certificate"
 CERTIFICATE_PAGE_PREFIX = "/certificate"
 
+LPN_PREFIX = "LPN"
+LPN_COMPANY_CODE = "NZ"
+KST = ZoneInfo("Asia/Seoul")
 
-def generate_lpn_barcode(inbound_item_id: UUID) -> str:
-    return f"{LPN_PREFIX}-{inbound_item_id.hex.upper()}"  # LPN 네이밍 규칙은 아직 미정. 변경될 여지 큼.
+
+def format_lpn_barcode(
+    issued_at: datetime,
+    sequence_number: int,
+) -> str:
+    if sequence_number < 1:
+        raise ValueError("LPN sequence number must be positive")
+
+    if issued_at.tzinfo is None:
+        issued_at = issued_at.replace(tzinfo=KST)
+
+    issued_date = issued_at.astimezone(KST).strftime("%y%m%d")
+
+    return (
+        f"{LPN_PREFIX}-{LPN_COMPANY_CODE}-"
+        f"{issued_date}-{sequence_number:06d}"
+    )
+
+
+def generate_lpn_barcode(session: Session) -> str:
+    sequence_number = session.execute(
+        text("SELECT nextval('lpn_barcode_sequence')")
+    ).scalar_one()
+
+    return format_lpn_barcode(
+        issued_at=datetime.now(KST),
+        sequence_number=int(sequence_number),
+    )
 
 
 def generate_certificate_token() -> str:

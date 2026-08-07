@@ -13,7 +13,7 @@ from sqlmodel import Session, select
 
 from app.api.dependencies.auth import (
     get_current_user,
-    require_admin,
+    require_admin_or_master,
 )
 from app.core.database import get_session
 from app.models.wms import (
@@ -531,7 +531,7 @@ def recheck_inspection(
 )
 def start_inspection_hitl_review(
     job_id: UUID,
-    current_admin: User = Depends(require_admin),
+    current_admin: User = Depends(require_admin_or_master),
     session: Session = Depends(get_session),
 ) -> HITLReviewStartResponse:
     return_job, already_claimed_by_me = start_hitl_review(
@@ -575,7 +575,7 @@ def start_inspection_hitl_review(
 def resolve_hitl_inspection(
     job_id: UUID,
     request: HITLDecisionRequest,
-    current_admin: User = Depends(require_admin),
+    current_admin: User = Depends(require_admin_or_master),
     session: Session = Depends(get_session),
 ) -> HITLDecisionResponse:
     

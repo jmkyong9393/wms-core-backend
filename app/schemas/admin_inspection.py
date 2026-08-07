@@ -229,6 +229,87 @@ class VisionDefect(BaseModel):
 
         return self
 
+class YoloCandidate(BaseModel):
+    """
+    YOLO가 제안한 모든 결함 후보.
+    VLM이 반려하거나 보류한 후보도 포함한다.
+    """
+
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,
+    )
+
+    candidate_id: int = Field(ge=0)
+    image_index: int = Field(ge=0)
+    image_view: Literal["FRONT", "BACK", "INNER"]
+    image_url: str = Field(min_length=1)
+
+    defect_type: str = Field(min_length=1)
+    confidence: float = Field(ge=0, le=1)
+    bbox: list[float] = Field(min_length=4, max_length=4)
+    coordinate_space: Literal["ORIGINAL_IMAGE_NORMALIZED"]
+
+    source_model: str | None = None
+    review_decision: Literal[
+        "CONFIRMED",
+        "REJECTED",
+        "UNCERTAIN",
+    ] = "UNCERTAIN"
+    reject_reason: str | None = None
+
+    @model_validator(mode="after")
+    def validate_original_image_bbox(self):
+        x1, y1, x2, y2 = self.bbox
+
+        if not (
+            0 <= x1 < x2 <= 1
+            and 0 <= y1 < y2 <= 1
+        ):
+            raise ValueError(
+                "bbox must be [x1, y1, x2, y2] in "
+                "ORIGINAL_IMAGE_NORMALIZED coordinates"
+            )
+
+        return self
+
+
+class ConfirmedDefect(BaseModel):
+    """
+    Vision Agent가 실제 결함으로 확정한 후보.
+    UBCI 및 품질보증서 계산에 사용하는 최종 결함 목록이다.
+    """
+
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,
+    )
+
+    candidate_id: int = Field(ge=0)
+    image_index: int = Field(ge=0)
+    image_view: Literal["FRONT", "BACK", "INNER"]
+    image_url: str = Field(min_length=1)
+
+    defect_type: str = Field(min_length=1)
+    confidence: float = Field(ge=0, le=1)
+    bbox: list[float] = Field(min_length=4, max_length=4)
+    coordinate_space: Literal["ORIGINAL_IMAGE_NORMALIZED"]
+
+    @model_validator(mode="after")
+    def validate_original_image_bbox(self):
+        x1, y1, x2, y2 = self.bbox
+
+        if not (
+            0 <= x1 < x2 <= 1
+            and 0 <= y1 < y2 <= 1
+        ):
+            raise ValueError(
+                "bbox must be [x1, y1, x2, y2] in "
+                "ORIGINAL_IMAGE_NORMALIZED coordinates"
+            )
+
+        return self
+
 
 class HITLHistoryItem(BaseModel):
     model_config = ConfigDict(
@@ -288,6 +369,15 @@ class InspectionDetailResponse(BaseModel):
             "원본 이미지 기준 정규화 BBOX가 포함된 "
             "Vision 결함 목록"
         ),
+    )
+
+    yolo_candidates: list[YoloCandidate] = Field(
+        default_factory=list,
+        description="YOLO가 제안한 전체 결함 후보 목록",
+    )
+    confirmed_defects: list[ConfirmedDefect] = Field(
+        default_factory=list,
+        description="Vision Agent가 최종 확정한 결함 목록",
     )
 
     ai_result: InspectionAIResult

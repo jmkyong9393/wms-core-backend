@@ -38,6 +38,11 @@ CREATE TYPE post_category AS ENUM ('NOTICE', 'MANUAL', 'GENERAL');
 CREATE TYPE notification_category AS ENUM ('FDS_ALERT', 'AGENT_ALERT', 'RESTOCK_ALERT');
 CREATE TYPE notification_severity AS ENUM ('HIGH', 'MEDIUM', 'LOW');
 
+CREATE SEQUENCE lpn_barcode_sequence
+    START WITH 1
+    INCREMENT BY 1
+    NO CYCLE;
+
 CREATE TABLE tenants (
     id UUID PRIMARY KEY,
     code VARCHAR(50) NOT NULL,

@@ -4,7 +4,13 @@ from decimal import Decimal
 
 from pydantic import BaseModel, Field
 
-from app.models.wms import OrderStatus, OrderType
+from app.models.wms import (
+    ConditionGrade,
+    InboundStatus,
+    InboundType,
+    OrderStatus,
+    OrderType,
+)
 
 class WeeklyInsightResponse(BaseModel):
     id: UUID
@@ -91,3 +97,53 @@ class DashboardFlowTrendResponse(BaseModel):
     items: list[DashboardFlowTrendItem] = Field(
         description="오래된 날짜 순 일별 입출고·검수 처리 시간 추이",
     )
+
+class InboundDashboardTrendItem(BaseModel):
+    date: Date
+    new_stock_quantity: int = Field(ge=0)
+    used_return_quantity: int = Field(ge=0)
+
+
+class InboundDashboardGradeItem(BaseModel):
+    grade: ConditionGrade
+    quantity: int = Field(ge=0)
+
+
+class InboundDashboardZoneItem(BaseModel):
+    zone: str
+    new_stock_quantity: int = Field(ge=0)
+    used_stock_quantity: int = Field(ge=0)
+    available_quantity: int = Field(ge=0)
+
+
+class RecentInboundActivityResponse(BaseModel):
+    inbound_item_id: UUID
+    book_title: str
+    inbound_type: InboundType
+    inbound_status: InboundStatus
+    quantity: int = Field(ge=0)
+    location_barcode: str | None = None
+    occurred_at: datetime
+
+
+class InboundDashboardSummaryResponse(BaseModel):
+    today_inbound_quantity: int = Field(
+        ge=0,
+        description="금일 실제 Inventory 입고 수량",
+    )
+    completed_inspection_count: int = Field(
+        ge=0,
+        description="금일 최종 처리된 중고·반품 검수 건수",
+    )
+    pending_inspection_count: int = Field(
+        ge=0,
+        description="처리 대기 또는 진행 중인 중고·반품 검수 건수",
+    )
+    recheck_required_count: int = Field(
+        ge=0,
+        description="재촬영이 필요한 중고·반품 검수 건수",
+    )
+    daily_inbound_trend: list[InboundDashboardTrendItem]
+    grade_distribution: list[InboundDashboardGradeItem]
+    zone_stocks: list[InboundDashboardZoneItem]
+    recent_activities: list[RecentInboundActivityResponse]
