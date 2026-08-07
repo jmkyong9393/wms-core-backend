@@ -110,6 +110,50 @@ services:
     # AI 검수 비동기 작업을 처리하는 Celery Worker
     command: ["celery", "-A", "app.worker", "worker", "-l", "info", "--pool=gevent", "-E"]
 
+  inspection-worker:
+    build: .
+    container_name: wms-core-inspection-worker
+    restart: always
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      chroma-server:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://admin:password@db:5432/wms_db
+      CHROMA_SERVER_HOST: chroma-server
+      CHROMA_SERVER_PORT: 8000
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./app:/app/app
+    command: ["celery", "-A", "app.worker", "worker", "-Q", "inspection", "-l", "info", "--pool=gevent", "-E", "-n", "inspection@%h"]
+
+  restock-worker:
+    build: .
+    container_name: wms-core-restock-worker
+    restart: always
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      chroma-server:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://admin:password@db:5432/wms_db
+      CHROMA_SERVER_HOST: chroma-server
+      CHROMA_SERVER_PORT: 8000
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./app:/app/app
+    command: ["celery", "-A", "app.worker", "worker", "-Q", "restock", "-l", "info", "--pool=gevent", "-E", "-n", "restock@%h"]
+
   mock-order-generator:
     build: .
     container_name: wms-core-mock-order-generator
