@@ -42,7 +42,7 @@ def build_inbound_item():
         book_id=UUID(
             "00000000-0000-4000-8000-000000000003"
         ),
-        certificate_token="test-certificate-token",
+        scan_value="test-certificate-token",
         lpn_barcode="LPN-TEST-0001",
         condition_grade=None,
     )
@@ -61,6 +61,7 @@ def build_book():
         isbn="9790000000001",
         title="LPN 스캔 테스트 도서",
         publisher="테스트 출판사",
+        cover_image_url="https://example.com/book-cover.jpg",
     )
 
 
@@ -104,7 +105,7 @@ def test_returns_available_inventory_location_after_inspection():
 
     result = lpn_scan_service.get_lpn_scan_detail(
         session=session,
-        certificate_token="test-certificate-token",
+        scan_value="test-certificate-token",
     )
 
     assert result.lpn_barcode == "LPN-TEST-0001"
@@ -117,6 +118,7 @@ def test_returns_available_inventory_location_after_inspection():
     assert result.location.barcode == "B-1-2"
     assert result.requires_retake is False
     assert result.return_job_id is None
+    assert result.book.cover_image_url == "https://example.com/book-cover.jpg"
 
 
 def test_marks_retake_required_before_inventory_is_created():
@@ -143,7 +145,7 @@ def test_marks_retake_required_before_inventory_is_created():
 
     result = lpn_scan_service.get_lpn_scan_detail(
         session=session,
-        certificate_token="test-certificate-token",
+        scan_value="test-certificate-token",
     )
 
     assert result.requires_retake is True
@@ -182,7 +184,7 @@ def test_returns_rejected_item_location():
 
     result = lpn_scan_service.get_lpn_scan_detail(
         session=session,
-        certificate_token="test-certificate-token",
+        scan_value="test-certificate-token",
     )
 
     assert result.final_grade == ConditionGrade.REJECT

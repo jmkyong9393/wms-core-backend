@@ -59,6 +59,7 @@ def test_returns_new_and_used_inventory_availability_fields():
                 "stock_type": "NEW_STOCK",
                 "book_title": "신간 도서",
                 "book_isbn": "9790000000001",
+                "book_cover_image_url": "https://image.aladin.co.kr/product/example.jpg",
                 "grade": None,
                 "barcode": "A-1-1",
                 "location_zone": "A",
@@ -82,6 +83,7 @@ def test_returns_new_and_used_inventory_availability_fields():
                 "stock_type": "USED_ITEM",
                 "book_title": "중고 도서",
                 "book_isbn": "9790000000002",
+                "book_cover_image_url": None,
                 "grade": "EXCELLENT",
                 "barcode": "B-1-1",
                 "location_zone": "B",
@@ -121,6 +123,10 @@ def test_returns_new_and_used_inventory_availability_fields():
     assert response.total_pages == 1
 
     assert new_stock.stock_type == "NEW_STOCK"
+    assert response.items[0].book.cover_image_url == (
+        "https://image.aladin.co.kr/product/example.jpg"
+    )
+    assert response.items[1].book.cover_image_url is None
     assert new_stock.grade is None
     assert new_stock.quantity == 10
     assert new_stock.reserved_quantity == 3

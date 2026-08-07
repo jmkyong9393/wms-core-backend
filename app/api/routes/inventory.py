@@ -38,6 +38,10 @@ class InventoryBookResponse(BaseModel):
         default=None,
         description="도서 ISBN",
     )
+    cover_image_url: str | None = Field(
+        default=None,
+        description="도서 표지 이미지 URL",
+    )
 
 
 class InventoryListItemResponse(BaseModel):
@@ -268,6 +272,7 @@ def list_inventory(
             Inventory.id.label("id"),
             Book.title.label("book_title"),
             Book.isbn.label("book_isbn"),
+            Book.cover_image_url.label("book_cover_image_url"),
             literal("NEW_STOCK").label("stock_type"),
             literal(
                 ConditionGrade.MINT.value,
@@ -319,6 +324,7 @@ def list_inventory(
             InventoryUsedItem.id.label("id"),
             Book.title.label("book_title"),
             Book.isbn.label("book_isbn"),
+            Book.cover_image_url.label("book_cover_image_url"),
             literal("USED_ITEM").label("stock_type"),
             cast(
                 InventoryUsedItem.condition_grade,
@@ -481,6 +487,7 @@ def list_inventory(
                 book=InventoryBookResponse(
                     title=row_data["book_title"],
                     isbn=row_data["book_isbn"],
+                    cover_image_url=row_data["book_cover_image_url"],
                 ),
                 stock_type=row_data["stock_type"],
                 grade=row_data["grade"],
@@ -549,7 +556,11 @@ def get_new_stock_inventory_detail(
     inventory, book, location = row
     return InventoryListItemResponse(
         id=inventory.id,
-        book=InventoryBookResponse(title=book.title, isbn=book.isbn),
+        book=InventoryBookResponse(
+            title=book.title,
+            isbn=book.isbn,
+            cover_image_url=book.cover_image_url,
+        ),
         stock_type="NEW_STOCK",
         grade=ConditionGrade.MINT,
         zone=_format_location(

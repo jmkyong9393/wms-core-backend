@@ -51,6 +51,7 @@ def register_book_by_isbn(
         isbn=canonical_isbn,
         title=metadata.title,
         publisher=metadata.publisher,
+        cover_image_url=metadata.cover_image_url,
         category=metadata.category,
         base_price=metadata.base_price,
     )

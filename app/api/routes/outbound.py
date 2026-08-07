@@ -58,6 +58,8 @@ class PickingInstructionItem(BaseModel):
     order_item_id: UUID
     book_id: UUID
     isbn: str | None = None
+    book_title: str | None = None
+    cover_image_url: str | None = None
     quantity: int
     condition_grade: ConditionGrade | None = None
     lpn_barcode: str | None = None
@@ -328,6 +330,8 @@ def create_picking_instruction(
                             order_item_id=order_item.id,
                             book_id=inventory_used_item.book_id,
                             isbn=books_by_id[inventory_used_item.book_id].isbn,
+                            book_title=books_by_id[inventory_used_item.book_id].title,
+                            cover_image_url=books_by_id[inventory_used_item.book_id].cover_image_url,
                             quantity=1,
                             condition_grade=inventory_used_item.condition_grade,
                             lpn_barcode=inventory_used_item.lpn_barcode,
@@ -408,6 +412,8 @@ def create_picking_instruction(
                             order_item_id=order_item.id,
                             book_id=inventory.book_id,
                             isbn=books_by_id[inventory.book_id].isbn,
+                            book_title=books_by_id[inventory.book_id].title,
+                            cover_image_url=books_by_id[inventory.book_id].cover_image_url,
                             quantity=reserved_quantity,
                             condition_grade=ConditionGrade.MINT,
                             lpn_barcode=None,
@@ -589,6 +595,8 @@ def get_picking_instruction(
                     order_item_id=allocation.order_item_id,
                     book_id=inventory.book_id,
                     isbn=book.isbn,
+                    book_title=book.title,
+                    cover_image_url=book.cover_image_url,
                     quantity=allocation.quantity,
                     condition_grade=ConditionGrade.MINT,
                     lpn_barcode=None,
