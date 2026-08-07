@@ -184,7 +184,7 @@ def create_used_book_inbound(
             inbound_job_id=inbound_job.id,
             book_id=book.id,
             quantity=1,
-            lpn_barcode=generate_lpn_barcode(request_id),
+            lpn_barcode=generate_lpn_barcode(session),
             certificate_token=generate_certificate_token(),
         )
         session.add(inbound_item)
