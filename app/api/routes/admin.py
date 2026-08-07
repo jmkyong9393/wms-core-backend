@@ -31,6 +31,7 @@ from app.schemas.admin_dashboard import (
     FdsPolicyUpdateRequest,
     OutboundDashboardSummaryResponse,
     DashboardFlowTrendResponse,
+    InboundDashboardSummaryResponse,
 )
 from app.schemas.hitl import HITLQueueBucket
 from app.services.admin_inspection_service import (
@@ -45,6 +46,10 @@ from app.services.outbound_dashboard_service import (
 )
 from app.services.dashboard_flow_trend_service import (
     get_dashboard_flow_trend as get_dashboard_flow_trend_service,
+)
+from app.services.inbound_dashboard_service import (
+    get_inbound_dashboard_summary
+    as get_inbound_dashboard_summary_service,
 )
 
 router = APIRouter()
@@ -142,6 +147,31 @@ def get_outbound_dashboard_summary(
     session: Session = Depends(get_session),
 ) -> OutboundDashboardSummaryResponse:
     return get_outbound_dashboard_summary_service(session)
+
+@router.get(
+    "/dashboard/inbound-summary",
+    response_model=InboundDashboardSummaryResponse,
+    operation_id="getInboundDashboardSummary",
+    summary="입고 통합 대시보드 요약 조회",
+    description=(
+        "금일 입고 수량, 검수 처리 현황, 최근 입고 추이, "
+        "중고·반품 검수 등급 분포, 구역별 가용 재고 및 최근 입고 내역을 반환합니다."
+    ),
+)
+def get_inbound_dashboard_summary(
+    days: int = Query(
+        default=7,
+        ge=1,
+        le=31,
+        description="입고 추이 조회 기간(일)",
+    ),
+    _: User = Depends(require_admin_or_master),
+    session: Session = Depends(get_session),
+) -> InboundDashboardSummaryResponse:
+    return get_inbound_dashboard_summary_service(
+        session=session,
+        days=days,
+    )
 
 
 @router.get(
