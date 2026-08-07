@@ -32,6 +32,8 @@ from app.schemas.admin_inspection import (
     HITLBoardItem,
     HITLQueueListResponse,
     HITLQueueMetricsResponse,
+    ConfirmedDefect,
+    YoloCandidate,
 )
 from app.schemas.hitl import HITLQueueBucket
 from app.services.lpn_service import build_label_scan_qr_url
@@ -408,6 +410,7 @@ def _apply_hitl_queue_bucket_filter(
 ):
     statement = statement.where(
         ReturnJob.tenant_id == tenant_id,
+        ReturnJob.agent_logs.op("?")("hitl"),
     )
 
     if bucket == HITLQueueBucket.PENDING:
@@ -595,6 +598,7 @@ def get_hitl_queue_metrics(
                     ReturnJobStatus.REJECTED,
                 ]
             ),
+            ReturnJob.agent_logs.op("?")("hitl"),
             ReturnJob.updated_at >= today_start,
         )
     ).one()
@@ -758,6 +762,34 @@ def get_inspection_detail(
         if isinstance(report_defects, list):
             defects = report_defects
 
+    raw_yolo_candidates = logs.get("yolo_candidates")
+    yolo_candidates = _build_yolo_candidates(
+        raw_yolo_candidates
+        if isinstance(raw_yolo_candidates, list)
+        else []
+    )
+
+    raw_confirmed_defects = logs.get("confirmed_defects")
+
+    # 신규 AI 결과는 confirmed_defects를 사용한다.
+    # 기존 검수 데이터는 defects를 최종 확정 결함으로 간주해 호환한다.
+    confirmed_defects = _build_confirmed_defects(
+        raw_confirmed_defects
+        if isinstance(raw_confirmed_defects, list)
+        else defects
+    )
+
+    # 기존 프론트의 visionDetections 응답은 유지한다.
+    legacy_vision_detections = _build_vision_detections(defects)
+
+    # 신규 형식만 존재하는 경우에도 기존 화면이 깨지지 않도록 보조 변환한다.
+    if not legacy_vision_detections and confirmed_defects:
+        legacy_vision_detections = (
+            _build_legacy_vision_detections_from_confirmed(
+                confirmed_defects
+            )
+        )
+
     ai_reason_code = logs.get("reason_code")
 
     if ai_reason_code is None and parsed_report:
@@ -788,7 +820,9 @@ def get_inspection_detail(
             str(image_path)
             for image_path in (return_job.image_paths or [])
         ],
-        vision_detections=_build_vision_detections(defects),
+        vision_detections=legacy_vision_detections,
+        yolo_candidates=yolo_candidates,
+        confirmed_defects=confirmed_defects,
         ai_result=InspectionAIResult(
             decision=logs.get("ai_decision"),
             reason_code=ai_reason_code,
@@ -849,3 +883,83 @@ def _build_vision_detections(
             continue
 
     return detections
+
+def _build_yolo_candidates(
+    candidates: list[object],
+) -> list[YoloCandidate]:
+    result: list[YoloCandidate] = []
+
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+
+        try:
+            result.append(
+                YoloCandidate.model_validate(candidate)
+            )
+        except ValidationError:
+            continue
+
+    return result
+
+
+def _build_confirmed_defects(
+    defects: list[object],
+) -> list[ConfirmedDefect]:
+    result: list[ConfirmedDefect] = []
+
+    for index, defect in enumerate(defects):
+        if not isinstance(defect, dict):
+            continue
+
+        payload = dict(defect)
+
+        review_decision = payload.get("review_decision")
+
+        if review_decision in {"REJECTED", "UNCERTAIN"}:
+            continue
+
+        # 과거 defects 데이터에는 candidate_id가 없으므로,
+        # 이전 데이터 호환용으로 배열 순번을 부여한다.
+        payload.setdefault("candidate_id", index)
+
+        # 기존 구현의 INSIDE 값을 신규 계약의 INNER로 변환한다.
+        if payload.get("image_view") == "INSIDE":
+            payload["image_view"] = "INNER"
+
+        try:
+            result.append(
+                ConfirmedDefect.model_validate(payload)
+            )
+        except ValidationError:
+            continue
+
+    return result
+
+
+def _build_legacy_vision_detections_from_confirmed(
+    confirmed_defects: list[ConfirmedDefect],
+) -> list[VisionDefect]:
+    """
+    신규 confirmed_defects만 저장된 경우에도 기존 visionDetections
+    프론트 응답을 유지하기 위한 호환 변환.
+    """
+    return [
+        VisionDefect(
+            image_index=defect.image_index,
+            image_view=(
+                "INSIDE"
+                if defect.image_view == "INNER"
+                else defect.image_view
+            ),
+            image_url=defect.image_url,
+            type=defect.defect_type,
+            ratio=0,
+            defect_type=defect.defect_type,
+            confidence=defect.confidence,
+            yolo_confidence=defect.confidence,
+            bbox=defect.bbox,
+            coordinate_space=defect.coordinate_space,
+        )
+        for defect in confirmed_defects
+    ]
