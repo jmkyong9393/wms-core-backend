@@ -132,6 +132,7 @@ services:
       REDIS_URL: redis://redis:6379/0
     volumes:
       - ./app:/app/app
+      - ./models:/app/models:ro
     command: ["celery", "-A", "app.worker", "worker", "-Q", "inspection", "-l", "info", "--pool=gevent", "-E", "-n", "inspection@%h"]
 
   restock-worker:

@@ -1,4 +1,10 @@
 import os
+
+# LangSmith 추적을 사용하더라도 검수 이미지 경로와 판정 State 본문은
+# 명시적으로 허용하지 않는 한 외부 추적 저장소에 전송하지 않습니다.
+os.environ.setdefault("LANGSMITH_HIDE_INPUTS", "true")
+os.environ.setdefault("LANGSMITH_HIDE_OUTPUTS", "true")
+
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
 import json
@@ -19,9 +25,25 @@ from .agents import (
 
 
 MAX_REVISIONS = 2
-VISION_RETRY_CODES = {"QUALITY_ERROR","VISION_RESULT_CONFLICT","VISION_LOW_CONFIDENCE"}
+VISION_RETRY_CODES = {"VISION_RESULT_CONFLICT"}
 POLICY_RETRY_CODES = {"UBCI_POLICY_VIOLATION","POLICY_LOW_CONFIDENCE"}
 HITL_REASON_CODES = {"VISION_LOW_CONFIDENCE","VISION_UNCLASSIFIED_DEFECT","POLICY_REQUIRES_HITL"}
+SYSTEM_FAILURE_CODES = {"QUALITY_ERROR"}
+
+
+def technical_failure_node(
+    state: WMSInspectionState,
+) -> WMSInspectionState:
+    """사람의 판정으로 해결할 수 없는 기술 실패를 Worker에 전달."""
+
+    detail = (
+        state.get("repair_directive")
+        or state.get("vision_reason_code")
+        or state.get("vision_status")
+        or "알 수 없는 AI 파이프라인 오류"
+    )
+    raise RuntimeError(str(detail))
+
 
 # LangSmith Tracing 활성화 (LLMOps)
 #os.environ["LANGSMITH_TRACING"] = "true"
@@ -108,7 +130,7 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
         or raw_revision_count < 0
     ):
         return route(
-            "human_node",
+            "technical_failure_node",
             "잘못된 revision_count",
         )
 
@@ -145,7 +167,7 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
                     "재촬영 이미지의 책 영역 탐지 완료",
                 )
             return route(
-                "human_node",
+                "technical_failure_node",
                 "재촬영 이미지의 책 영역 탐지 실패",
             )
 
@@ -225,15 +247,20 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
             "허용되지 않은 관리자 입력",
         )
 
-    # Vision이 관리자 검토 또는 실패를 명시한 경우 즉시 HITL 이관
+    # Vision이 관리자 검토를 명시한 경우에만 HITL 이관
     # is_mint=None은 REVIEW_REQUIRED 상태에서 정상적인 값이므로
     # Vision 출력 누락으로 판단하지 않음
-    if vision_status in {
-        "REVIEW_REQUIRED",
-        "FAILED",
-    }:
+    if vision_status == "REVIEW_REQUIRED":
         return route(
             "human_node",
+            vision_reason_code or vision_status,
+        )
+
+    # 파일·모델·외부 API 오류는 사람 판정 대상이 아니므로
+    # Worker의 기존 재시도 및 FAILED 저장 경로로 전달
+    if vision_status == "FAILED":
+        return route(
+            "technical_failure_node",
             vision_reason_code or vision_status,
         )
 
@@ -243,12 +270,13 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
         "COMPLETED",
     }:
         return route(
-            "human_node",
+            "technical_failure_node",
             "허용되지 않은 vision_status: "
             f"{vision_status}",
         )
 
-    # Vision 외 에이전트의 무한 재처리 방지
+    # Vision 외 에이전트의 무한 재처리 방지. 운영 정책에 따라
+    # 두 번의 재처리 이후에는 관리자에게 마지막 증거를 제공합니다.
     if revision_count >= MAX_REVISIONS:
         return route(
             "human_node",
@@ -287,7 +315,7 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
             or len(book_regions) != len(IMAGE_VIEWS)
         ):
             return route(
-                "human_node",
+                "technical_failure_node",
                 state.get("repair_directive")
                 or "Book Detector 출력이 불완전함",
             )
@@ -299,6 +327,12 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
     if reason_code in HITL_REASON_CODES:
         return route(
             "human_node",
+            reason_code,
+        )
+
+    if reason_code in SYSTEM_FAILURE_CODES:
+        return route(
+            "technical_failure_node",
             reason_code,
         )
 
@@ -344,23 +378,16 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
             state.get("score_breakdown")
         ) is list
 
-                and (
-            state.get("fatal_defect_detected") is None
-            or type(
-                state.get("fatal_defect_detected")
-            ) is bool
-        )
+        and type(
+            state.get("fatal_defect_detected")
+        ) is bool
 
-        and (
-            state.get("grade_reason_code") is None
-            or (
-                type(
-                    state.get("grade_reason_code")
-                ) is str
-                and bool(
-                    state["grade_reason_code"].strip()
-                )
-            )
+        and type(
+            state.get("grade_reason_code")
+        ) is str
+
+        and bool(
+            state["grade_reason_code"].strip()
         )
 
         and type(
@@ -384,25 +411,6 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
         <= 1
     )
 
-    # 최초 Vision MINT 결과의 Fast-track
-    initial_mint_fast_track = (
-        state.get("is_mint") is True
-        and state.get("defects") == []
-        and state.get("ubci_score") is None
-        and state.get("predicted_grade") is None
-        and state.get("rule_reference") is None
-        and state.get("policy_confidence") is None
-        and state.get(
-            "primary_reason_code"
-        ) is None
-    )
-
-    if initial_mint_fast_track:
-        return route(
-            "auto_refund_agent",
-            "최초 Vision MINT Fast-track",
-        )
-
     # Vision 뒤에는 반드시 Policy
     if not policy_output_complete:
         return route(
@@ -415,7 +423,7 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
 
     if is_mint is True and defects:
         return route(
-            "human_node",
+            "technical_failure_node",
             "MINT인데 결함이 존재함",
         )
 
@@ -424,11 +432,16 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
         and not defects
     ):
         return route(
-            "human_node",
+            "technical_failure_node",
             "비정상인데 결함이 없음",
         )
 
     if reason_code == "OK":
+        if is_mint is True:
+            return route(
+                "auto_refund_agent",
+                "Policy와 Critic을 통과한 MINT Fast-track",
+            )
         return route(
             "report_agent",
             "Critic 검증 통과",
@@ -436,7 +449,7 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
 
     if reason_code is not None:
         return route(
-            "human_node",
+            "technical_failure_node",
             "처리할 수 없는 Reason Code: "
             f"{reason_code}",
         )
@@ -471,6 +484,10 @@ def build_supervisor_graph():
     builder.add_node("policy_agent", policy_agent)
     builder.add_node("critic_agent", critic_agent)
     builder.add_node("human_node", human_node)
+    builder.add_node(
+        "technical_failure_node",
+        technical_failure_node,
+    )
     builder.add_node("auto_refund_agent", auto_refund_agent)
     builder.add_node("report_agent", report_agent)
 
@@ -490,6 +507,7 @@ def build_supervisor_graph():
         "policy_agent": "policy_agent",
         "critic_agent": "critic_agent",
         "human_node": "human_node",
+        "technical_failure_node": "technical_failure_node",
         "auto_refund_agent": "auto_refund_agent",
         "report_agent": "report_agent",
         },
@@ -502,6 +520,7 @@ def build_supervisor_graph():
     builder.add_edge("policy_agent", "supervisor")
     builder.add_edge("critic_agent", "supervisor")
     builder.add_edge("human_node", "supervisor")
+    builder.add_edge("technical_failure_node", END)
     
     # 5. End 엣지 (종료)
     # TODO: auto_refund_agent 와 report_agent 를 END 로 연결
@@ -540,8 +559,14 @@ def resume_hitl(
             "Supervisor 그래프가 생성되지 않았습니다."
         )
 
-    if not isinstance(thread_id, str) or not thread_id.strip():
-        raise ValueError("thread_id가 필요합니다.")
+    if (
+        not isinstance(thread_id, str)
+        or not thread_id.strip()
+        or len(thread_id) > 500
+    ):
+        raise ValueError(
+            "thread_id는 1~500자의 문자열이어야 합니다."
+        )
 
     raw_decision = getattr(
         human_feedback,
@@ -630,16 +655,30 @@ def resume_hitl(
             "vision_status": None,
             "vision_reason_code": None,
             "missed_defect_suspected": None,
+            "vision_observations": None,
             "is_mint": None,
             "defects": None,
             "vision_confidence": None,
             "ubci_score": None,
+            "provisional_ubci_score": None,
             "predicted_grade": None,
             "score_breakdown": None,
+            "provisional_score_breakdown": None,
             "fatal_defect_detected": None,
             "grade_reason_code": None,
             "rule_reference": None,
             "policy_confidence": None,
+            "policy_evidence": None,
+            "policy_rag_status": None,
+            "policy_rag_domains": None,
+            "critic_rag_used": None,
+            "critic_retrieved_case_ids": None,
+            "critic_retrieval_scores": None,
+            "critic_retrieval_count": None,
+            "critic_decision_source": None,
+            "critic_explanation": None,
+            "critic_rag_confidence": None,
+            "critic_prompt_version": None,
             "reason_code": None,
             "repair_directive": "관리자 재촬영 요청",
             "overall_confidence": None,
@@ -651,7 +690,35 @@ def resume_hitl(
         as_node="human_node",
     )
 
-    return app_graph.invoke(
+    final_state = app_graph.invoke(
         None,
         config=config,
     )
+
+    if decision != "RE_CHECK":
+        try:
+            from .rag.critic_cases import (
+                upsert_authoritative_hitl_case,
+            )
+
+            stored_case_id = (
+                upsert_authoritative_hitl_case(
+                    final_state,
+                    case_id=f"hitl-{thread_id}",
+                    final_decision=decision,
+                    primary_reason_code=reason,
+                    target_grade=normalized_target_grade,
+                )
+            )
+            if stored_case_id:
+                print(
+                    "[Critic RAG] HITL 권위 판례 저장 - "
+                    f"{stored_case_id}"
+                )
+        except Exception as error:
+            print(
+                "[Critic RAG] HITL 판례 저장 실패 - "
+                f"{type(error).__name__}"
+            )
+
+    return final_state

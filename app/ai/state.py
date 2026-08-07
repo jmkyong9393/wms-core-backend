@@ -106,16 +106,22 @@ class WMSInspectionState(TypedDict, total=False):
     vision_status: Optional[VisionStatus] # Vision 실행 상태
     vision_reason_code: Optional[VisionReasonCode]  # Vision이 REVIEW_REQUIRED 또는 FAILED가 된 사유
     missed_defect_suspected: Optional[bool]  # YOLO 후보 밖의 명확한 결함 의심 여부
+    vision_observations: Optional[list[dict]]  # 학습셋 없는 사진의 GPT-4o 전체 판독 소견
 
     # 2. Policy Agent (UBCI 대조)
     is_mint: Optional[bool]
-    ubci_score: Optional[float]  # 훼손도 기반 차감 점수, 0~100
+    ubci_score: Optional[float]  # 모든 정책 판단이 끝난 최종 점수, 0~100
+    provisional_ubci_score: Optional[float]  # HITL 결함을 제외한 임시 상한 점수
     predicted_grade: Optional[Grade]  # Policy가 산정한 최초 등급
-    score_breakdown: Optional[list[dict]]  # 결함별 심각도와 감점 내역
+    score_breakdown: Optional[list[dict]]  # 최종 결함별 감점 내역
+    provisional_score_breakdown: Optional[list[dict]]  # 자동 계산 가능한 결함의 임시 감점 내역
     fatal_defect_detected: Optional[bool]  # 즉시 반려 결함 존재 여부
     grade_reason_code: Optional[str]  # 자동 등급 산정의 대표 사유
     rule_reference: Optional[str]  # 점수 산정에 사용한 정책 근거
-    policy_confidence: Optional[float]  # 정책 검색·계산 신뢰도, 0~1
+    policy_confidence: Optional[float]  # 결정론적 정책 계산 신뢰도, 0~1
+    policy_evidence: Optional[List[dict]]
+    policy_rag_status: Optional[str]  # USED 또는 RULE_ENGINE_FALLBACK
+    policy_rag_domains: Optional[List[str]]  # 실제 검색된 정책 도메인
 
     # 3. Critic Agent (교차 검증 및 환각 방어)
     reason_code: Optional[ReasonCode]  # 검증 결과 코드. OK이면 자동 통과

@@ -1,6 +1,9 @@
+import hashlib
 import json
+import math
 import os
 
+from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Any, Literal
 
@@ -30,9 +33,71 @@ CRITIC_PROMPT_VERSION = "CRITIC_CASE_RAG_V1"
 
 # 판례 검색 개수
 DEFAULT_TOP_K = 3
+MAX_TOP_K = 10
+MAX_CASE_CONTENT_CHARS = 6000
 
 # 이 값보다 낮은 LLM 판단은 최종 판정에 사용하지 않음
 MIN_RAG_DECISION_CONFIDENCE = 0.75
+
+_RAG_DEFECT_FIELDS = frozenset({
+    "type",
+    "defect_type",
+    "location",
+    "bbox",
+    "ratio",
+    "confidence",
+    "image_index",
+    "image_view",
+    "text_overlap",
+    "morphology_severe",
+})
+_RAG_SCORE_FIELDS = frozenset({
+    "type",
+    "detected_types",
+    "total_ratio",
+    "severity",
+    "text_overlap",
+    "applied_penalty",
+    "fatal",
+})
+
+
+def _safe_rag_value(value: Any) -> Any:
+    """RAG에 필요한 작은 JSON 값만 보존."""
+
+    if value is None or type(value) in {bool, int}:
+        return value
+    if type(value) is float:
+        return value if math.isfinite(value) else None
+    if isinstance(value, str):
+        return value[:200]
+    if isinstance(value, list):
+        return [
+            _safe_rag_value(item)
+            for item in value[:20]
+            if not isinstance(item, dict)
+        ]
+    return None
+
+
+def _sanitize_records(
+    records: Any,
+    *,
+    allowed_fields: frozenset[str],
+    max_items: int = 50,
+) -> list[dict[str, Any]]:
+    if not isinstance(records, list):
+        return []
+
+    return [
+        {
+            key: _safe_rag_value(value)
+            for key, value in record.items()
+            if key in allowed_fields
+        }
+        for record in records[:max_items]
+        if isinstance(record, dict)
+    ]
 
 
 FinalDecision = Literal[
@@ -54,13 +119,18 @@ class CriticCase(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    case_id: str = Field(min_length=1)
-    tenant_id: str = Field(default="GLOBAL", min_length=1)
-    policy_version: str = Field(min_length=1)
+    case_id: str = Field(min_length=1, max_length=200)
+    tenant_id: str = Field(
+        default="GLOBAL",
+        min_length=1,
+        max_length=100,
+    )
+    policy_version: str = Field(min_length=1, max_length=100)
 
     is_mint: bool
     defects: list[dict[str, Any]] = Field(
         default_factory=list,
+        max_length=50,
     )
     vision_confidence: float = Field(
         ge=0,
@@ -74,6 +144,7 @@ class CriticCase(BaseModel):
     predicted_grade: Grade
     score_breakdown: list[dict[str, Any]] = Field(
         default_factory=list,
+        max_length=50,
     )
     policy_confidence: float = Field(
         ge=0,
@@ -81,13 +152,19 @@ class CriticCase(BaseModel):
     )
 
     final_decision: FinalDecision
-    primary_reason_code: str | None = None
+    primary_reason_code: str | None = Field(
+        default=None,
+        max_length=100,
+    )
     target_grade: Literal["A", "B"] | None = None
     final_grade: Grade
 
     source: Literal["SEED", "HITL"] = "HITL"
     is_authoritative: bool = False
-    reviewed_at: str | None = None
+    reviewed_at: str | None = Field(
+        default=None,
+        max_length=64,
+    )
 
     @model_validator(mode="after")
     def validate_final_decision(self):
@@ -151,18 +228,32 @@ class CriticFewShotDecision(BaseModel):
 
     is_consistent: bool
     has_sufficient_evidence: bool
-    explanation: str = Field(min_length=1)
+    explanation: str = Field(min_length=1, max_length=1000)
     supporting_case_ids: list[str] = Field(
         default_factory=list,
+        max_length=MAX_TOP_K,
     )
     confidence: float = Field(
         ge=0,
         le=1,
     )
-    repair_directive: str | None = None
+    repair_directive: str | None = Field(
+        default=None,
+        max_length=1000,
+    )
 
     @model_validator(mode="after")
     def validate_decision(self):
+        if any(
+            not isinstance(case_id, str)
+            or not case_id.strip()
+            or len(case_id) > 200
+            for case_id in self.supporting_case_ids
+        ):
+            raise ValueError(
+                "supporting_case_ids에는 유효한 판례 ID만 허용됩니다."
+            )
+
         if (
             self.has_sufficient_evidence
             and not self.supporting_case_ids
@@ -200,7 +291,7 @@ def get_chroma_client():
     port = int(
         os.getenv(
             "CHROMA_SERVER_PORT",
-            "8000",
+            "8002",
         )
     )
 
@@ -238,14 +329,20 @@ def build_case_document(case: CriticCase) -> str:
     """
 
     defects_json = json.dumps(
-        case.defects,
+        _sanitize_records(
+            case.defects,
+            allowed_fields=_RAG_DEFECT_FIELDS,
+        ),
         ensure_ascii=False,
         sort_keys=True,
         default=str,
     )
 
     score_breakdown_json = json.dumps(
-        case.score_breakdown,
+        _sanitize_records(
+            case.score_breakdown,
+            allowed_fields=_RAG_SCORE_FIELDS,
+        ),
         ensure_ascii=False,
         sort_keys=True,
         default=str,
@@ -285,10 +382,14 @@ def upsert_critic_case(
         else CriticCase.model_validate(case)
     )
 
+    safe_defects = _sanitize_records(
+        parsed_case.defects,
+        allowed_fields=_RAG_DEFECT_FIELDS,
+    )
     defect_types = sorted(
         {
             str(defect.get("type", "")).strip()
-            for defect in parsed_case.defects
+            for defect in safe_defects
             if (
                 isinstance(defect, dict)
                 and str(
@@ -341,12 +442,79 @@ def upsert_critic_case(
         metadata=metadata,
     )
 
+    storage_id = hashlib.sha256(
+        (
+            f"{parsed_case.tenant_id}\0"
+            f"{parsed_case.case_id}"
+        ).encode("utf-8")
+    ).hexdigest()
     get_case_vectorstore().add_documents(
         documents=[document],
-        ids=[parsed_case.case_id],
+        ids=[storage_id],
     )
 
     return parsed_case.case_id
+
+
+def upsert_authoritative_hitl_case(
+    state: WMSInspectionState,
+    *,
+    case_id: str,
+    final_decision: FinalDecision,
+    primary_reason_code: str,
+    target_grade: Literal["A", "B"] | None = None,
+) -> str | None:
+    """점수와 등급이 완성된 HITL 결과만 권위 판례로 저장."""
+
+    required_values = (
+        state.get("is_mint"),
+        state.get("vision_confidence"),
+        state.get("ubci_score"),
+        state.get("predicted_grade"),
+        state.get("policy_confidence"),
+        state.get("final_grade"),
+        state.get("rule_reference"),
+    )
+    if any(value is None for value in required_values):
+        return None
+
+    return upsert_critic_case(
+        CriticCase(
+            case_id=case_id,
+            tenant_id=str(
+                state.get("tenant_id") or "GLOBAL"
+            ),
+            policy_version=str(
+                state["rule_reference"]
+            ),
+            is_mint=bool(state["is_mint"]),
+            defects=_sanitize_records(
+                state.get("defects"),
+                allowed_fields=_RAG_DEFECT_FIELDS,
+            ),
+            vision_confidence=float(
+                state["vision_confidence"]
+            ),
+            ubci_score=float(state["ubci_score"]),
+            predicted_grade=state["predicted_grade"],
+            score_breakdown=_sanitize_records(
+                state.get("score_breakdown"),
+                allowed_fields=_RAG_SCORE_FIELDS,
+            ),
+            policy_confidence=float(
+                state["policy_confidence"]
+            ),
+            final_decision=final_decision,
+            primary_reason_code=primary_reason_code,
+            target_grade=target_grade,
+            final_grade=state["final_grade"],
+            source="HITL",
+            is_authoritative=True,
+            reviewed_at=datetime.now(
+                timezone.utc
+            ).isoformat(),
+        )
+    )
 
 
 def build_state_snapshot(
@@ -364,7 +532,10 @@ def build_state_snapshot(
             "GLOBAL",
         ),
         "is_mint": state.get("is_mint"),
-        "defects": state.get("defects") or [],
+        "defects": _sanitize_records(
+            state.get("defects"),
+            allowed_fields=_RAG_DEFECT_FIELDS,
+        ),
         "vision_confidence": state.get(
             "vision_confidence"
         ),
@@ -374,9 +545,9 @@ def build_state_snapshot(
         "predicted_grade": state.get(
             "predicted_grade"
         ),
-        "score_breakdown": (
-            state.get("score_breakdown")
-            or []
+        "score_breakdown": _sanitize_records(
+            state.get("score_breakdown"),
+            allowed_fields=_RAG_SCORE_FIELDS,
         ),
         "rule_reference": state.get(
             "rule_reference"
@@ -416,8 +587,10 @@ def search_similar_cases(
     관리자 확정 판례를 검색합니다.
     """
 
-    if top_k < 1:
-        return []
+    if type(top_k) is not int or not 1 <= top_k <= MAX_TOP_K:
+        raise ValueError(
+            f"top_k는 1과 {MAX_TOP_K} 사이의 정수여야 합니다."
+        )
 
     collection = (
         get_chroma_client()
@@ -435,6 +608,15 @@ def search_similar_cases(
     tenant_id = str(
         state.get("tenant_id") or "GLOBAL"
     ).strip()
+
+    if not policy_version or len(policy_version) > 100:
+        raise ValueError(
+            "유효한 정책 버전이 필요합니다."
+        )
+    if not tenant_id or len(tenant_id) > 100:
+        raise ValueError(
+            "유효한 tenant_id가 필요합니다."
+        )
 
     metadata_filter = {
         "$and": [
@@ -494,13 +676,29 @@ def search_similar_cases(
         ):
             continue
 
+        case_id = str(
+            metadata.get("case_id", "")
+        ).strip()
+        try:
+            safe_distance = float(distance)
+        except (TypeError, ValueError):
+            continue
+        if (
+            not case_id
+            or len(case_id) > 200
+            or not math.isfinite(safe_distance)
+            or safe_distance < 0
+            or not isinstance(document.page_content, str)
+        ):
+            continue
+
         results.append(
             {
-                "case_id": str(
-                    metadata.get("case_id", "")
-                ),
-                "distance": float(distance),
-                "content": document.page_content,
+                "case_id": case_id,
+                "distance": safe_distance,
+                "content": document.page_content[
+                    :MAX_CASE_CONTENT_CHARS
+                ],
                 "metadata": dict(metadata),
             }
         )
@@ -607,7 +805,7 @@ def evaluate_with_precedents(
         print(
             "[Critic RAG] 판례 검색 실패 - "
             "RULE_FALLBACK "
-            f"({type(error).__name__}: {error})"
+            f"({type(error).__name__})"
         )
         return {
             **base_result,
@@ -648,6 +846,8 @@ def evaluate_with_precedents(
                 "gpt-4o-mini",
             ),
             temperature=0,
+            timeout=60,
+            max_retries=1,
         ).with_structured_output(
             CriticFewShotDecision
         )
