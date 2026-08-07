@@ -49,6 +49,7 @@ class InspectionHistoryRow(BaseModel):
     id: UUID
     book_id: UUID
     book_title: str
+    cover_image_url: str | None = None
 
     # TODO: UBCI 등급 산정 로직 확정 후 실제 저장값과 연동
     final_grade: FinalGrade | None = None
@@ -174,7 +175,7 @@ class InspectionBookDetail(BaseModel):
     id: UUID
     title: str
     isbn: str | None = None
-
+    cover_image_url: str | None = None
 
 class InspectionAIResult(BaseModel):
     model_config = ConfigDict(

@@ -134,6 +134,7 @@ class RestockProposalBookResponse(BaseModel):
     title: str
     isbn: str | None = None
     publisher: str | None = None
+    cover_image_url: str | None = None
 
 
 class RestockProposalListItemResponse(BaseModel):

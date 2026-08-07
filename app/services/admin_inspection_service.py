@@ -324,6 +324,7 @@ def get_inspection_history(
         select(
             ReturnJob,
             Book.title,
+            Book.cover_image_url,
         )
         .join(
             Book,
@@ -355,7 +356,7 @@ def get_inspection_history(
 
     inspection_history: list[InspectionHistoryRow] = []
 
-    for return_job, book_title in rows:
+    for return_job, book_title, book_cover_image_url in rows:
         logs = return_job.agent_logs or {}
 
         inspection_history.append(
@@ -363,6 +364,7 @@ def get_inspection_history(
                 id=return_job.id,
                 book_id=return_job.book_id,
                 book_title=book_title,
+                cover_image_url=book_cover_image_url,
                 final_grade=_resolve_final_grade(
                     condition_grade=getattr(
                         return_job,
@@ -718,6 +720,7 @@ def get_inspection_detail(
             ReturnJob,
             Book.title,
             Book.isbn,
+            Book.cover_image_url,
             InboundItem.lpn_barcode,
             InboundItem.certificate_token,
         )
@@ -743,7 +746,14 @@ def get_inspection_detail(
             detail="검수 작업을 찾을 수 없습니다.",
         )
 
-    return_job, book_title, book_isbn, lpn_barcode, certificate_token = row
+    (
+        return_job,
+        book_title,
+        book_isbn,
+        book_cover_image_url,
+        lpn_barcode,
+        certificate_token,
+    ) = row
 
     logs = return_job.agent_logs or {}
     parsed_report = _parse_final_report(
@@ -801,6 +811,7 @@ def get_inspection_detail(
             id=return_job.book_id,
             title=book_title,
             isbn=book_isbn,
+            cover_image_url=book_cover_image_url,
         ),
         status=return_job.status,
         mode=return_job.mode.value,

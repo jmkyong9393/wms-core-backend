@@ -16,6 +16,10 @@ class LpnBookDetail(BaseModel):
     isbn: str | None = Field(description="도서 ISBN")
     title: str = Field(description="도서명")
     publisher: str | None = Field(description="출판사")
+    cover_image_url: str | None = Field(
+        default=None,
+        description="도서 표지 이미지 URL",
+    )
 
 
 class LpnLocationDetail(BaseModel):
