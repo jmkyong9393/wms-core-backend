@@ -211,6 +211,52 @@ def seed_db():
                 created_at=log_date
             ))
         
+        # 테스트용 HITL_REQUIRED 검수 건 생성 (Recheck 테스트 가능)
+        hitl_inbound = InboundJob(
+            inbound_type=InboundType.CUSTOMER_RETURN,
+            status=InboundStatus.CHECKING,
+            supplier_name="고객 반품",
+        )
+        session.add(hitl_inbound)
+        session.flush()
+
+        hitl_inbound_item = InboundItem(
+            inbound_job_id=hitl_inbound.id,
+            book_id=book1.id,
+            quantity=1,
+            lpn_barcode="LPN-HITL-TEST-001",
+        )
+        session.add(hitl_inbound_item)
+        session.flush()
+
+        hitl_return_job = ReturnJob(
+            id=uuid.uuid4(),
+            tenant_id=tenant.id,
+            order_id=order_good.id,
+            book_id=book1.id,
+            inbound_item_id=hitl_inbound_item.id,
+            mode=InspectionMode.RETURN,
+            status=ReturnJobStatus.HITL_REQUIRED,
+            ubci_score=60.0,
+            image_paths=[
+                "https://placehold.co/front_blur.jpg",
+                "https://placehold.co/back_blur.jpg",
+                "https://placehold.co/inside_blur.jpg",
+            ],
+            agent_logs={
+                "hitl": {
+                    "reason_code": "BLURRY_IMAGE",
+                    "comment": "사진이 너무 흐릿하여 AI가 판단할 수 없습니다.",
+                    "confidence_score": 0.4,
+                }
+            },
+            final_report="AI 판단 불가: 이미지 흐림",
+            created_at=now,
+            ai_inspection_started_at=now - timedelta(minutes=10),
+            ai_inspection_completed_at=now - timedelta(minutes=5),
+        )
+        session.add(hitl_return_job)
+        
         session.commit()
         print("[SUCCESS] DB Seed Data Insertion Completed!")
 
