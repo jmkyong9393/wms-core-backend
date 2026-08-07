@@ -251,11 +251,15 @@ CREATE TABLE return_jobs (
     final_report VARCHAR,
     ai_inspection_started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     ai_inspection_completed_at TIMESTAMP,
+    hitl_reviewer_id UUID,
+    hitl_review_started_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX ix_return_jobs_tenant_id ON return_jobs(tenant_id);
+CREATE INDEX ix_return_jobs_hitl_reviewer_id
+    ON return_jobs(hitl_reviewer_id);
 
 ALTER TABLE inventory_used_items
     ADD CONSTRAINT fk_inventory_used_items_return_job
@@ -340,6 +344,10 @@ CREATE UNIQUE INDEX ix_users_employee_id ON users(employee_id);
 CREATE UNIQUE INDEX ix_users_email ON users(email);
 CREATE INDEX ix_users_refresh_token_expires_at
     ON users(refresh_token_expires_at);
+
+ALTER TABLE return_jobs
+    ADD CONSTRAINT fk_return_jobs_hitl_reviewer_id_users
+    FOREIGN KEY (hitl_reviewer_id) REFERENCES users(id);
 
 CREATE TABLE order_proposals (
     id UUID PRIMARY KEY,
