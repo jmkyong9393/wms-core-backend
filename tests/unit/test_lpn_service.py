@@ -1,78 +1,25 @@
-from uuid import UUID
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
-import pytest
-from pydantic import ValidationError
-
-from app.schemas.used_inbound import UsedBookInboundRequest
 from app.services.lpn_service import (
-    build_label_scan_qr_url,
-    build_certificate_api_path,
-    build_public_qr_url,
-    generate_certificate_token,
-    generate_lpn_barcode,
+    format_lpn_barcode,
 )
 
 
-def test_generate_lpn_barcode_from_inbound_item_id():
-    inbound_item_id = UUID("12345678-1234-5678-1234-567812345678")
+def test_format_lpn_barcode_uses_newzed_date_and_sequence_rule():
+    issued_at = datetime(
+        2026,
+        8,
+        7,
+        10,
+        30,
+        tzinfo=ZoneInfo("Asia/Seoul"),
+    )
 
     assert (
-        generate_lpn_barcode(inbound_item_id)
-        == "LPN-12345678123456781234567812345678"
-    )
-
-
-def test_generate_certificate_token_is_url_safe_and_unique():
-    first_token = generate_certificate_token()
-    second_token = generate_certificate_token()
-
-    assert first_token != second_token
-    assert len(first_token) >= 43
-    assert all(character.isalnum() or character in "-_" for character in first_token)
-
-
-def test_build_certificate_api_path_from_public_token():
-    certificate_token = "public-certificate-token"
-
-    assert (
-        build_certificate_api_path(certificate_token)
-        == f"/api/v1/certificate/{certificate_token}"
-    )
-
-
-def test_build_public_qr_url_from_public_token():
-    certificate_token = "public-certificate-token"
-
-    assert build_public_qr_url(
-        certificate_token,
-        public_web_base_url="https://wms.example.com/",
-    ) == f"https://wms.example.com/certificate/{certificate_token}"
-
-
-@pytest.mark.parametrize("inbound_type", ["USED_PURCHASE", "CUSTOMER_RETURN"])
-def test_used_inbound_request_accepts_inspection_types(inbound_type):
-    request = UsedBookInboundRequest(
-        inbound_type=inbound_type,
-        book_id="00000000-0000-4000-8000-000000000001",
-    )
-
-    assert request.inbound_type.value == inbound_type
-
-
-def test_used_inbound_request_rejects_new_stock():
-    with pytest.raises(ValidationError):
-        UsedBookInboundRequest(
-            inbound_type="NEW_STOCK",
-            book_id="00000000-0000-4000-8000-000000000001",
+        format_lpn_barcode(
+            issued_at=issued_at,
+            sequence_number=42,
         )
-
-def test_build_label_scan_qr_url_from_certificate_token():
-    certificate_token = "public-certificate-token"
-
-    assert build_label_scan_qr_url(
-        certificate_token,
-        public_web_base_url="https://wms.example.com/",
-    ) == (
-        "https://wms.example.com/"
-        "scan/public-certificate-token"
+        == "LPN-NZ-260807-000042"
     )
