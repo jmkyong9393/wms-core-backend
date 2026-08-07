@@ -408,6 +408,7 @@ def _apply_hitl_queue_bucket_filter(
 ):
     statement = statement.where(
         ReturnJob.tenant_id == tenant_id,
+        ReturnJob.agent_logs.op("?")("hitl"),
     )
 
     if bucket == HITLQueueBucket.PENDING:
@@ -595,6 +596,7 @@ def get_hitl_queue_metrics(
                     ReturnJobStatus.REJECTED,
                 ]
             ),
+            ReturnJob.agent_logs.op("?")("hitl"),
             ReturnJob.updated_at >= today_start,
         )
     ).one()
