@@ -1,6 +1,7 @@
 import os
 
 from celery import Celery
+from kombu import Queue
 
 
 # 실행 환경에 따라 Redis 주소를 환경변수에서 가져온다.
@@ -50,4 +51,32 @@ celery_app.conf.update(
     # 작업 실행 제한 시간
     task_soft_time_limit=300,
     task_time_limit=360,
+
+    task_default_queue="celery",
+    task_default_routing_key="celery",
+
+    task_queues=(
+        Queue("celery", routing_key="celery"),
+        Queue("inspection", routing_key="inspection"),
+        Queue("restock", routing_key="restock"),
+    ),
+
+    task_routes={
+        "app.worker.process_inspection": {
+            "queue": "inspection",
+            "routing_key": "inspection",
+        },
+        "app.worker.process_wms_action": {
+            "queue": "inspection",
+            "routing_key": "inspection",
+        },
+        "app.worker.process_restock_proposal": {
+            "queue": "restock",
+            "routing_key": "restock",
+        },
+        "app.worker.process_safety_stock_restock_proposal": {
+            "queue": "restock",
+            "routing_key": "restock",
+        },
+    },
 )
