@@ -165,6 +165,10 @@ class Book(SQLModel, table=True):
     title: str = Field(nullable=False)
     isbn: Optional[str] = Field(default=None, unique=True)
     publisher: Optional[str] = Field(default=None)
+    cover_image_url: Optional[str] = Field(
+        default=None,
+        max_length=1000,
+    )
     category: BookCategory = Field(nullable=False)
     standard_size: Optional[StandardSize] = Field(default=None)
     thickness_mm: Optional[int] = Field(default=None)

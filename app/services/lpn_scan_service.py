@@ -131,6 +131,7 @@ def get_lpn_scan_detail(
             isbn=book.isbn,
             title=book.title,
             publisher=book.publisher,
+            cover_image_url=book.cover_image_url,
         ),
         inbound_type=inbound_job.inbound_type,
         inbound_status=inbound_job.status,

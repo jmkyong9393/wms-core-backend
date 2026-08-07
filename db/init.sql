@@ -66,6 +66,7 @@ CREATE TABLE books (
     title VARCHAR NOT NULL,
     isbn VARCHAR UNIQUE,
     publisher VARCHAR,
+    cover_image_url VARCHAR(1000),
     category book_category NOT NULL,
     standard_size standard_size,
     thickness_mm INTEGER,

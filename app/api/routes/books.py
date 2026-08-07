@@ -38,6 +38,10 @@ class BookLookupResponse(BaseModel):
     title: str = Field(description="도서명")
     original_price: Decimal = Field(description="도서 기준 판매가")
     publisher: str | None = Field(default=None, description="출판사명")
+    cover_image_url: str | None = Field(
+        default=None,
+        description="도서 표지 이미지 URL",
+    )
     category: BookCategory = Field(description="로케이션 Rack 배정용 도서 카테고리")
 
 
@@ -122,6 +126,7 @@ def register_book(
         title=book.title,
         original_price=book.base_price,
         publisher=book.publisher,
+        cover_image_url=book.cover_image_url,
         category=book.category,
         created=result.created,
     )
@@ -165,5 +170,6 @@ def get_book_by_isbn(
         title=book.title,
         original_price=book.base_price,
         publisher=book.publisher,
+        cover_image_url=book.cover_image_url,
         category=book.category,
     )

@@ -10,6 +10,10 @@ class CertificateBookDetail(BaseModel):
     isbn: str | None = Field(description="품질보증서 대상 도서 ISBN")
     title: str = Field(description="품질보증서 대상 도서명")
     publisher: str | None = Field(description="품질보증서 대상 도서 출판사")
+    cover_image_url: str | None = Field(
+        default=None,
+        description="도서 표지 이미지 URL",
+    )
 
 
 class CertificateResponse(BaseModel):
@@ -21,6 +25,7 @@ class CertificateResponse(BaseModel):
                     "title": "사피엔스",
                     "publisher": "김영사",
                 },
+                "cover_image_url": "https://example.com/book-cover.jpg",
                 "condition_grade": "EXCELLENT",
                 "ubci_score": "92.00",
                 "report_summary": (

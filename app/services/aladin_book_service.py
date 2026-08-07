@@ -34,6 +34,7 @@ class AladinBookMetadata:
     isbn: str
     title: str
     publisher: str | None
+    cover_image_url: str | None
     base_price: Decimal
     category_id: int | None
     category_name: str
@@ -161,10 +162,18 @@ def _parse_book_metadata(
         else None
     )
 
+    cover_value = item.get("cover")
+    cover_image_url = (
+        str(cover_value).strip()
+        if cover_value is not None and str(cover_value).strip()
+        else None
+    )
+
     return AladinBookMetadata(
         isbn=returned_isbn,
         title=title,
         publisher=publisher,
+        cover_image_url=cover_image_url,
         base_price=base_price,
         category_id=category_id,
         category_name=category_name,

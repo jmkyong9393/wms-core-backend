@@ -75,6 +75,7 @@ def test_returns_requested_inspection_history_page():
                     (
                         return_job,
                         "페이지네이션 테스트 도서",
+                        "https://example.com/book-cover.jpg",
                     )
                 ]
             ),
@@ -106,6 +107,10 @@ def test_returns_requested_inspection_history_page():
 
     assert history_statement._offset_clause.value == 1
     assert history_statement._limit_clause.value == 1
+
+    assert response.items[0].cover_image_url == (
+        "https://example.com/book-cover.jpg"
+    )
 
 
 def test_returns_zero_total_pages_when_history_is_empty():
@@ -142,7 +147,15 @@ def test_applies_grade_fast_track_and_reason_filters_to_queries():
     session = FakeSession(
         results=[
             FakeResult(one_value=1),
-            FakeResult(rows=[(return_job, "필터 테스트 도서")]),
+            FakeResult(
+                rows=[
+                    (
+                        return_job,
+                        "필터 테스트 도서",
+                        None,
+                    )
+                ]
+            ),
         ]
     )
 

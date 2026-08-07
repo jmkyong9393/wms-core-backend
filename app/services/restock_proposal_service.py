@@ -175,12 +175,12 @@ def _build_list_item_response(
 def _build_book_response(
     book: Book,
 ) -> RestockProposalBookResponse:
-    """추천안 응답에 포함할 도서 기본 정보를 만든다."""
     return RestockProposalBookResponse(
         id=book.id,
         title=book.title,
         isbn=book.isbn,
         publisher=book.publisher,
+        cover_image_url=book.cover_image_url,
     )
 
 def approve_restock_proposal(
