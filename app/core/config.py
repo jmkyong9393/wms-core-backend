@@ -97,5 +97,6 @@ class Settings(BaseSettings):
     WMS_REQUEST_TIMEOUT_SECONDS: float = 10.0
     class Config:
         env_file = ".env"
+        extra = "ignore"
 
 settings = Settings()
