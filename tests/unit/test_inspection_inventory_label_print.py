@@ -4,7 +4,7 @@ from uuid import UUID
 
 from app.api.routes import inspection_inventory
 from app.models.wms import ConditionGrade
-from app.schemas.label import LabelPrintStatus
+from app.domains.lpn.schemas.label import LabelPrintStatus
 
 
 def build_inbound_item():

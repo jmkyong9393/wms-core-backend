@@ -2,7 +2,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.services import (
+from app.domains.lpn import (
     label_printer_service,
     zpl_label_service,
 )

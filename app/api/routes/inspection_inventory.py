@@ -15,13 +15,13 @@ from app.schemas.inspection_inventory import (
     InspectionInventoryRequest,
     InspectionInventoryResponse,
 )
-from app.schemas.label import LabelPrintStatus
+from app.domains.lpn.schemas.label import LabelPrintStatus
 from app.services.used_inventory_service import apply_inspected_item_result
 from app.services.dynamic_pricing_service import execute_dynamic_pricing
-from app.services.label_printer_service import (
+from app.domains.lpn.label_printer_service import (
     send_zpl_to_label_printer,
 )
-from app.services.zpl_label_service import build_ubci_label_zpl
+from app.domains.lpn.zpl_label_service import build_ubci_label_zpl
 from app.domains.books.certificate_service import extract_report_summary
 
 

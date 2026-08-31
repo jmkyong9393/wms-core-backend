@@ -12,30 +12,30 @@ from app.models.wms import (
     Location,
     User,
 )
-from app.schemas.label import (
+from app.domains.lpn.schemas.label import (
     LabelPrintStatus,
     LabelReprintResponse,
     LabelType,
 )
-from app.schemas.lpn import (
+from app.domains.lpn.schemas.lpn import (
     LpnBookDetail,
     LpnDetailResponse,
     LpnLocationDetail,
     PrintLpnRequest,
     PrintLpnResponse,
 )
-from app.schemas.lpn_scan import LpnScanResponse
-from app.services.label_printer_service import (
+from app.domains.lpn.schemas.lpn_scan import LpnScanResponse
+from app.domains.lpn.label_printer_service import (
     send_zpl_to_label_printer,
 )
-from app.services.label_reprint_service import (
+from app.domains.lpn.label_reprint_service import (
     build_label_reprint_zpl,
 )
-from app.services.zpl_label_service import (
+from app.domains.lpn.zpl_label_service import (
     build_custom_label_zpl,
 )
-from app.services.lpn_scan_service import get_lpn_scan_detail
-from app.services.lpn_service import build_public_qr_url
+from app.domains.lpn.lpn_scan_service import get_lpn_scan_detail
+from app.domains.lpn.lpn_service import build_public_qr_url
 
 
 router = APIRouter()

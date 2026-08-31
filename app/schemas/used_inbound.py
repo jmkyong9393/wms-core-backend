@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.wms import InboundStatus, InboundType
 
-from app.schemas.label import LabelPrintStatus
+from app.domains.lpn.schemas.label import LabelPrintStatus
 
 
 UsedInboundType = Literal[

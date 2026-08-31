@@ -13,7 +13,7 @@ from app.api.routes import db
 from app.api.routes import inbound
 from app.api.routes import inspection_inventory
 from app.api.routes import inspections
-from app.api.routes import lpn
+from app.domains.lpn import lpn
 from app.api.routes import restock
 from app.api.routes import inventory
 from app.api.routes import mock

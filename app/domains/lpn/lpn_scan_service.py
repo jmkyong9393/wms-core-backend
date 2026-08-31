@@ -12,11 +12,11 @@ from app.models.wms import (
     ReturnJob,
     ReturnJobStatus,
 )
-from app.schemas.lpn import (
+from app.domains.lpn.schemas.lpn import (
     LpnBookDetail,
     LpnLocationDetail,
 )
-from app.schemas.lpn_scan import LpnScanResponse
+from app.domains.lpn.schemas.lpn_scan import LpnScanResponse
 
 
 def get_lpn_scan_detail(

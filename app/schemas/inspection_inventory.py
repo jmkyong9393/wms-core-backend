@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.wms import ConditionGrade
 from app.schemas.hitl import HITLReasonCode
-from app.schemas.label import LabelPrintStatus
+from app.domains.lpn.schemas.label import LabelPrintStatus
 
 InspectionDecision = Literal["APPROVE", "REJECT"]
 

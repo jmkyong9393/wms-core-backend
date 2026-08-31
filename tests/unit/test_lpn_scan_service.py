@@ -10,7 +10,7 @@ from app.models.wms import (
     ReturnJobStatus,
     UsedInventoryStatus,
 )
-from app.services import lpn_scan_service
+from app.domains.lpn import lpn_scan_service
 
 
 class FakeResult:

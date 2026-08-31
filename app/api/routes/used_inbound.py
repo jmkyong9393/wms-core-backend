@@ -7,21 +7,21 @@ from sqlmodel import Session, select
 
 from app.core.database import get_session
 from app.models.wms import Book, InboundItem, InboundJob, InboundStatus
-from app.schemas.label import LabelPrintStatus
+from app.domains.lpn.schemas.label import LabelPrintStatus
 from app.schemas.used_inbound import (
     UsedBookInboundRequest,
     UsedBookInboundResponse,
 )
-from app.services.label_printer_service import (
+from app.domains.lpn.label_printer_service import (
     send_zpl_to_label_printer,
 )
-from app.services.lpn_service import (
+from app.domains.lpn.lpn_service import (
     build_label_scan_qr_url,
     build_public_qr_url,
     generate_certificate_token,
     generate_lpn_barcode,
 )
-from app.services.zpl_label_service import build_lpn_label_zpl
+from app.domains.lpn.zpl_label_service import build_lpn_label_zpl
 
 router = APIRouter()
 

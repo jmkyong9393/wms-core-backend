@@ -11,7 +11,7 @@ from app.models.wms import (
     ReturnJobStatus,
     UsedInventoryStatus,
 )
-from app.schemas.lpn import (
+from app.domains.lpn.schemas.lpn import (
     LpnBookDetail,
     LpnLocationDetail,
 )

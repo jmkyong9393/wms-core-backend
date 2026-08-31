@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from app.core.config import settings
-from app.services.lpn_service import build_label_scan_qr_url
+from app.domains.lpn.lpn_service import build_label_scan_qr_url
 
 
 def _mm_to_dots(length_mm: int) -> int:

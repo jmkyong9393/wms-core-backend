@@ -19,7 +19,7 @@ from app.models.wms import (
 from app.domain.inventory_pricing_policy import (
     calculate_new_stock_default_price,
 )
-from app.services.lpn_service import build_public_qr_url
+from app.domains.lpn.lpn_service import build_public_qr_url
 
 
 def admit_new_stock(

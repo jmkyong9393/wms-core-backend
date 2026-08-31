@@ -1,7 +1,7 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from app.services.lpn_service import (
+from app.domains.lpn.lpn_service import (
     format_lpn_barcode,
 )
 

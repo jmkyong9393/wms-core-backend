@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from app.schemas.lpn import LpnDetailResponse
+from app.domains.lpn.schemas.lpn import LpnDetailResponse
 
 
 def test_lpn_detail_response_preserves_inventory_metadata():

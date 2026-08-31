@@ -9,8 +9,8 @@ from app.models.wms import (
     ConditionGrade,
     UsedInventoryStatus,
 )
-from app.schemas.label import LabelType
-from app.services import label_reprint_service
+from app.domains.lpn.schemas.label import LabelType
+from app.domains.lpn import label_reprint_service
 
 
 class FakeResult:
