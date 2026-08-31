@@ -4,7 +4,7 @@ from uuid import UUID
 import pytest
 
 from app.models.wms import ConditionGrade
-from app.services.location_assignment_service import (
+from app.domains.inbound.location_assignment_service import (
     NoAvailableLocationError,
     _select_first_available_shelf,
     assign_graded_inventory_location,

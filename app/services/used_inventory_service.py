@@ -24,11 +24,11 @@ from app.models.wms import (
 )
 from app.schemas.hitl import HITLReasonCode
 from app.schemas.inspection_inventory import RejectionDisposition
-from app.services.location_assignment_service import (
+from app.domains.inbound.location_assignment_service import (
     NoAvailableLocationError,
     assign_graded_inventory_location,
 )
-from app.services.inventory_admission_service import (
+from app.domains.inbound.inventory_admission_service import (
     admit_rejected_item,
     admit_used_stock,
 )

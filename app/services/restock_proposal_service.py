@@ -23,8 +23,8 @@ from app.schemas.restock import (
     RestockProposalDetailResponse,
     RestockProposalListItemResponse,
 )
-from app.services.inventory_admission_service import admit_new_stock
-from app.services.location_assignment_service import (
+from app.domains.inbound.inventory_admission_service import admit_new_stock
+from app.domains.inbound.location_assignment_service import (
     NoAvailableLocationError,
     assign_new_stock_location,
 )

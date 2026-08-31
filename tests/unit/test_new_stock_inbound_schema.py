@@ -6,7 +6,7 @@ from app.models.wms import (
     InboundStatus,
     InboundType,
 )
-from app.schemas.new_stock_inbound import (
+from app.domains.inbound.schemas.new_stock_inbound import (
     NewStockInboundRequest,
     NewStockInboundResponse,
 )

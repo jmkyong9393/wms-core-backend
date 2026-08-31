@@ -8,7 +8,7 @@ from sqlmodel import Session, select
 from app.core.database import get_session
 from app.models.wms import Book, InboundItem, InboundJob, InboundStatus
 from app.domains.lpn.schemas.label import LabelPrintStatus
-from app.schemas.used_inbound import (
+from app.domains.inbound.schemas.used_inbound import (
     UsedBookInboundRequest,
     UsedBookInboundResponse,
 )

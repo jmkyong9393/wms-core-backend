@@ -20,7 +20,7 @@ from app.models.wms import (
     BookCategory,
 )
 
-from app.services.location_assignment_service import (
+from app.domains.inbound.location_assignment_service import (
     assign_graded_inventory_location,
     assign_new_stock_location,
 )

@@ -34,7 +34,7 @@ from app.services.restock_proposal_service import (
 from app.services.restock_service import (
     generate_restock_recommendation,
 )
-from app.services.location_assignment_service import (
+from app.domains.inbound.location_assignment_service import (
     NoAvailableLocationError,
 )
 

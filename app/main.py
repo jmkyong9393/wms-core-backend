@@ -10,7 +10,7 @@ from app.domains.auth import auth
 from app.domains.books import books
 from app.domains.books import certificates
 from app.api.routes import db
-from app.api.routes import inbound
+from app.domains.inbound import inbound
 from app.api.routes import inspection_inventory
 from app.api.routes import inspections
 from app.domains.lpn import lpn
@@ -23,7 +23,7 @@ from app.api.routes import outbound
 from app.api.routes import pricing
 from app.api.routes import rejected_items
 from app.api.routes import stream
-from app.api.routes import used_inbound
+from app.domains.inbound import used_inbound
 from app.core.config import settings
 from app.core.database import initialize_application_data
 from app.core.exceptions import AppException

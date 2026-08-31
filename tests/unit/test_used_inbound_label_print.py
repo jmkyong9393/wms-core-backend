@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 from uuid import UUID
 
-from app.api.routes import used_inbound
+from app.domains.inbound import used_inbound
 
 
 def build_inbound_item():

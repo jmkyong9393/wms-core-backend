@@ -17,15 +17,15 @@ from app.models.wms import (
     Inventory,
     Location,
 )
-from app.schemas.new_stock_inbound import (
+from app.domains.inbound.schemas.new_stock_inbound import (
     NewStockInboundRequest,
     NewStockInboundResponse,
 )
-from app.services.location_assignment_service import (
+from app.domains.inbound.location_assignment_service import (
     NoAvailableLocationError,
     assign_new_stock_location,
 )
-from app.services.inventory_admission_service import admit_new_stock
+from app.domains.inbound.inventory_admission_service import admit_new_stock
 
 router = APIRouter()
 
