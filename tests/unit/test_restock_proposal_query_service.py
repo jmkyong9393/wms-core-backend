@@ -50,6 +50,7 @@ def build_book():
         title="Restock 테스트 도서",
         isbn="9790000000001",
         publisher="테스트 출판사",
+        cover_image_url=None,
     )
 
 
