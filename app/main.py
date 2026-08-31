@@ -4,28 +4,26 @@ from fastapi.responses import JSONResponse
 
 
 
-from app.api.routes import (
-    admin,
-    admin_users,
-    auth,
-    books,
-    certificates,
-    db,
-    inbound,
-    inspection_inventory,
-    inspections,
-    lpn,
-    restock,
-    inventory,
-    mock,
-    notifications,
-    orders,
-    outbound,
-    pricing,
-    rejected_items,
-    stream,
-    used_inbound,
-)
+from app.api.routes import admin
+from app.api.routes import admin_users
+from app.api.routes import auth
+from app.api.routes import books
+from app.api.routes import certificates
+from app.api.routes import db
+from app.api.routes import inbound
+from app.api.routes import inspection_inventory
+from app.api.routes import inspections
+from app.api.routes import lpn
+from app.api.routes import restock
+from app.api.routes import inventory
+from app.api.routes import mock
+from app.api.routes import notifications
+from app.api.routes import orders
+from app.api.routes import outbound
+from app.api.routes import pricing
+from app.api.routes import rejected_items
+from app.api.routes import stream
+from app.api.routes import used_inbound
 from app.core.config import settings
 from app.core.database import initialize_application_data
 from app.core.exceptions import AppException
