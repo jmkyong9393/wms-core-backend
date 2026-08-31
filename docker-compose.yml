@@ -59,6 +59,23 @@ services:
       DATABASE_URL: postgresql://admin:password@db:5432/wms_db
     command: ["alembic", "upgrade", "head"]
 
+  # UBCI/WMS 정책 문서를 Chroma에 시딩하는 one-shot 작업.
+  # Policy Agent가 조회하는 컬렉션(wms_ubci_policies)의 정식 시딩 절차이며,
+  # ingest.py(wms_return_policies)는 legacy로 Policy Agent가 읽지 않는다.
+  rag-seed:
+    build: .
+    container_name: wms-core-rag-seed
+    restart: "no"
+    depends_on:
+      chroma-server:
+        condition: service_started
+    env_file:
+      - .env
+    environment:
+      CHROMA_SERVER_HOST: chroma-server
+      CHROMA_SERVER_PORT: 8000
+    command: ["python", "-m", "app.ai.rag.policy_search"]
+
   api:
     build: .
     container_name: wms-core-api

@@ -1,3 +1,6 @@
+# [미사용/legacy] 이 스크립트가 적재하는 컬렉션(wms_return_policies)은 Policy Agent가 읽지 않는다.
+# 정식 시딩 절차는 `python -m app.ai.rag.policy_search` (컬렉션 wms_ubci_policies)이며,
+# docker-compose의 rag-seed 서비스가 이를 실행한다. 반품 약관 컬렉션 확장 실험용으로 존치.
 import os
 import yaml
 import chromadb
