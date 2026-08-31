@@ -2,7 +2,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from app.api.routes.inventory import list_inventory
+from app.domains.inventory.inventory import list_inventory
 from app.models.wms import (
     ConditionGrade,
     UsedInventoryStatus,

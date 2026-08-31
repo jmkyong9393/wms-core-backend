@@ -3,7 +3,7 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.inspection_inventory import InspectionInventoryRequest
+from app.domains.inventory.schemas.inspection_inventory import InspectionInventoryRequest
 
 
 def test_approve_requires_score_or_final_grade():

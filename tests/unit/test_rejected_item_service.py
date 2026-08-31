@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 from sqlalchemy.dialects import postgresql
 
 from app.models.wms import Location, RejectedItem, RejectedItemStatus
-from app.services.rejected_item_service import discard_all_rejected_items
+from app.domains.inventory.rejected_item_service import discard_all_rejected_items
 
 
 def test_discard_all_rejected_items_returns_zero_for_empty_zone():

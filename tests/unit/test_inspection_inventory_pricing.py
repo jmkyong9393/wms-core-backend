@@ -3,12 +3,12 @@ from uuid import uuid4
 
 import pytest
 
-from app.api.routes import inspection_inventory
+from app.domains.inventory import inspection_inventory
 from app.models.wms import ConditionGrade
-from app.schemas.inspection_inventory import (
+from app.domains.inventory.schemas.inspection_inventory import (
     InspectionInventoryRequest,
 )
-from app.services.used_inventory_service import InspectionAdmissionResult
+from app.domains.inventory.used_inventory_service import InspectionAdmissionResult
 
 
 def _request(decision: str = "APPROVE") -> InspectionInventoryRequest:

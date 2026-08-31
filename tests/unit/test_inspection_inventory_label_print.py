@@ -2,7 +2,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 from uuid import UUID
 
-from app.api.routes import inspection_inventory
+from app.domains.inventory import inspection_inventory
 from app.models.wms import ConditionGrade
 from app.domains.lpn.schemas.label import LabelPrintStatus
 
