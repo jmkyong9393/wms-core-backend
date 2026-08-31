@@ -2,8 +2,8 @@ from decimal import Decimal
 from unittest.mock import MagicMock
 
 from app.models.wms import Book, BookCategory
-from app.services.aladin_book_service import AladinBookMetadata
-from app.services.book_registration_service import register_book_by_isbn
+from app.domains.books.aladin_book_service import AladinBookMetadata
+from app.domains.books.book_registration_service import register_book_by_isbn
 
 
 def _exec_result(first_value=None):

@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends, Path
 from sqlmodel import Session
 
 from app.core.database import get_session
-from app.schemas.certificate import CertificateResponse
-from app.services.certificate_service import get_certificate_by_token
+from app.domains.books.schemas.certificate import CertificateResponse
+from app.domains.books.certificate_service import get_certificate_by_token
 
 router = APIRouter()
 

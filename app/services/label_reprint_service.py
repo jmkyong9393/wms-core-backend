@@ -8,7 +8,7 @@ from app.models.wms import (
     UsedInventoryStatus,
 )
 from app.schemas.label import LabelType
-from app.services.certificate_service import extract_report_summary
+from app.domains.books.certificate_service import extract_report_summary
 from app.services.zpl_label_service import (
     build_lpn_label_zpl,
     build_ubci_label_zpl,

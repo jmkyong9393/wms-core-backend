@@ -9,7 +9,7 @@ from app.models.wms import (
     NotificationSeverity,
     WeeklyInsight,
 )
-from app.services.notification_service import (
+from app.domains.notifications.notification_service import (
     create_notification_for_tenant,
 )
 from app.services.redis_pubsub import (

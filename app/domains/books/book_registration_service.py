@@ -5,7 +5,7 @@ from sqlalchemy import text
 from sqlmodel import Session, select
 
 from app.models.wms import Book
-from app.services.aladin_book_service import (
+from app.domains.books.aladin_book_service import (
     AladinBookMetadata,
     lookup_aladin_book_by_isbn,
     normalize_isbn,

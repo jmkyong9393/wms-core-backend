@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from app.schemas.certificate import CertificateResponse
+from app.domains.books.schemas.certificate import CertificateResponse
 
 
 def test_certificate_response_preserves_public_quality_data():

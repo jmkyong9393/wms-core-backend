@@ -3,7 +3,7 @@ from decimal import Decimal
 import httpx
 import pytest
 
-from app.services.aladin_book_service import (
+from app.domains.books.aladin_book_service import (
     AladinBookNotFoundError,
     AladinConfigurationError,
     AladinInvalidResponseError,

@@ -10,14 +10,14 @@ from app.api.dependencies.auth import require_admin_or_master
 from app.core.database import get_session
 from app.core.config import settings
 from app.models.wms import User
-from app.schemas.notification import (
+from app.domains.notifications.schemas.notification import (
     MarkAllNotificationsReadResponse,
     MarkNotificationReadResponse,
     NotificationListResponse,
     NotificationStreamTicketResponse,
 )
 
-from app.services.notification_service import (
+from app.domains.notifications.notification_service import (
     get_notifications_for_user,
     mark_all_notifications_as_read,
     mark_notification_as_read,

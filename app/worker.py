@@ -40,7 +40,7 @@ from app.services.wms_client import (
     call_wms_inspection_result_api,
 )
 from app.services.dlq_service import push_inspection_failure_to_dlq
-from app.services.notification_service import (
+from app.domains.notifications.notification_service import (
     create_committed_notification_for_tenant,
 )
 

@@ -22,7 +22,7 @@ from app.services.label_printer_service import (
     send_zpl_to_label_printer,
 )
 from app.services.zpl_label_service import build_ubci_label_zpl
-from app.services.certificate_service import extract_report_summary
+from app.domains.books.certificate_service import extract_report_summary
 
 
 router = APIRouter()

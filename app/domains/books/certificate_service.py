@@ -5,7 +5,7 @@ from fastapi import HTTPException, status
 from sqlmodel import Session, select
 
 from app.models.wms import Book, InboundItem, InventoryUsedItem, ReturnJob
-from app.schemas.certificate import CertificateBookDetail, CertificateResponse
+from app.domains.books.schemas.certificate import CertificateBookDetail, CertificateResponse
 
 
 def extract_report_summary(final_report: str | None) -> str | None:

@@ -1,4 +1,4 @@
-from app.api.routes.books import (
+from app.domains.books.books import (
     BookRegistrationRequest,
     BookRegistrationResponse,
 )

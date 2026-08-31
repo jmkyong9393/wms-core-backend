@@ -14,7 +14,7 @@ from app.models.wms import (
     InspectionMode,
     ReturnJob,
 )
-from app.services.certificate_service import (
+from app.domains.books.certificate_service import (
     extract_report_summary,
     get_certificate_by_token,
 )

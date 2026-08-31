@@ -7,8 +7,8 @@ from fastapi.responses import JSONResponse
 from app.api.routes import admin
 from app.api.routes import admin_users
 from app.api.routes import auth
-from app.api.routes import books
-from app.api.routes import certificates
+from app.domains.books import books
+from app.domains.books import certificates
 from app.api.routes import db
 from app.api.routes import inbound
 from app.api.routes import inspection_inventory
@@ -17,7 +17,7 @@ from app.api.routes import lpn
 from app.api.routes import restock
 from app.api.routes import inventory
 from app.api.routes import mock
-from app.api.routes import notifications
+from app.domains.notifications import notifications
 from app.api.routes import orders
 from app.api.routes import outbound
 from app.api.routes import pricing

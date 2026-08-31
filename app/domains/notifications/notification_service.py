@@ -17,7 +17,7 @@ from app.models.wms import (
     UserRole,
     UserStatus,
 )
-from app.schemas.notification import (
+from app.domains.notifications.schemas.notification import (
     MarkAllNotificationsReadResponse,
     MarkNotificationReadResponse,
     NotificationListResponse,

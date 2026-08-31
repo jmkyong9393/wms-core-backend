@@ -10,13 +10,13 @@ from app.domain.aladin_category_policy import (
     UnsupportedAladinCategoryError,
 )
 from app.models.wms import Book, BookCategory
-from app.services.aladin_book_service import (
+from app.domains.books.aladin_book_service import (
     AladinBookNotFoundError,
     AladinConfigurationError,
     AladinInvalidResponseError,
     AladinUpstreamError,
 )
-from app.services.book_registration_service import register_book_by_isbn
+from app.domains.books.book_registration_service import register_book_by_isbn
 
 router = APIRouter()
 
