@@ -10,7 +10,7 @@ from app.core.exceptions import (
     HITLJobNotFoundException,
     InvalidHITLStateException,
 )
-from app.models.wms import ReturnJob, ReturnJobStatus, User
+from app.models.wms import ConditionGrade, ReturnJob, ReturnJobStatus, User
 from app.schemas.hitl import (
     HITLAction,
     HITLReasonCode,
@@ -190,10 +190,12 @@ def apply_hitl_final_decision(
         )
 
     if action == HITLAction.APPROVE_NORMAL:
-        # TODO:
-        # AI 검수 결과에 final_grade가 포함되면 해당 값을 그대로 승인한다.
-        # 현재 AI Agent에서 final_grade를 생성하지 않으므로 None일 수 있다.
+        # AI가 UBCI 점수를 산출한 건은 WMS가 점수로 등급을 유도한다(final_grade=None 허용).
+        # Vision 단계에서 점수 없이 HITL로 직행한 건은 점수·등급이 모두 비어 WMS가 422를
+        # 반환하므로, 관리자 정상 승인 의미 그대로 MINT를 확정한다.
         final_grade = updated_logs.get("final_grade")
+        if final_grade is None and return_job.ubci_score is None:
+            final_grade = ConditionGrade.MINT.value
 
     elif action == HITLAction.APPROVE_DOWNGRADE:
         final_grade = (
