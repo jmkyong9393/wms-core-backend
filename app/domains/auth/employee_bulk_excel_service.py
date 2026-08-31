@@ -8,7 +8,7 @@ from openpyxl.utils.exceptions import InvalidFileException
 from pydantic import ValidationError
 
 from app.models.wms import UserRole
-from app.schemas.auth import (
+from app.domains.auth.schemas.auth import (
     EmployeeBulkCreateResultRow,
     EmployeeBulkCreateRow,
 )

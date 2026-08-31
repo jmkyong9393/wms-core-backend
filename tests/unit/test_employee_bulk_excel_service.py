@@ -5,8 +5,8 @@ import pytest
 from openpyxl import Workbook, load_workbook
 
 from app.models.wms import UserRole
-from app.schemas.auth import EmployeeBulkCreateResultRow
-from app.services.employee_bulk_excel_service import (
+from app.domains.auth.schemas.auth import EmployeeBulkCreateResultRow
+from app.domains.auth.employee_bulk_excel_service import (
     EMPLOYEE_BULK_INPUT_HEADERS,
     EmployeeBulkExcelValidationError,
     build_employee_bulk_result_xlsx,

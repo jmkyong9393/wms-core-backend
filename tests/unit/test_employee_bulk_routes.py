@@ -9,14 +9,14 @@ from fastapi.testclient import TestClient
 from openpyxl import load_workbook
 
 from app.api.dependencies.auth import require_master
-from app.api.routes import admin_users
+from app.domains.auth import admin_users
 from app.core.database import get_session
 from app.models.wms import UserRole
-from app.schemas.auth import (
+from app.domains.auth.schemas.auth import (
     EmployeeBulkCreateResultRow,
     EmployeeBulkCreateRow,
 )
-from app.services.employee_bulk_excel_service import (
+from app.domains.auth.employee_bulk_excel_service import (
     EmployeeBulkExcelValidationError,
 )
 

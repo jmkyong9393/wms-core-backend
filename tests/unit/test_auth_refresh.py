@@ -4,7 +4,7 @@ from uuid import UUID
 
 from fastapi import Response
 
-from app.api.routes.auth import (
+from app.domains.auth.auth import (
     delete_refresh_token_cookie,
     set_refresh_token_cookie,
 )
@@ -15,7 +15,7 @@ from app.core.security import (
     hash_refresh_token,
 )
 from app.models.wms import UserStatus
-from app.services import auth_service
+from app.domains.auth import auth_service
 
 
 class FakeResult:

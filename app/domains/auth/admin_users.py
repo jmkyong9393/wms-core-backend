@@ -21,7 +21,7 @@ from app.models.wms import (
     UserRole,
     UserStatus,
 )
-from app.schemas.auth import (
+from app.domains.auth.schemas.auth import (
     EmployeeCreateRequest,
     EmployeeCreateResponse,
     EmployeeListResponse,
@@ -29,14 +29,14 @@ from app.schemas.auth import (
     UserRoleUpdateRequest,
     UserStatusUpdateRequest,
 )
-from app.services.auth_service import (
+from app.domains.auth.auth_service import (
     create_employee,
     create_employees_bulk,
     list_employees,
     update_user_role,
     update_user_status,
 )
-from app.services.employee_bulk_excel_service import (
+from app.domains.auth.employee_bulk_excel_service import (
     EmployeeBulkExcelValidationError,
     build_employee_bulk_result_xlsx,
     build_employee_bulk_template_xlsx,

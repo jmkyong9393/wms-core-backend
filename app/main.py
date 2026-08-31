@@ -5,8 +5,8 @@ from fastapi.responses import JSONResponse
 
 
 from app.api.routes import admin
-from app.api.routes import admin_users
-from app.api.routes import auth
+from app.domains.auth import admin_users
+from app.domains.auth import auth
 from app.domains.books import books
 from app.domains.books import certificates
 from app.api.routes import db

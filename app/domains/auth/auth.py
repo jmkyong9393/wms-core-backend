@@ -23,13 +23,13 @@ from app.models.wms import (
     User,
     UserStatus,
 )
-from app.schemas.auth import (
+from app.domains.auth.schemas.auth import (
     LoginRequest,
     PasswordChangeRequest,
     TokenResponse,
     UserResponse,
 )
-from app.services.auth_service import (
+from app.domains.auth.auth_service import (
     authenticate_user,
     change_password,
     create_refresh_session_for_login,

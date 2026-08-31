@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from uuid import UUID
 
 from app.models.wms import UserRole, UserStatus
-from app.services.auth_service import list_employees
+from app.domains.auth.auth_service import list_employees
 
 
 class FakeResult:

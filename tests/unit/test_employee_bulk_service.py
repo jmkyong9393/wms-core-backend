@@ -5,8 +5,8 @@ from uuid import UUID
 import pytest
 
 from app.models.wms import UserRole
-from app.schemas.auth import EmployeeBulkCreateRow
-from app.services import auth_service
+from app.domains.auth.schemas.auth import EmployeeBulkCreateRow
+from app.domains.auth import auth_service
 
 
 class FakeSession:
