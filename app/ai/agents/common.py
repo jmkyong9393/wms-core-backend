@@ -153,7 +153,9 @@ def normalize_model_class(value: str) -> str:
 def resolve_model_path(
     configured_path: str,
 ) -> Path:
-    repo_root = Path(__file__).resolve().parents[2]
+    # agents 패키지 분할로 파일 깊이가 1단계 깊어짐(app/ai/agents/common.py)
+    # → parents[3]이 레포 루트(= models/의 부모)다.
+    repo_root = Path(__file__).resolve().parents[3]
     path = Path(configured_path)
 
     if path.is_absolute():
