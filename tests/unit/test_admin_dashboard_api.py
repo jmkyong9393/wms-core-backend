@@ -5,13 +5,13 @@ import pytest
 from fastapi import HTTPException
 
 from app.models.wms import User, UserRole, UserStatus, FdsPolicy
-from app.api.routes.admin import (
+from app.domains.admin.admin import (
     get_weekly_insights,
     get_fds_reports,
     get_fds_policies,
     update_fds_policy,
 )
-from app.schemas.admin_dashboard import FdsPolicyUpdateRequest
+from app.domains.admin.schemas.admin_dashboard import FdsPolicyUpdateRequest
 
 class FakeResult:
     def __init__(self, rows=None):

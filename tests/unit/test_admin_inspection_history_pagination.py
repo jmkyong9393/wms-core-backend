@@ -6,7 +6,7 @@ from app.models.wms import (
     ConditionGrade,
     ReturnJobStatus,
 )
-from app.services.admin_inspection_service import (
+from app.domains.admin.admin_inspection_service import (
     get_inspection_history,
 )
 

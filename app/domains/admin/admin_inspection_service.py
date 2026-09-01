@@ -19,7 +19,7 @@ from app.models.wms import (
     ReturnJobStatus,
     User,
 )
-from app.schemas.admin_inspection import (
+from app.domains.admin.schemas.admin_inspection import (
     AgentLogStep,
     HITLHistoryItem,
     InspectionAIResult,

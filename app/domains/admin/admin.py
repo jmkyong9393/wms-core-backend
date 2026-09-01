@@ -17,14 +17,14 @@ from app.models.wms import (
     FdsPolicy,
     Order,
 )
-from app.schemas.admin_inspection import (
+from app.domains.admin.schemas.admin_inspection import (
     AgentLogStep,
     HITLQueueListResponse,
     InspectionDetailResponse,
     InspectionHistoryListResponse,
     HITLQueueMetricsResponse,
 )
-from app.schemas.admin_dashboard import (
+from app.domains.admin.schemas.admin_dashboard import (
     WeeklyInsightResponse,
     FdsReportResponse,
     FdsPolicyResponse,
@@ -34,20 +34,20 @@ from app.schemas.admin_dashboard import (
     InboundDashboardSummaryResponse,
 )
 from app.domains.inspections.schemas.hitl import HITLQueueBucket
-from app.services.admin_inspection_service import (
+from app.domains.admin.admin_inspection_service import (
     get_inspection_agent_logs,
     get_inspection_detail,
     get_inspection_history,
     get_hitl_queue,
     get_hitl_queue_metrics,
 )
-from app.services.outbound_dashboard_service import (
+from app.domains.admin.outbound_dashboard_service import (
     get_outbound_dashboard_summary as get_outbound_dashboard_summary_service,
 )
-from app.services.dashboard_flow_trend_service import (
+from app.domains.admin.dashboard_flow_trend_service import (
     get_dashboard_flow_trend as get_dashboard_flow_trend_service,
 )
-from app.services.inbound_dashboard_service import (
+from app.domains.admin.inbound_dashboard_service import (
     get_inbound_dashboard_summary
     as get_inbound_dashboard_summary_service,
 )

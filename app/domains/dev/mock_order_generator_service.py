@@ -18,7 +18,7 @@ from app.models.wms import (
     OrderType,
     UsedInventoryStatus,
 )
-from app.services.demo_inventory_service import (
+from app.domains.dev.demo_inventory_service import (
     DEMO_OUTBOUND_BOOK_ISBN,
 )
 

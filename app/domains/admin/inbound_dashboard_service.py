@@ -17,7 +17,7 @@ from app.models.wms import (
     ReturnJobStatus,
     UsedInventoryStatus,
 )
-from app.schemas.admin_dashboard import (
+from app.domains.admin.schemas.admin_dashboard import (
     InboundDashboardGradeItem,
     InboundDashboardSummaryResponse,
     InboundDashboardTrendItem,

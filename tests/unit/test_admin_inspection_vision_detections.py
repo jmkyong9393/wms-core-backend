@@ -1,4 +1,4 @@
-from app.services.admin_inspection_service import (
+from app.domains.admin.admin_inspection_service import (
     _build_confirmed_defects,
     _build_vision_detections,
     _build_yolo_candidates,

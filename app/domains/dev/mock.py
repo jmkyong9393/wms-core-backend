@@ -39,7 +39,7 @@ from app.models.wms import (
 
 from app.api.dependencies.auth import require_master
 
-from app.services.demo_inventory_service import (
+from app.domains.dev.demo_inventory_service import (
     ensure_demo_outbound_inventory,
 )
 

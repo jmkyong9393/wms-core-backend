@@ -9,7 +9,7 @@ from app.models.wms import (
     InventoryTransactionType,
     ReturnJobStatus,
 )
-from app.services.inbound_dashboard_service import (
+from app.domains.admin.inbound_dashboard_service import (
     get_inbound_dashboard_summary,
 )
 

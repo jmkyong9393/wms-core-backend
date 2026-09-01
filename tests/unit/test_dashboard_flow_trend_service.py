@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from app.models.wms import (
     InventoryTransactionType,
 )
-from app.services.dashboard_flow_trend_service import (
+from app.domains.admin.dashboard_flow_trend_service import (
     get_dashboard_flow_trend,
 )
 

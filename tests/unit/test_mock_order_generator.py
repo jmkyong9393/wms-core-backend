@@ -1,7 +1,7 @@
 from decimal import Decimal
 from uuid import UUID
 
-import app.services.mock_order_generator_service as mock_order_generator_service
+import app.domains.dev.mock_order_generator_service as mock_order_generator_service
 
 from app.models.wms import (
     Book,
@@ -9,7 +9,7 @@ from app.models.wms import (
     Order,
     OrderItem,
 )
-from app.services.mock_order_generator_service import (
+from app.domains.dev.mock_order_generator_service import (
     create_mock_outbound_order,
 )
 

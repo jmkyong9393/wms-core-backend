@@ -10,7 +10,7 @@ from app.models.wms import (
     OrderStatus,
     OrderType,
 )
-from app.services.outbound_dashboard_service import (
+from app.domains.admin.outbound_dashboard_service import (
     get_outbound_dashboard_summary,
 )
 

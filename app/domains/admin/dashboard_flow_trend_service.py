@@ -8,7 +8,7 @@ from app.models.wms import (
     InventoryTransactionType,
     ReturnJob,
 )
-from app.schemas.admin_dashboard import (
+from app.domains.admin.schemas.admin_dashboard import (
     DashboardFlowTrendItem,
     DashboardFlowTrendResponse,
 )

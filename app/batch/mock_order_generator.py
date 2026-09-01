@@ -6,7 +6,7 @@ import time
 from sqlmodel import Session
 
 from app.core.database import engine
-from app.services.mock_order_generator_service import (
+from app.domains.dev.mock_order_generator_service import (
     create_mock_outbound_order,
 )
 

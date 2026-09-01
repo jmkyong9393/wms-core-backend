@@ -4,19 +4,19 @@ from fastapi.responses import JSONResponse
 
 
 
-from app.api.routes import admin
+from app.domains.admin import admin
 from app.domains.auth import admin_users
 from app.domains.auth import auth
 from app.domains.books import books
 from app.domains.books import certificates
-from app.api.routes import db
+from app.domains.dev import db
 from app.domains.inbound import inbound
 from app.domains.inventory import inspection_inventory
 from app.domains.inspections import inspections
 from app.domains.lpn import lpn
 from app.domains.restock import restock
 from app.domains.inventory import inventory
-from app.api.routes import mock
+from app.domains.dev import mock
 from app.domains.notifications import notifications
 from app.domains.orders import orders
 from app.domains.orders import outbound
