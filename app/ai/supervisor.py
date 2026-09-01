@@ -478,18 +478,22 @@ def build_supervisor_graph():
     builder = StateGraph(WMSInspectionState)
 
     # 1. 노드 등록 (add_node)
-    builder.add_node("book_detector", book_detector_node)
-    builder.add_node("supervisor", supervisor_node)
-    builder.add_node("vision_agent", vision_agent)
-    builder.add_node("policy_agent", policy_agent)
-    builder.add_node("critic_agent", critic_agent)
-    builder.add_node("human_node", human_node)
+    # 계측 래퍼로 감싼다 — 구간 지연과 LLM 토큰을 노드 단위로 수집한다.
+    # 노드 구현은 그대로 두고 등록 시점에만 감싸므로 파이프라인 구조·모델 배정은 불변이다.
+    from app.ai.instrumentation import instrument
+
+    builder.add_node("book_detector", instrument("book_detector", book_detector_node))
+    builder.add_node("supervisor", instrument("supervisor", supervisor_node))
+    builder.add_node("vision_agent", instrument("vision_agent", vision_agent))
+    builder.add_node("policy_agent", instrument("policy_agent", policy_agent))
+    builder.add_node("critic_agent", instrument("critic_agent", critic_agent))
+    builder.add_node("human_node", instrument("human_node", human_node))
     builder.add_node(
         "technical_failure_node",
         technical_failure_node,
     )
-    builder.add_node("auto_refund_agent", auto_refund_agent)
-    builder.add_node("report_agent", report_agent)
+    builder.add_node("auto_refund_agent", instrument("auto_refund_agent", auto_refund_agent))
+    builder.add_node("report_agent", instrument("report_agent", report_agent))
 
     # TODO: 나머지 6개의 에이전트 노드 등록
     

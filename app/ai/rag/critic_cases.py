@@ -840,6 +840,8 @@ def evaluate_with_precedents(
     }
 
     try:
+        from app.ai.instrumentation import token_collector
+
         structured_llm = ChatOpenAI(
             model=os.getenv(
                 "OPENAI_MODEL",
@@ -848,6 +850,7 @@ def evaluate_with_precedents(
             temperature=0,
             timeout=60,
             max_retries=1,
+            callbacks=[token_collector],
         ).with_structured_output(
             CriticFewShotDecision
         )

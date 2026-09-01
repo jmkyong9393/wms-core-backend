@@ -217,6 +217,8 @@ HIGHLIGHTING, BARCODE_DAMAGE, OTHER_VISIBLE_DAMAGE
 
     try:
         model_manifest = get_yolo_model_manifest()
+        from app.ai.instrumentation import token_collector
+
         full_image_model = ChatOpenAI(
             model=os.getenv(
                 "OPENAI_DEFECT_MODEL",
@@ -228,6 +230,7 @@ HIGHLIGHTING, BARCODE_DAMAGE, OTHER_VISIBLE_DAMAGE
             temperature=0,
             timeout=90,
             max_retries=1,
+            callbacks=[token_collector],
         ).with_structured_output(
             FullImageVisionReview,
             method="json_schema",
@@ -240,6 +243,7 @@ HIGHLIGHTING, BARCODE_DAMAGE, OTHER_VISIBLE_DAMAGE
             temperature=0,
             timeout=60,
             max_retries=1,
+            callbacks=[token_collector],
         ).with_structured_output(
             CombinedVisionReview,
             method="json_schema",
