@@ -192,6 +192,23 @@ GRADE_LABEL_KO = {
     "REJECT": "매입 불가",
 }
 
+# 고객 노출용 결함 위치 한글 라벨. 영문 enum을 그대로 프롬프트에 넣으면
+# LLM이 그 코드를 고객 문구에 그대로 복사한다(실측).
+LOCATION_LABEL_KO = {
+    "FRONT_COVER": "앞표지",
+    "BACK_COVER": "뒤표지",
+    "SPINE": "책등",
+    "CORNER": "모서리",
+    "BOOK_EDGE": "책 가장자리",
+    "INNER_PAGE": "내지",
+    "IDENTIFIER_AREA": "바코드·식별 영역",
+    "OTHER": "기타 부위",
+}
+
+
+def _location_label(value) -> str:
+    return LOCATION_LABEL_KO.get(str(value or ""), "위치 미상")
+
 
 def _fallback_narrative(
     final_grade: str,
@@ -209,7 +226,9 @@ def _fallback_narrative(
             str(defect.get("type") or ""),
             "외관 상태 참고사항",
         )
-        notes.append(label)
+        notes.append(
+            f"{label} ({_location_label(defect.get('location'))})"
+        )
 
     grade_label = GRADE_LABEL_KO.get(final_grade, final_grade)
     if final_grade == "REJECT":
@@ -251,7 +270,7 @@ def build_customer_narrative(
 
     defect_lines = [
         f"- {DEFECT_LABEL_KO.get(str(d.get('type') or ''), '기타')} "
-        f"(위치: {d.get('location') or '미상'})"
+        f"(위치: {_location_label(d.get('location'))})"
         for d in (defects or [])
         if isinstance(d, dict)
     ]
@@ -263,7 +282,7 @@ def build_customer_narrative(
 규칙:
 1. 존댓말, 과장·추측 금지. 결함의 심각도에 맞는 어조 (가벼운 사용감은 다정하게, 매입 불가는 정중하되 단호하게).
 2. 누구의 잘못인지(귀책)를 절대 쓰지 않는다.
-3. 내부 코드명이나 규정 조항 전문을 쓰지 않는다.
+3. 내부 코드명이나 규정 조항 전문을 쓰지 않는다. 영문 대문자 코드(FRONT_COVER 등)를 그대로 옮겨 적지 말고 반드시 한글 표현만 사용한다.
 판정 등급: {GRADE_LABEL_KO.get(final_grade, final_grade)}
 품질 점수: {ubci_score if ubci_score is not None else '해당 없음'}
 확인된 결함:
