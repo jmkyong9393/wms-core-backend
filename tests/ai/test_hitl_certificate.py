@@ -973,7 +973,7 @@ def test_two_track_vision_uses_full_vlm_only_for_inner(
     assert "INNER→Doodle+GPT-4o" in vision_message
 
 
-def test_mint_routes_to_auto_refund_after_critic():
+def test_mint_routes_to_report_after_critic():
     assert route_from_supervisor({
         "revision_count": 0,
         "is_mint": True,
@@ -987,4 +987,4 @@ def test_mint_routes_to_auto_refund_after_critic():
         "rule_reference": "UBCI_SPEC_V2.0.0.0",
         "policy_confidence": 1.0,
         "reason_code": "OK",
-    }) == "auto_refund_agent"
+    }) == "report_agent"

@@ -19,7 +19,6 @@ from .agents import (
     policy_agent,
     critic_agent,
     human_node,
-    auto_refund_agent,
     report_agent
 )
 
@@ -50,10 +49,13 @@ def technical_failure_node(
 #os.environ["LANGSMITH_PROJECT"] = "WMS_AI_Project"
 #os.environ["LANGSMITH_ENDPOINT"] = "https://api.smith.langchain.com"
 
-def route_from_supervisor(state: WMSInspectionState) -> str:
-    """
-    Supervisor Agent의 동적 라우팅 판단 로직 (Star Topology)
-    TODO: 아래 주석의 조건에 맞게 각 에이전트로 이동하도록 라우팅 함수를 구현하세요.
+def _decide_next_node(
+    state: WMSInspectionState,
+) -> tuple[str, str]:
+    """Supervisor의 지휘 판단 본체 — (다음 노드, 판단 근거)를 반환한다.
+
+    판단은 supervisor_node가 수행해 결정·근거를 state에 기록하고,
+    라우팅 함수(route_from_supervisor)는 그 결정을 집행만 한다.
     """
     # 1. 안전장치: 무한 루프 방지 (Max Retries가 2 이상이면 human_node(HITL 수동 개입) 반환)
     # 2. 초기 상태: 결함 판독이 아직 안 되었으면 vision_agent 반환
@@ -66,7 +68,7 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
     def route(
         node: str,
         reason: str,
-    ) -> str:
+    ) -> tuple[str, str]:
         log = {
             "event": "SUPERVISOR_ROUTED",
             "book_id": state.get(
@@ -118,7 +120,7 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
             )
         )
 
-        return node
+        return node, reason
 
     raw_revision_count = state.get(
         "revision_count",
@@ -245,6 +247,27 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
         return route(
             "human_node",
             "허용되지 않은 관리자 입력",
+        )
+
+    # 판독 커버리지 게이트 — "검수하지 못했다"와 "검수했더니 흠이 없다"는
+    # 하위 노드에서 똑같이 defects=[]로 표현되며, 그 둘을 구분할 수 있는 정보
+    # (book_regions의 detected 여부)는 전 에이전트 보고를 종합하는 여기에만 모인다.
+    # 전 컷이 책 미식별인데 MINT가 나오면 무결점이 아니라 검수 불가이므로 자동 확정을 차단한다.
+    book_regions = state.get("book_regions")
+    if (
+        type(book_regions) is list
+        and len(book_regions) > 0
+        and all(
+            type(region) is dict
+            and region.get("detected") is not True
+            for region in book_regions
+        )
+        and state.get("is_mint") is True
+    ):
+        return route(
+            "human_node",
+            "판독 커버리지 미달 - 촬영 전 컷이 책 미식별 상태로 결함 0건은 "
+            "'무결점'이 아니라 '검수 불가'를 의미함. 자동 확정 차단 후 관리자 이관",
         )
 
     # Vision이 관리자 검토를 명시한 경우에만 HITL 이관
@@ -438,9 +461,11 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
 
     if reason_code == "OK":
         if is_mint is True:
+            # MINT 별도 출구(auto_refund_agent)를 제거하고 report_agent로 단일화.
+            # 자동 매입 자격은 auto_refund_eligible 플래그로 보존해 워커가 집행한다.
             return route(
-                "auto_refund_agent",
-                "Policy와 Critic을 통과한 MINT Fast-track",
+                "report_agent",
+                "Policy와 Critic을 통과한 MINT — 단일 검증 경로로 보고서 발급",
             )
         return route(
             "report_agent",
@@ -460,15 +485,63 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
     )
 
 
-def _route(node: str, reason: str) -> str:
-    print(f"[Supervisor] {node} 선택 - {reason}")
-    return node
+from langchain_core.messages import AIMessage
+
 
 def supervisor_node(state: WMSInspectionState) -> WMSInspectionState:
+    """Supervisor 중앙 지휘 노드 — 하위 에이전트 보고를 종합해 다음 행동을 결정한다.
+
+    결정(supervisor_decision)과 근거(supervisor_rationale)를 state에 남겨
+    관리자 화면과 감사 추적에서 "왜 이 경로로 갔는가"를 재구성할 수 있게 한다.
     """
-    Supervisor 노드 자체는 상태를 변경하지 않고 패스스루 역할을 합니다.
+    node, reason = _decide_next_node(state)
+
+    # MINT 자동 매입 자격: 단일 검증 경로(Policy→Critic)를 전부 통과한 무결함 건만 인정
+    auto_refund_eligible = (
+        node == "report_agent"
+        and state.get("human_feedback") is None
+        and state.get("is_mint") is True
+        and state.get("reason_code") == "OK"
+        and not (state.get("defects") or [])
+    )
+
+    return {
+        "supervisor_decision": node,
+        "supervisor_rationale": reason,
+        "auto_refund_eligible": (
+            True if auto_refund_eligible
+            else state.get("auto_refund_eligible")
+        ),
+        "messages": [
+            AIMessage(
+                content=f"[Supervisor] {node} 지휘 - {reason}"
+            )
+        ],
+    }
+
+
+# supervisor_node의 결정 -> 그래프 노드 매핑 (라우팅 함수는 집행만 한다)
+_DECISION_TO_NODE = {
+    "book_detector": "book_detector",
+    "vision_agent": "vision_agent",
+    "policy_agent": "policy_agent",
+    "critic_agent": "critic_agent",
+    "human_node": "human_node",
+    "technical_failure_node": "technical_failure_node",
+    "report_agent": "report_agent",
+}
+
+
+def route_from_supervisor(state: WMSInspectionState) -> str:
+    """supervisor_node가 내린 결정을 집행하는 매핑 함수.
+
+    결정이 비어 있으면(개편 이전에 저장된 체크포인트 재개 등) 판단 본체를
+    직접 호출해 폴백한다 — 구 체크포인트가 technical_failure로 오배송되지 않게.
     """
-    return {}
+    decision = state.get("supervisor_decision")
+    if decision is None:
+        decision, _ = _decide_next_node(state)
+    return _DECISION_TO_NODE.get(decision, "technical_failure_node")
 
 def build_supervisor_graph():
     """
@@ -492,7 +565,6 @@ def build_supervisor_graph():
         "technical_failure_node",
         technical_failure_node,
     )
-    builder.add_node("auto_refund_agent", instrument("auto_refund_agent", auto_refund_agent))
     builder.add_node("report_agent", instrument("report_agent", report_agent))
 
     # TODO: 나머지 6개의 에이전트 노드 등록
@@ -512,7 +584,6 @@ def build_supervisor_graph():
         "critic_agent": "critic_agent",
         "human_node": "human_node",
         "technical_failure_node": "technical_failure_node",
-        "auto_refund_agent": "auto_refund_agent",
         "report_agent": "report_agent",
         },
     )
@@ -526,9 +597,7 @@ def build_supervisor_graph():
     builder.add_edge("human_node", "supervisor")
     builder.add_edge("technical_failure_node", END)
     
-    # 5. End 엣지 (종료)
-    # TODO: auto_refund_agent 와 report_agent 를 END 로 연결
-    builder.add_edge("auto_refund_agent",END)
+    # 5. End 엣지 (종료) — MINT 포함 전 건이 report_agent 단일 출구로 종료
     builder.add_edge("report_agent", END)
     
     # 6. MemorySaver 연동 (HITL 중단점)
@@ -686,6 +755,9 @@ def resume_hitl(
             "reason_code": None,
             "repair_directive": "관리자 재촬영 요청",
             "overall_confidence": None,
+            "supervisor_decision": None,
+            "supervisor_rationale": None,
+            "auto_refund_eligible": None,
         })
 
     app_graph.update_state(

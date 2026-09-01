@@ -80,7 +80,11 @@ class LangGraphInspectionWrapper:
     ) -> dict[str, Any]:
         steps = self.extract_agent_steps(final_state)
 
-        is_fast_track = any(
+        # 경로 단일화 이후 Fast-track 여부는 Supervisor가 남긴 자격 플래그로 판정한다.
+        # (구 체크포인트 호환을 위해 AutoRefund 스텝 검사도 유지)
+        is_fast_track = bool(
+            final_state.get("auto_refund_eligible")
+        ) or any(
             step.get("agent_name") == "AutoRefund"
             for step in steps
         )
@@ -205,6 +209,7 @@ class LangGraphInspectionWrapper:
         messages = final_state.get("messages") or []
 
         agent_name_by_prefix = {
+            "[Supervisor]": "Supervisor",
             "[Vision Agent]": "Vision",
             "[Policy Agent]": "Policy",
             "[Critic Agent]": "Critic",
