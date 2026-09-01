@@ -1,3 +1,4 @@
+import logging
 import hashlib
 import json
 import math
@@ -15,6 +16,8 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..state import Grade, WMSInspectionState
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -799,10 +802,9 @@ def evaluate_with_precedents(
     try:
         cases = search_similar_cases(state)
     except Exception as error:
-        print(
-            "[Critic RAG] 판례 검색 실패 - "
-            "RULE_FALLBACK "
-            f"({type(error).__name__})"
+        logger.warning(
+            "[Critic RAG] 판례 검색 실패 - RULE_FALLBACK (%s)",
+            type(error).__name__,
         )
         return {
             **base_result,
@@ -816,10 +818,7 @@ def evaluate_with_precedents(
         }
 
     if not cases:
-        print(
-            "[Critic RAG] 검색된 확정 판례 없음 - "
-            "RULE_ONLY"
-        )
+        logger.info("[Critic RAG] 검색된 확정 판례 없음 - RULE_ONLY")
         return base_result
 
     case_ids = [
@@ -864,10 +863,9 @@ def evaluate_with_precedents(
             )
         )
     except Exception as error:
-        print(
-            "[Critic RAG] Few-shot 검증 실패 - "
-            f"RULE_FALLBACK "
-            f"({type(error).__name__})"
+        logger.warning(
+            "[Critic RAG] Few-shot 검증 실패 - RULE_FALLBACK (%s)",
+            type(error).__name__,
         )
         return {
             **base_result,
@@ -940,9 +938,10 @@ def evaluate_with_precedents(
         )
     )
 
-    print(
-        "[Critic RAG] 동적 Few-shot 검증 완료 - "
-        f"{reason_code}, cases={case_ids}"
+    logger.info(
+        "[Critic RAG] 동적 Few-shot 검증 완료 - %s, cases=%s",
+        reason_code,
+        case_ids,
     )
 
     return {

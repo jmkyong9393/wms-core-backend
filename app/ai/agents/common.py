@@ -1,4 +1,5 @@
 """공용 상수·트레이스 유틸 (agents.py 분할 이동, 로직 불변)"""
+import logging
 import base64
 import json
 import os
@@ -27,6 +28,8 @@ from ..rag.policy_search import (
     search_policy_rules,
 )
 from ..state import Grade, WMSInspectionState
+
+logger = logging.getLogger(__name__)
 
 POLICY_VERSION = UBCI_POLICY_VERSION
 
@@ -94,8 +97,8 @@ def trace_event(
 ) -> None:
     """에이전트의 입력·출력을 한 줄 JSON으로 표시한다."""
 
-    print(
-        "[AI_TRACE]",
+    logger.info(
+        "[AI_TRACE] %s",
         json.dumps(
             {
                 "event": event,

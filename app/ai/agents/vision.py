@@ -1,4 +1,5 @@
 """Vision Agent (GPT-4o + YOLO 하이브리드 판독)"""
+import logging
 import base64
 import json
 import os
@@ -33,6 +34,8 @@ from ..rag.policy_search import (
 )
 from ..state import Grade, WMSInspectionState
 
+logger = logging.getLogger(__name__)
+
 
 def vision_agent(state: WMSInspectionState) -> WMSInspectionState:
     """
@@ -43,7 +46,7 @@ def vision_agent(state: WMSInspectionState) -> WMSInspectionState:
     - 합류: GPT-4o-mini 독립 검증
     """
 
-    print("[Agent] Vision Agent 실행...")
+    logger.info("[Agent] Vision Agent 실행...")
 
     image_paths = state.get("image_paths") or []
     raw_revision_count = state.get("revision_count", 0)
@@ -662,8 +665,8 @@ HIGHLIGHTING, BARCODE_DAMAGE, OTHER_VISIBLE_DAMAGE
 
     except Exception as error:
         error_type = type(error).__name__
-        print(
-            "[Agent] Two-track Vision 실패:",
+        logger.warning(
+            "[Agent] Two-track Vision 실패: %s",
             error_type,
         )
         trace_event(

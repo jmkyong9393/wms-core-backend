@@ -1,4 +1,5 @@
 """Critic Agent (교차 검증 + 판례 RAG)"""
+import logging
 import base64
 import json
 import os
@@ -32,6 +33,8 @@ from ..rag.policy_search import (
 )
 from ..state import Grade, WMSInspectionState
 
+logger = logging.getLogger(__name__)
+
 
 def critic_agent(state: WMSInspectionState) -> WMSInspectionState:
     """
@@ -40,7 +43,7 @@ def critic_agent(state: WMSInspectionState) -> WMSInspectionState:
     - 핵심: 검증 실패 시 Policy로 되돌려보냅니다. 여러 번 실패할 경우 HITL(수동 개입)으로 에스컬레이션합니다.
     - 출력: reason_code ("OK", "REJECT"), revision_count 증가
     """
-    print("[Agent] Critic Agent 실행...")
+    logger.info("[Agent] Critic Agent 실행...")
 
     raw_revision_count = state.get(
         "revision_count",

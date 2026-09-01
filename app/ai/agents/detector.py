@@ -1,4 +1,5 @@
 """YOLO 로딩·책 영역 탐지·후보 융합 등 결정론적 탐지 계층"""
+import logging
 import base64
 import json
 import os
@@ -30,6 +31,8 @@ from ..rag.policy_search import (
     search_policy_rules,
 )
 from ..state import Grade, WMSInspectionState
+
+logger = logging.getLogger(__name__)
 
 # 책 전체 영역 탐지 설정
 YOLO_BOOK_MODEL_PATH = os.getenv(
@@ -741,7 +744,7 @@ def book_detector_node(
 ) -> WMSInspectionState:
     """사진별 책 영역을 찾아 Vision 분석 범위를 준비."""
 
-    print("[Node] Book Detector 실행...")
+    logger.info("[Node] Book Detector 실행...")
     image_paths = state.get("image_paths") or []
 
     if len(image_paths) != len(IMAGE_VIEWS):

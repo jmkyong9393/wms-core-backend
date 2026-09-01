@@ -1,3 +1,4 @@
+import logging
 import os
 
 # LangSmith 추적을 사용하더라도 검수 이미지 경로와 판정 State 본문은
@@ -23,6 +24,8 @@ from .agents import (
     vision_agent,
 )
 from .state import WMSInspectionState
+
+logger = logging.getLogger(__name__)
 
 MAX_REVISIONS = 2
 VISION_RETRY_CODES = {"VISION_RESULT_CONFLICT"}
@@ -112,13 +115,13 @@ def _decide_next_node(
             ),
         }
 
-        print(
-            "[AI_TRACE] "
-            + json.dumps(
+        logger.info(
+            "[AI_TRACE] %s",
+            json.dumps(
                 log,
                 ensure_ascii=False,
                 default=str,
-            )
+            ),
         )
 
         return node, reason
@@ -786,14 +789,14 @@ def resume_hitl(
                 )
             )
             if stored_case_id:
-                print(
-                    "[Critic RAG] HITL 권위 판례 저장 - "
-                    f"{stored_case_id}"
+                logger.info(
+                    "[Critic RAG] HITL 권위 판례 저장 - %s",
+                    stored_case_id,
                 )
         except Exception as error:
-            print(
-                "[Critic RAG] HITL 판례 저장 실패 - "
-                f"{type(error).__name__}"
+            logger.warning(
+                "[Critic RAG] HITL 판례 저장 실패 - %s",
+                type(error).__name__,
             )
 
     return final_state

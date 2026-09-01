@@ -1,4 +1,5 @@
 """Policy Agent (UBCI 감점 매트릭스 + RAG 근거)"""
+import logging
 import base64
 import json
 import os
@@ -31,6 +32,8 @@ from ..rag.policy_search import (
     search_policy_rules,
 )
 from ..state import Grade, WMSInspectionState
+
+logger = logging.getLogger(__name__)
 
 PENALTY_MATRIX: dict[
     str,
@@ -300,7 +303,7 @@ def policy_agent(state: WMSInspectionState) -> WMSInspectionState:
     - 입력: state["defects"] (상대 비율 데이터)
     - 출력: ubci_score (int), rule_reference (str)
     """
-    print("[Agent] Policy Agent 실행...")
+    logger.info("[Agent] Policy Agent 실행...")
 
     defects = state.get("defects")
     vision_status = state.get(
@@ -364,10 +367,10 @@ def policy_agent(state: WMSInspectionState) -> WMSInspectionState:
             }:
                 policy_rag_status = "USED"
         except Exception as error:
-            print(
-                "[Policy RAG] 검색 실패 - "
-                f"{type(error).__name__}: "
-                f"{error}"
+            logger.warning(
+                "[Policy RAG] 검색 실패 - %s: %s",
+                type(error).__name__,
+                error,
             )
         # 결함이 없을 때 Policy가 MINT 확정
         if not defects:

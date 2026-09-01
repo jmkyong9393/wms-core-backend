@@ -1,4 +1,5 @@
 """Report·AutoRefund Agent"""
+import logging
 import base64
 import json
 import os
@@ -33,6 +34,8 @@ from ..rag.policy_search import (
 )
 from ..state import Grade, WMSInspectionState
 
+logger = logging.getLogger(__name__)
+
 
 def auto_refund_agent(state: WMSInspectionState) -> WMSInspectionState:
     """
@@ -40,7 +43,7 @@ def auto_refund_agent(state: WMSInspectionState) -> WMSInspectionState:
     TODO: MINT 등급의 새 책에 대한 환불 승인 사유서(JSON)를 작성하세요.
     - 출력: final_report (str, JSON format)
     """
-    print("[Agent] Auto Refund Agent 실행...")
+    logger.info("[Agent] Auto Refund Agent 실행...")
 
     is_mint = state.get("is_mint")
     defects = state.get("defects")
@@ -310,9 +313,9 @@ def build_customer_narrative(
             "narrative_source": "LLM",
         }
     except Exception as error:
-        print(
-            "[Report Agent] 보증서 서술 LLM 실패 - "
-            f"결정론적 폴백 사용 ({type(error).__name__})"
+        logger.warning(
+            "[Report Agent] 보증서 서술 LLM 실패 - 결정론적 폴백 사용 (%s)",
+            type(error).__name__,
         )
         return _fallback_narrative(final_grade, defects)
 
@@ -325,7 +328,7 @@ def report_agent(state: WMSInspectionState) -> WMSInspectionState:
     build_customer_narrative가 GPT-4o-mini로 생성한다(실패 시 규칙 폴백).
     출력: final_report (JSON 문자열)
     """
-    print("[Agent] Report Agent 실행...")
+    logger.info("[Agent] Report Agent 실행...")
 
     human_feedback = state.get("human_feedback")
     predicted_grade = state.get("predicted_grade")

@@ -1,4 +1,5 @@
 """HITL 중단점 노드"""
+import logging
 import base64
 import json
 import os
@@ -30,6 +31,8 @@ from ..rag.policy_search import (
 )
 from ..state import Grade, WMSInspectionState
 
+logger = logging.getLogger(__name__)
+
 
 def human_node(state: WMSInspectionState) -> WMSInspectionState:
     """
@@ -37,5 +40,5 @@ def human_node(state: WMSInspectionState) -> WMSInspectionState:
     TODO: Critic이 반복해서 Policy를 반려하거나 확신할 수 없는 예외 케이스(Outlier)일 경우, 관리자의 수동 개입을 대기합니다.
     - 주의: 이 노드는 MemorySaver에 의해 일시 정지(Pause)를 유발하는 용도이므로 빈 상태로 둡니다.
     """
-    print("[Agent] HITL 노드 진입 - 관리자의 수동 개입(승인/수정) 대기 중")
+    logger.info("[Agent] HITL 노드 진입 - 관리자의 수동 개입(승인/수정) 대기 중")
     return {}
