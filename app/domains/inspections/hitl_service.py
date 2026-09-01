@@ -363,6 +363,11 @@ def store_hitl_precedent_safely(
         )
         if stored:
             print(f"[Critic RAG] HITL 권위 판례 저장 - {stored}")
+        else:
+            print(
+                "[Critic RAG] HITL 판례 저장 건너뜀 - "
+                "점수·등급 근거 불완전 (Vision 직행 HITL 등)"
+            )
     except Exception as error:
         print(
             "[Critic RAG] HITL 판례 저장 실패 - "

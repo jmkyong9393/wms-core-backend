@@ -107,6 +107,8 @@ class LangGraphInspectionWrapper:
                 "score_breakdown": final_state.get("score_breakdown"),
                 "policy_confidence": final_state.get("policy_confidence"),
                 "rule_reference": final_state.get("rule_reference"),
+                "node_timings": final_state.get("node_timings") or [],
+                "node_tokens": final_state.get("node_tokens") or [],
                 "reason_code": final_state.get(
                     "reason_code"
                 ),
@@ -192,6 +194,8 @@ class LangGraphInspectionWrapper:
                     "score_breakdown": current_state.get("score_breakdown"),
                     "policy_confidence": current_state.get("policy_confidence"),
                     "rule_reference": current_state.get("rule_reference"),
+                    "node_timings": current_state.get("node_timings") or [],
+                    "node_tokens": current_state.get("node_tokens") or [],
                     "reason_code": current_state.get(
                         "reason_code"
                     ),
