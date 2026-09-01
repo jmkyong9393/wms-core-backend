@@ -9,8 +9,8 @@ from app.models.wms import (
     RestockProposalSource,
     ReturnJobStatus,
 )
-from app.schemas.restock import RestockRecommendationResponse
-from app.services import restock_service
+from app.domains.restock.schemas.restock import RestockRecommendationResponse
+from app.domains.restock import restock_service
 
 
 class FakeResult:

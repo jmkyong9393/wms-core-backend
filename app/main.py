@@ -14,13 +14,13 @@ from app.domains.inbound import inbound
 from app.domains.inventory import inspection_inventory
 from app.api.routes import inspections
 from app.domains.lpn import lpn
-from app.api.routes import restock
+from app.domains.restock import restock
 from app.domains.inventory import inventory
 from app.api.routes import mock
 from app.domains.notifications import notifications
-from app.api.routes import orders
-from app.api.routes import outbound
-from app.api.routes import pricing
+from app.domains.orders import orders
+from app.domains.orders import outbound
+from app.domains.pricing import pricing
 from app.domains.inventory import rejected_items
 from app.api.routes import stream
 from app.domains.inbound import used_inbound

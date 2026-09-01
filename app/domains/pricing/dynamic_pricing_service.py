@@ -4,11 +4,11 @@ from decimal import Decimal
 from sqlmodel import Session
 
 from app.ai.pricing_agent import pricing_agent
-from app.schemas.pricing import (
+from app.domains.pricing.schemas.pricing import (
     PricingRecommendationRequest,
     PricingRecommendationResponse,
 )
-from app.services.pricing_context_service import (
+from app.domains.pricing.pricing_context_service import (
     DynamicPricingResult,
     apply_dynamic_pricing_result,
     get_dynamic_pricing_context,

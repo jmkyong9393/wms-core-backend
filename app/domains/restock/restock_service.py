@@ -24,7 +24,7 @@ from app.models.wms import (
     UsedInventoryStatus,
     RestockProposalSource,
 )
-from app.schemas.restock import (
+from app.domains.restock.schemas.restock import (
     RestockRecommendationRequest,
     RestockRecommendationResponse,
 )

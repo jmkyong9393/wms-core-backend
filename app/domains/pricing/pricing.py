@@ -2,13 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException, Path, status
 from sqlmodel import Session
 
 from app.core.database import get_session
-from app.services.dynamic_pricing_service import execute_dynamic_pricing
-from app.schemas.pricing import (
+from app.domains.pricing.dynamic_pricing_service import execute_dynamic_pricing
+from app.domains.pricing.schemas.pricing import (
     DynamicPricingContextResponse,
     DynamicPricingResultRequest,
     DynamicPricingResultResponse,
 )
-from app.services.pricing_context_service import (
+from app.domains.pricing.pricing_context_service import (
     PricingContextIncompleteError,
     PricingContextNotFoundError,
     apply_dynamic_pricing_result,

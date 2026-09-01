@@ -1,4 +1,4 @@
-from app.schemas.pricing import (
+from app.domains.pricing.schemas.pricing import (
     DynamicPricingContextResponse,
     DynamicPricingResultRequest,
     DynamicPricingResultResponse,

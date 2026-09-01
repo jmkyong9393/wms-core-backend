@@ -10,7 +10,7 @@ from app.models.wms import (
     InventoryUsedItem,
     UsedInventoryStatus,
 )
-from app.services.pricing_context_service import (
+from app.domains.pricing.pricing_context_service import (
     PricingContextIncompleteError,
     PricingContextNotFoundError,
     apply_dynamic_pricing_result,

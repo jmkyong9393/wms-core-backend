@@ -15,7 +15,7 @@ from app.models.wms import (
     OrderProposalStatus,
     User,
 )
-from app.schemas.restock import (
+from app.domains.restock.schemas.restock import (
     RestockProposalDetailResponse,
     RestockProposalListItemResponse,
     RestockRecommendationRequest,
@@ -23,7 +23,7 @@ from app.schemas.restock import (
     RestockProposalReviewRequest,
     RestockProposalReviewResponse,
 )
-from app.services.restock_proposal_service import (
+from app.domains.restock.restock_proposal_service import (
     InvalidRestockProposalStateError,
     RestockProposalNotFoundError,
     approve_restock_proposal,
@@ -31,7 +31,7 @@ from app.services.restock_proposal_service import (
     list_restock_proposals,
     reject_restock_proposal,
 )
-from app.services.restock_service import (
+from app.domains.restock.restock_service import (
     generate_restock_recommendation,
 )
 from app.domains.inbound.location_assignment_service import (

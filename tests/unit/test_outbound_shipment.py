@@ -5,7 +5,7 @@ from uuid import UUID
 import pytest
 from fastapi import HTTPException
 
-from app.api.routes import outbound
+from app.domains.orders import outbound
 from app.models.wms import (
     ConditionGrade,
     Inventory,

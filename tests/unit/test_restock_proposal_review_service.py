@@ -15,8 +15,8 @@ from app.models.wms import (
     OrderProposalStatus,
     OrderStatus,
 )
-from app.services import restock_proposal_service
-from app.services.restock_proposal_service import (
+from app.domains.restock import restock_proposal_service
+from app.domains.restock.restock_proposal_service import (
     InvalidRestockProposalStateError,
     approve_restock_proposal,
     reject_restock_proposal,

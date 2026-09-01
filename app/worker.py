@@ -14,7 +14,7 @@ from app.models.wms import (
     ReturnJobStatus,
 )
 
-from app.services.restock_service import (
+from app.domains.restock.restock_service import (
     create_restock_proposal_for_rejected_job,
     create_restock_proposal_for_safety_stock,
 )

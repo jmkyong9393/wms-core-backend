@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from app.api.routes import orders
+from app.domains.orders import orders
 from app.models.wms import Order, OrderStatus, OrderType
 
 

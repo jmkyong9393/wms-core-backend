@@ -5,8 +5,8 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 
-from app.api.routes import pricing
-from app.services.pricing_context_service import (
+from app.domains.pricing import pricing
+from app.domains.pricing.pricing_context_service import (
     DynamicPricingResult,
     PricingContextIncompleteError,
     PricingContextNotFoundError,

@@ -14,7 +14,7 @@ from langchain_core.messages import (
 )
 from langchain_openai import ChatOpenAI
 
-from app.schemas.pricing import (
+from app.domains.pricing.schemas.pricing import (
     PricingReason,
     PricingRecommendationRequest,
     PricingRecommendationResponse,

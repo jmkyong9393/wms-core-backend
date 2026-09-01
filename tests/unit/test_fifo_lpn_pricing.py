@@ -5,7 +5,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.models.wms import ConditionGrade, OrderItem
-from app.services.fifo_lpn_service import select_fifo_lpn_candidate
+from app.domains.orders.fifo_lpn_service import select_fifo_lpn_candidate
 
 
 class CapturingResult:

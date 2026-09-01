@@ -18,7 +18,7 @@ from app.models.wms import (
     OrderType,
     User,
 )
-from app.schemas.restock import (
+from app.domains.restock.schemas.restock import (
     RestockProposalBookResponse,
     RestockProposalDetailResponse,
     RestockProposalListItemResponse,
@@ -28,7 +28,7 @@ from app.domains.inbound.location_assignment_service import (
     NoAvailableLocationError,
     assign_new_stock_location,
 )
-from app.services.restock_service import (
+from app.domains.restock.restock_service import (
     get_current_available_stock,
     get_pending_auto_po_quantity,
 )

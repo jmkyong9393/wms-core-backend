@@ -24,11 +24,11 @@ from app.models.wms import (
     UsedInventoryStatus,
     User,
 )
-from app.services.fifo_lpn_service import (
+from app.domains.orders.fifo_lpn_service import (
     FifoLpnCandidate,
     select_fifo_lpn_candidate,
 )
-from app.services.waybill_service import issue_waybill_for_order
+from app.domains.orders.waybill_service import issue_waybill_for_order
 from app.api.dependencies.auth import require_wms_operator
 
 router = APIRouter()

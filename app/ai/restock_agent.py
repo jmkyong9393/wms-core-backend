@@ -5,7 +5,7 @@ from langchain_openai import ChatOpenAI
 
 from app.core.config import settings
 from app.models.wms import RestockProposalSource
-from app.schemas.restock import (
+from app.domains.restock.schemas.restock import (
     RestockRecommendationRequest,
     RestockRecommendationResponse,
 )

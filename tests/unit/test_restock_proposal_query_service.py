@@ -8,7 +8,7 @@ from app.models.wms import (
     OrderProposalStatus,
     RestockProposalSource,
 )
-from app.services.restock_proposal_service import (
+from app.domains.restock.restock_proposal_service import (
     RestockProposalNotFoundError,
     get_restock_proposal_detail,
     list_restock_proposals,

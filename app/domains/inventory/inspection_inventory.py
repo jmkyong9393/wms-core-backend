@@ -17,7 +17,7 @@ from app.domains.inventory.schemas.inspection_inventory import (
 )
 from app.domains.lpn.schemas.label import LabelPrintStatus
 from app.domains.inventory.used_inventory_service import apply_inspected_item_result
-from app.services.dynamic_pricing_service import execute_dynamic_pricing
+from app.domains.pricing.dynamic_pricing_service import execute_dynamic_pricing
 from app.domains.lpn.label_printer_service import (
     send_zpl_to_label_printer,
 )

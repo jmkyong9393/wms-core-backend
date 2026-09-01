@@ -5,7 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.ai import pricing_agent as pricing_module
-from app.schemas.pricing import (
+from app.domains.pricing.schemas.pricing import (
     PricingReason,
     PricingRecommendationRequest,
 )

@@ -4,7 +4,7 @@ from uuid import UUID
 import pytest
 from fastapi import HTTPException
 
-from app.api.routes import outbound
+from app.domains.orders import outbound
 from app.models.wms import (
     ConditionGrade,
     Inventory,
@@ -18,7 +18,7 @@ from app.models.wms import (
     OrderType,
     UsedInventoryStatus,
 )
-from app.services.fifo_lpn_service import FifoLpnCandidate
+from app.domains.orders.fifo_lpn_service import FifoLpnCandidate
 
 
 ORDER_ID = UUID("00000000-0000-4000-8000-000000000001")
