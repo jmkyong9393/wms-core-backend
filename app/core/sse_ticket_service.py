@@ -7,7 +7,6 @@ import redis.asyncio as redis
 
 from app.core.config import settings
 
-
 SSE_TICKET_KEY_PREFIX = "sse_ticket"
 NOTIFICATION_SSE_TICKET_KEY_PREFIX = "notification_sse_ticket"
 
@@ -60,9 +59,7 @@ async def validate_sse_ticket(
     )
 
     try:
-        raw_payload = await redis_client.get(
-            get_sse_ticket_key(ticket)
-        )
+        raw_payload = await redis_client.get(get_sse_ticket_key(ticket))
     finally:
         await redis_client.aclose()
 
@@ -80,7 +77,7 @@ async def validate_sse_ticket(
 
     if payload.get("user_id") is None:
         return None
-    
+
     if payload.get("tenant_id") is None:
         return None
 
@@ -134,9 +131,7 @@ async def validate_notification_sse_ticket(
     )
 
     try:
-        raw_payload = await redis_client.get(
-            get_notification_sse_ticket_key(ticket)
-        )
+        raw_payload = await redis_client.get(get_notification_sse_ticket_key(ticket))
     finally:
         await redis_client.aclose()
 

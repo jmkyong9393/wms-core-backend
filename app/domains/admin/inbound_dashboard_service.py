@@ -3,6 +3,13 @@ from datetime import datetime, time, timedelta
 
 from sqlmodel import Session, select
 
+from app.domains.admin.schemas.admin_dashboard import (
+    InboundDashboardGradeItem,
+    InboundDashboardSummaryResponse,
+    InboundDashboardTrendItem,
+    InboundDashboardZoneItem,
+    RecentInboundActivityResponse,
+)
 from app.models.wms import (
     Book,
     ConditionGrade,
@@ -16,13 +23,6 @@ from app.models.wms import (
     ReturnJob,
     ReturnJobStatus,
     UsedInventoryStatus,
-)
-from app.domains.admin.schemas.admin_dashboard import (
-    InboundDashboardGradeItem,
-    InboundDashboardSummaryResponse,
-    InboundDashboardTrendItem,
-    InboundDashboardZoneItem,
-    RecentInboundActivityResponse,
 )
 
 
@@ -44,17 +44,12 @@ def get_inbound_dashboard_summary(
 
     inbound_logs = session.exec(
         select(InventoryLog).where(
-            InventoryLog.transaction_type
-            == InventoryTransactionType.INBOUND,
+            InventoryLog.transaction_type == InventoryTransactionType.INBOUND,
             InventoryLog.created_at >= trend_start_at,
         )
     ).all()
 
-    today_inbound_quantity = sum(
-        max(0, log.quantity_change)
-        for log in inbound_logs
-        if log.created_at >= today_start
-    )
+    today_inbound_quantity = sum(max(0, log.quantity_change) for log in inbound_logs if log.created_at >= today_start)
 
     pending_inspection_count = len(
         session.exec(
@@ -71,11 +66,7 @@ def get_inbound_dashboard_summary(
     )
 
     recheck_required_count = len(
-        session.exec(
-            select(ReturnJob).where(
-                ReturnJob.status == ReturnJobStatus.RECHECK_REQUIRED
-            )
-        ).all()
+        session.exec(select(ReturnJob).where(ReturnJob.status == ReturnJobStatus.RECHECK_REQUIRED)).all()
     )
 
     completed_inspection_count = len(
@@ -108,12 +99,8 @@ def get_inbound_dashboard_summary(
     daily_inbound_trend = [
         InboundDashboardTrendItem(
             date=trend_start_date + timedelta(days=offset),
-            new_stock_quantity=new_stock_by_date[
-                trend_start_date + timedelta(days=offset)
-            ],
-            used_return_quantity=used_return_by_date[
-                trend_start_date + timedelta(days=offset)
-            ],
+            new_stock_quantity=new_stock_by_date[trend_start_date + timedelta(days=offset)],
+            used_return_quantity=used_return_by_date[trend_start_date + timedelta(days=offset)],
         )
         for offset in range(days)
     ]
@@ -166,9 +153,7 @@ def get_inbound_dashboard_summary(
             Location,
             Location.id == InventoryUsedItem.location_id,
         )
-        .where(
-            InventoryUsedItem.status == UsedInventoryStatus.AVAILABLE
-        )
+        .where(InventoryUsedItem.status == UsedInventoryStatus.AVAILABLE)
     ).all()
 
     for _, location in used_inventory_rows:
@@ -180,9 +165,7 @@ def get_inbound_dashboard_summary(
             zone=zone,
             new_stock_quantity=zone_new_stock[zone],
             used_stock_quantity=zone_used_stock[zone],
-            available_quantity=(
-                zone_new_stock[zone] + zone_used_stock[zone]
-            ),
+            available_quantity=(zone_new_stock[zone] + zone_used_stock[zone]),
         )
         for zone in zones
     ]
@@ -212,9 +195,7 @@ def get_inbound_dashboard_summary(
             inbound_type=inbound_job.inbound_type,
             inbound_status=inbound_job.status,
             quantity=inbound_item.quantity,
-            location_barcode=(
-                location.barcode if location is not None else None
-            ),
+            location_barcode=(location.barcode if location is not None else None),
             occurred_at=inbound_item.created_at,
         )
         for inbound_item, inbound_job, book, location in recent_rows

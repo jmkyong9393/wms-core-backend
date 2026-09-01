@@ -1,13 +1,11 @@
-from uuid import UUID, uuid4
 import logging
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import text
 from sqlmodel import Session, select
 
 from app.core.database import get_session
-from app.models.wms import Book, InboundItem, InboundJob, InboundStatus
-from app.domains.lpn.schemas.label import LabelPrintStatus
 from app.domains.inbound.schemas.used_inbound import (
     UsedBookInboundRequest,
     UsedBookInboundResponse,
@@ -21,7 +19,9 @@ from app.domains.lpn.lpn_service import (
     generate_certificate_token,
     generate_lpn_barcode,
 )
+from app.domains.lpn.schemas.label import LabelPrintStatus
 from app.domains.lpn.zpl_label_service import build_lpn_label_zpl
+from app.models.wms import Book, InboundItem, InboundJob, InboundStatus
 
 router = APIRouter()
 
@@ -39,13 +39,9 @@ def _try_print_initial_lpn_label(
     """
     try:
         if inbound_item.lpn_barcode is None:
-            raise RuntimeError(
-                "Inbound item does not have an LPN barcode"
-            )
+            raise RuntimeError("Inbound item does not have an LPN barcode")
         if inbound_item.certificate_token is None:
-            raise RuntimeError(
-                "Inbound item does not have a certificate token"
-            )
+            raise RuntimeError("Inbound item does not have a certificate token")
 
         zpl = build_lpn_label_zpl(
             lpn_barcode=inbound_item.lpn_barcode,
@@ -60,8 +56,7 @@ def _try_print_initial_lpn_label(
 
     except Exception:
         logger.exception(
-            "Failed to print initial LPN label. "
-            "inbound_item_id=%s",
+            "Failed to print initial LPN label. inbound_item_id=%s",
             inbound_item.id,
         )
         return (
@@ -69,13 +64,10 @@ def _try_print_initial_lpn_label(
             "LPN 라벨 출력에 실패했습니다. 수동 출력이 필요합니다.",
         )
 
+
 def _lock_intake_request(session: Session, request_id: UUID) -> None:
     session.exec(
-        text(
-            "SELECT pg_advisory_xact_lock("
-            "hashtextextended(:request_id, 0)"
-            ")"
-        ).bindparams(request_id=str(request_id))
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:request_id, 0))").bindparams(request_id=str(request_id))
     )
 
 
@@ -98,9 +90,7 @@ def _build_response(
         book_id=inbound_item.book_id,
         lpn_barcode=inbound_item.lpn_barcode,
         certificate_url=build_public_qr_url(inbound_item.certificate_token),
-        label_scan_url=build_label_scan_qr_url(
-            inbound_item.certificate_token
-        ),
+        label_scan_url=build_label_scan_qr_url(inbound_item.certificate_token),
         label_print_status=label_print_status,
         label_print_error=label_print_error,
     )
@@ -162,9 +152,7 @@ def create_used_book_inbound(
             session.commit()
             return response
 
-        book = session.exec(
-            select(Book).where(Book.id == request.book_id)
-        ).first()
+        book = session.exec(select(Book).where(Book.id == request.book_id)).first()
         if book is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -197,9 +185,7 @@ def create_used_book_inbound(
 
     # DB commit이 끝난 뒤에만 실제 프린터 전송을 시도한다.
     # 출력 실패는 입고·LPN 발급 결과를 롤백하지 않는다.
-    label_print_status, label_print_error = (
-        _try_print_initial_lpn_label(inbound_item)
-    )
+    label_print_status, label_print_error = _try_print_initial_lpn_label(inbound_item)
 
     return _build_response(
         inbound_job,

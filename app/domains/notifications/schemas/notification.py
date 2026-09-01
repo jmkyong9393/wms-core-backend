@@ -1,6 +1,6 @@
 from datetime import datetime
-from uuid import UUID
 from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -9,19 +9,16 @@ from app.models.wms import (
     NotificationSeverity,
 )
 
+
 class NotificationResponse(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "id": (
-                    "00000000-0000-4000-8000-000000000001"
-                ),
+                "id": ("00000000-0000-4000-8000-000000000001"),
                 "category": "FDS_ALERT",
                 "severity": "HIGH",
                 "title": "반품 이상 패턴 감지",
-                "message": (
-                    "최근 반품 비율이 기준치를 초과했습니다."
-                ),
+                "message": ("최근 반품 비율이 기준치를 초과했습니다."),
                 "timestamp": "2026-07-28T10:00:00+09:00",
                 "read": False,
             }

@@ -4,16 +4,15 @@ from decimal import Decimal
 from sqlmodel import Session
 
 from app.ai.pricing_agent import pricing_agent
-from app.domains.pricing.schemas.pricing import (
-    PricingRecommendationRequest,
-    PricingRecommendationResponse,
-)
 from app.domains.pricing.pricing_context_service import (
     DynamicPricingResult,
     apply_dynamic_pricing_result,
     get_dynamic_pricing_context,
 )
-
+from app.domains.pricing.schemas.pricing import (
+    PricingRecommendationRequest,
+    PricingRecommendationResponse,
+)
 
 PricingAgent = Callable[
     [PricingRecommendationRequest],
@@ -37,12 +36,8 @@ def execute_dynamic_pricing(
     )
     recommendation = agent(request)
 
-    discount_rate = (
-        Decimal(recommendation.discount_rate) / Decimal("100")
-    ).quantize(Decimal("0.0001"))
-    final_price = Decimal(recommendation.final_price).quantize(
-        Decimal("0.01")
-    )
+    discount_rate = (Decimal(recommendation.discount_rate) / Decimal("100")).quantize(Decimal("0.0001"))
+    final_price = Decimal(recommendation.final_price).quantize(Decimal("0.01"))
 
     return apply_dynamic_pricing_result(
         session,

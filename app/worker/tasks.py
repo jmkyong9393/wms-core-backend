@@ -3,25 +3,19 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from sqlmodel import Session
+
+from app.ai.langgraph_wrapper import LangGraphInspectionWrapper
 from app.core.celery_app import celery_app
 from app.core.database import engine
-
-from app.models.wms import (
-    Book,
-    NotificationCategory,
-    NotificationSeverity,
-    ReturnJob,
-    ReturnJobStatus,
-)
-
-from app.domains.restock.restock_service import (
-    create_restock_proposal_for_rejected_job,
-    create_restock_proposal_for_safety_stock,
-)
-from app.ai.langgraph_wrapper import LangGraphInspectionWrapper
+from app.core.dlq_service import push_inspection_failure_to_dlq
 from app.core.redis_pubsub import (
     publish_return_job_event,
     publish_tenant_notification_event,
+)
+from app.core.wms_client import (
+    WMSNonRetryableError,
+    WMSRetryableError,
+    call_wms_inspection_result_api,
 )
 from app.domains.inspections.return_job_service import (
     WMSTaskMismatchError,
@@ -34,26 +28,30 @@ from app.domains.inspections.return_job_service import (
     save_wms_processing_failed,
     save_wms_task_id,
 )
-from app.core.wms_client import (
-    WMSRetryableError,
-    WMSNonRetryableError,
-    call_wms_inspection_result_api,
-)
-from app.core.dlq_service import push_inspection_failure_to_dlq
 from app.domains.notifications.notification_service import (
     create_committed_notification_for_tenant,
+)
+from app.domains.restock.restock_service import (
+    create_restock_proposal_for_rejected_job,
+    create_restock_proposal_for_safety_stock,
+)
+from app.models.wms import (
+    Book,
+    NotificationCategory,
+    NotificationSeverity,
+    ReturnJob,
+    ReturnJobStatus,
 )
 
 logger = logging.getLogger(__name__)
 
 TASK_NAME = "app.worker.process_inspection"
 WMS_TASK_NAME = "app.worker.process_wms_action"
-RESTOCK_PROPOSAL_TASK_NAME = ("app.worker.process_restock_proposal")
+RESTOCK_PROPOSAL_TASK_NAME = "app.worker.process_restock_proposal"
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 5
-SAFETY_STOCK_RESTOCK_PROPOSAL_TASK_NAME = (
-    "app.worker.process_safety_stock_restock_proposal"
-)
+SAFETY_STOCK_RESTOCK_PROPOSAL_TASK_NAME = "app.worker.process_safety_stock_restock_proposal"
+
 
 class WMSTaskDispatchError(RuntimeError):
     """WMS 후속 Celery Task 등록에 실패한 경우."""
@@ -81,15 +79,12 @@ def publish_final_event(
     job: ReturnJob,
     task_id: str,
 ) -> None:
-    status = (
-        job.status.value
-        if hasattr(job.status, "value")
-        else str(job.status)
-    )
+    status = job.status.value if hasattr(job.status, "value") else str(job.status)
 
     progress = (
         70
-        if status in {
+        if status
+        in {
             ReturnJobStatus.HITL_REQUIRED.value,
             ReturnJobStatus.RECHECK_REQUIRED.value,
         }
@@ -105,16 +100,8 @@ def publish_final_event(
             "task_id": task_id,
             "status": status,
             "progress": progress,
-            "ubci_score": (
-                float(job.ubci_score)
-                if job.ubci_score is not None
-                else None
-            ),
-            "condition_grade": (
-                job.condition_grade.value
-                if job.condition_grade is not None
-                else None
-            ),
+            "ubci_score": (float(job.ubci_score) if job.ubci_score is not None else None),
+            "condition_grade": (job.condition_grade.value if job.condition_grade is not None else None),
             "lpn_barcode": wms_result.get("lpn_barcode"),
             "inventory_changed": wms_result.get("inventory_changed", False),
             "rejected_item_id": wms_result.get("rejected_item_id"),
@@ -142,6 +129,7 @@ def publish_failed_event(
         },
     )
 
+
 # AI 결과는 보존하되 WMS 후속 Task 등록 실패를 프론트에 전달
 def publish_wms_dispatch_failed_event(
     job_id: UUID,
@@ -168,30 +156,21 @@ def execute_wms_action(
     return_job_id: UUID,
     ai_result: dict[str, Any],
 ) -> tuple[str, dict[str, Any], str, int | float | None]:
-    
+
     idempotency_key = f"return-job:{return_job_id}"
 
     agent_logs = ai_result.get("agent_logs") or {}
     defects = agent_logs.get("defects") or []
     raw_ubci_score = ai_result.get("ubci_score")
 
-    ubci_score = (
-        float(raw_ubci_score)
-        if raw_ubci_score is not None
-        else None
-    )
+    ubci_score = float(raw_ubci_score) if raw_ubci_score is not None else None
 
     admin_decision_code = agent_logs.get("admin_decision_code")
     final_grade = agent_logs.get("final_grade")
     rejection_disposition = agent_logs.get("rejection_disposition")
 
     # 결함 없는 Fast-track MINT는 Policy Agent를 생략하므로 100점으로 정규화한다.
-    if (
-        decision == "APPROVE"
-        and ubci_score is None
-        and agent_logs.get("is_mint") is True
-        and not defects
-    ):
+    if decision == "APPROVE" and ubci_score is None and agent_logs.get("is_mint") is True and not defects:
         ubci_score = 100.0
 
     wms_result = call_wms_inspection_result_api(
@@ -210,15 +189,16 @@ def execute_wms_action(
     if condition_grade is None:
         raise ValueError("WMS response does not include condition_grade")
 
-    final_status = (
-        ReturnJobStatus.APPROVED.value
-        if decision == "APPROVE"
-        else ReturnJobStatus.REJECTED.value
+    final_status = ReturnJobStatus.APPROVED.value if decision == "APPROVE" else ReturnJobStatus.REJECTED.value
+    return (
+        final_status,
+        {
+            "wms_result": wms_result,
+            "idempotency_key": idempotency_key,
+        },
+        condition_grade,
+        ubci_score,
     )
-    return final_status, {
-        "wms_result": wms_result,
-        "idempotency_key": idempotency_key,
-    }, condition_grade, ubci_score
 
 
 # Redis 알림은 상태 전달용, 실패해도 핵심 검수 트랜잭션까지 실패 시키지 않음.
@@ -232,12 +212,12 @@ def publish_event_safely(
         return True
     except Exception:
         logger.exception(
-            "Redis 이벤트 발행에 실패했습니다. "
-            "event=%s kwargs=%s",
+            "Redis 이벤트 발행에 실패했습니다. event=%s kwargs=%s",
             event_name,
             kwargs,
         )
-        return False  
+        return False
+
 
 def create_agent_hitl_alert_safely(
     job: ReturnJob,
@@ -248,27 +228,21 @@ def create_agent_hitl_alert_safely(
     reason_code = ai_result.get("reason_code") or "UNKNOWN"
 
     try:
-        notification_tenant_id, event = (
-            create_committed_notification_for_tenant(
-                tenant_id=job.tenant_id,
-                category=NotificationCategory.AGENT_ALERT,
-                severity=NotificationSeverity.MEDIUM,
-                title="AI 검수 결과 관리자 확인 필요",
-                message=(
-                    "AI 검수가 자동 확정되지 않아 관리자 검수가 필요합니다. "
-                    f"사유 코드: {reason_code}"
-                ),
-                payload={
-                    "return_job_id": str(job.id),
-                    "inspection_task_id": task_id,
-                    "reason_code": reason_code,
-                },
-            )
+        notification_tenant_id, event = create_committed_notification_for_tenant(
+            tenant_id=job.tenant_id,
+            category=NotificationCategory.AGENT_ALERT,
+            severity=NotificationSeverity.MEDIUM,
+            title="AI 검수 결과 관리자 확인 필요",
+            message=(f"AI 검수가 자동 확정되지 않아 관리자 검수가 필요합니다. 사유 코드: {reason_code}"),
+            payload={
+                "return_job_id": str(job.id),
+                "inspection_task_id": task_id,
+                "reason_code": reason_code,
+            },
         )
     except Exception:
         logger.exception(
-            "Agent HITL 알림 DB 저장에 실패했습니다. "
-            "job_id=%s task_id=%s",
+            "Agent HITL 알림 DB 저장에 실패했습니다. job_id=%s task_id=%s",
             job.id,
             task_id,
         )
@@ -280,6 +254,7 @@ def create_agent_hitl_alert_safely(
         tenant_id=notification_tenant_id,
         event=event,
     )
+
 
 # WMS 후속 Task 등록 실패 정보를 DB에 저장한다.
 # 저장 함수 자체에서 AI 결과는 유지하고 ReturnJob 상태를 FAILED로 변경한다.
@@ -299,8 +274,7 @@ def save_wms_dispatch_failed_safely(
 
     except Exception:
         logger.exception(
-            "WMS Task 등록 실패 정보를 DB에 저장하지 못했습니다. "
-            "job_id=%s task_id=%s",
+            "WMS Task 등록 실패 정보를 DB에 저장하지 못했습니다. job_id=%s task_id=%s",
             job_id,
             task_id,
         )
@@ -327,14 +301,13 @@ def push_dlq_safely(
 
     except Exception:
         logger.exception(
-            "DLQ 적재에 실패했습니다. "
-            "job_id=%s task_id=%s source_task=%s",
+            "DLQ 적재에 실패했습니다. job_id=%s task_id=%s source_task=%s",
             job_id,
             task_id,
             source_task,
         )
         return False
-    
+
 
 def handle_inspection_failure(
     job_id: UUID,
@@ -362,18 +335,13 @@ def handle_inspection_failure(
 
     if failed_job.status != ReturnJobStatus.FAILED:
         logger.warning(
-            "작업이 이미 최종 처리되어 FAILED 이벤트 발행을 생략합니다. "
-            "job_id=%s status=%s",
+            "작업이 이미 최종 처리되어 FAILED 이벤트 발행을 생략합니다. job_id=%s status=%s",
             failed_job.id,
             failed_job.status,
         )
         return
 
-    failure_stage = (
-        "WMS_PROCESSING"
-        if source_task == WMS_TASK_NAME
-        else "AI_INSPECTION"
-    )
+    failure_stage = "WMS_PROCESSING" if source_task == WMS_TASK_NAME else "AI_INSPECTION"
 
     publish_event_safely(
         event_name="FAILED",
@@ -391,6 +359,7 @@ def handle_inspection_failure(
         error=error,
         retry_count=retry_count,
     )
+
 
 def dispatch_restock_proposal_task_safely(
     return_job: ReturnJob,
@@ -414,8 +383,7 @@ def dispatch_restock_proposal_task_safely(
         )
 
         logger.info(
-            "Restock proposal task queued. "
-            "restock_task_id=%s return_job_id=%s",
+            "Restock proposal task queued. restock_task_id=%s return_job_id=%s",
             restock_task_id,
             return_job.id,
         )
@@ -424,8 +392,7 @@ def dispatch_restock_proposal_task_safely(
         # Restock 추천 생성 실패가 이미 완료된 WMS 반려 처리를
         # FAILED로 바꾸지 않도록 로그만 남긴다.
         logger.exception(
-            "Restock proposal task dispatch failed. "
-            "return_job_id=%s",
+            "Restock proposal task dispatch failed. return_job_id=%s",
             return_job.id,
         )
 
@@ -460,8 +427,7 @@ def process_restock_proposal(
 
             if result.generation_in_progress:
                 logger.warning(
-                    "Restock Agent generation is in progress. "
-                    "task_id=%s return_job_id=%s",
+                    "Restock Agent generation is in progress. task_id=%s return_job_id=%s",
                     task_id,
                     job_id,
                 )
@@ -475,14 +441,11 @@ def process_restock_proposal(
 
             proposal = result.proposal
             if proposal is None:
-                raise RuntimeError(
-                    "Restock proposal result does not include a proposal."
-                )
+                raise RuntimeError("Restock proposal result does not include a proposal.")
 
             if not result.created:
                 logger.info(
-                    "Restock proposal already exists. "
-                    "task_id=%s return_job_id=%s proposal_id=%s",
+                    "Restock proposal already exists. task_id=%s return_job_id=%s proposal_id=%s",
                     task_id,
                     job_id,
                     proposal.id,
@@ -513,9 +476,7 @@ def process_restock_proposal(
                 }
 
             book = session.get(Book, proposal.book_id)
-            book_title = book.title if book is not None else str(
-                proposal.book_id
-            )
+            book_title = book.title if book is not None else str(proposal.book_id)
 
         tenant_id, event = create_committed_notification_for_tenant(
             tenant_id=proposal.tenant_id,
@@ -532,9 +493,7 @@ def process_restock_proposal(
                 "return_job_id": str(job_id),
                 "book_id": str(proposal.book_id),
                 "proposal_source": proposal.proposal_source.value,
-                "recommended_order_quantity": (
-                    proposal.recommended_order_quantity
-                ),
+                "recommended_order_quantity": (proposal.recommended_order_quantity),
                 "risk_level": proposal.risk_level,
             },
         )
@@ -547,8 +506,7 @@ def process_restock_proposal(
         )
 
         logger.info(
-            "Restock proposal created. "
-            "task_id=%s return_job_id=%s proposal_id=%s",
+            "Restock proposal created. task_id=%s return_job_id=%s proposal_id=%s",
             task_id,
             job_id,
             proposal.id,
@@ -564,8 +522,7 @@ def process_restock_proposal(
 
     except Exception as error:
         logger.exception(
-            "Restock proposal processing failed. "
-            "task_id=%s return_job_id=%s error=%s",
+            "Restock proposal processing failed. task_id=%s return_job_id=%s error=%s",
             task_id,
             job_id,
             error,
@@ -575,9 +532,10 @@ def process_restock_proposal(
             raise self.retry(
                 exc=error,
                 countdown=RETRY_DELAY_SECONDS,
-            )
+            ) from error
 
         raise
+
 
 @celery_app.task(
     bind=True,
@@ -640,11 +598,7 @@ def process_safety_stock_restock_proposal(
                 }
 
             book = session.get(Book, proposal.book_id)
-            book_title = (
-                book.title
-                if book is not None
-                else str(proposal.book_id)
-            )
+            book_title = book.title if book is not None else str(proposal.book_id)
 
         tenant_id, event = create_committed_notification_for_tenant(
             tenant_id=proposal.tenant_id,
@@ -660,12 +614,8 @@ def process_safety_stock_restock_proposal(
                 "order_proposal_id": str(proposal.id),
                 "return_job_id": None,
                 "book_id": str(proposal.book_id),
-                "proposal_source": (
-                    proposal.proposal_source.value
-                ),
-                "recommended_order_quantity": (
-                    proposal.recommended_order_quantity
-                ),
+                "proposal_source": (proposal.proposal_source.value),
+                "recommended_order_quantity": (proposal.recommended_order_quantity),
                 "risk_level": proposal.risk_level,
             },
         )
@@ -687,8 +637,7 @@ def process_safety_stock_restock_proposal(
 
     except Exception as error:
         logger.exception(
-            "Safety-stock restock proposal processing failed. "
-            "task_id=%s book_id=%s error=%s",
+            "Safety-stock restock proposal processing failed. task_id=%s book_id=%s error=%s",
             task_id,
             book_id,
             error,
@@ -698,7 +647,7 @@ def process_safety_stock_restock_proposal(
             raise self.retry(
                 exc=error,
                 countdown=RETRY_DELAY_SECONDS,
-            )
+            ) from error
 
         raise
 
@@ -745,8 +694,7 @@ def process_wms_action(
 
         if not wms_called:
             logger.warning(
-                "WMS 중복 호출이 차단되었습니다. "
-                "task_id=%s job_id=%s status=%s",
+                "WMS 중복 호출이 차단되었습니다. task_id=%s job_id=%s status=%s",
                 task_id,
                 job.id,
                 job.status,
@@ -764,8 +712,7 @@ def process_wms_action(
         )
 
         logger.info(
-            "WMS action completed. "
-            "task_id=%s job_id=%s status=%s",
+            "WMS action completed. task_id=%s job_id=%s status=%s",
             task_id,
             job.id,
             job.status,
@@ -774,11 +721,7 @@ def process_wms_action(
         return {
             "task_id": task_id,
             "job_id": str(job.id),
-            "status": (
-                job.status.value
-                if hasattr(job.status, "value")
-                else str(job.status)
-            ),
+            "status": (job.status.value if hasattr(job.status, "value") else str(job.status)),
         }
 
     except WMSTaskMismatchError as error:
@@ -800,8 +743,7 @@ def process_wms_action(
 
     except WMSRetryableError as error:
         logger.warning(
-            "Retryable WMS request failed. "
-            "task_id=%s job_id=%s retry=%s/%s error=%s",
+            "Retryable WMS request failed. task_id=%s job_id=%s retry=%s/%s error=%s",
             task_id,
             job_id,
             self.request.retries,
@@ -810,7 +752,7 @@ def process_wms_action(
         )
 
         if self.request.retries < self.max_retries:
-            raise self.retry(exc=error)
+            raise self.retry(exc=error) from error
 
         logger.exception(
             "WMS retry exhausted. task_id=%s job_id=%s",
@@ -829,8 +771,7 @@ def process_wms_action(
 
     except WMSNonRetryableError as error:
         logger.exception(
-            "Non-retryable WMS request failed. "
-            "task_id=%s job_id=%s error=%s",
+            "Non-retryable WMS request failed. task_id=%s job_id=%s error=%s",
             task_id,
             job_id,
             error,
@@ -847,8 +788,7 @@ def process_wms_action(
 
     except Exception as error:
         logger.exception(
-            "Unexpected WMS worker error. "
-            "task_id=%s job_id=%s",
+            "Unexpected WMS worker error. task_id=%s job_id=%s",
             task_id,
             job_id,
         )
@@ -868,8 +808,8 @@ def process_wms_action(
 @celery_app.task(
     bind=True,
     name=TASK_NAME,
-    max_retries=MAX_RETRIES,          
-    default_retry_delay=RETRY_DELAY_SECONDS,  
+    max_retries=MAX_RETRIES,
+    default_retry_delay=RETRY_DELAY_SECONDS,
 )
 def process_inspection(
     self,
@@ -941,7 +881,7 @@ def process_inspection(
                 celery_task_id=task_id,
                 ai_result=ai_result,
             )
-            
+
             create_agent_hitl_alert_safely(
                 job=job,
                 ai_result=ai_result,
@@ -956,8 +896,7 @@ def process_inspection(
             )
 
             logger.info(
-                "Inspection paused for HITL. "
-                "task_id=%s job_id=%s status=%s",
+                "Inspection paused for HITL. task_id=%s job_id=%s status=%s",
                 task_id,
                 job.id,
                 job.status,
@@ -971,11 +910,9 @@ def process_inspection(
                 "status": ReturnJobStatus.HITL_REQUIRED.value,
                 "ubci_score": job.ubci_score,
             }
-        
+
         if decision not in ["APPROVE", "REJECT"]:
-            raise ValueError(
-                f"지원하지 않는 AI 판정입니다: {decision}"
-            )
+            raise ValueError(f"지원하지 않는 AI 판정입니다: {decision}")
 
         # 4. AI 검수 결과를 DB에 먼저 저장
         job = save_ai_inspection_result(
@@ -1004,8 +941,7 @@ def process_inspection(
 
         except Exception as error:
             logger.exception(
-                "WMS Celery Task 등록에 실패했습니다. "
-                "inspection_task_id=%s wms_task_id=%s job_id=%s",
+                "WMS Celery Task 등록에 실패했습니다. inspection_task_id=%s wms_task_id=%s job_id=%s",
                 task_id,
                 wms_task_id,
                 job.id,
@@ -1033,22 +969,17 @@ def process_inspection(
                 retry_count=self.request.retries,
             )
 
-            raise WMSTaskDispatchError(
-                "WMS 후속 Celery Task 등록에 실패했습니다."
-            ) from error
-
+            raise WMSTaskDispatchError("WMS 후속 Celery Task 등록에 실패했습니다.") from error
 
         logger.info(
-            "WMS action task queued. "
-            "inspection_task_id=%s wms_task_id=%s job_id=%s",
+            "WMS action task queued. inspection_task_id=%s wms_task_id=%s job_id=%s",
             task_id,
             wms_task_id,
             job.id,
         )
 
         logger.info(
-            "AI inspection completed. "
-            "task_id=%s job_id=%s status=%s",
+            "AI inspection completed. task_id=%s job_id=%s status=%s",
             task_id,
             job.id,
             job.status,
@@ -1060,18 +991,9 @@ def process_inspection(
             "job_id": str(job.id),
             "tenant_id": str(job.tenant_id),
             "book_id": str(job.book_id),
-            "status": (
-                job.status.value
-                if hasattr(job.status, "value")
-                else str(job.status)
-            ),
-            "ubci_score": (
-                float(job.ubci_score)
-                if job.ubci_score is not None
-                else None
-            ),
+            "status": (job.status.value if hasattr(job.status, "value") else str(job.status)),
+            "ubci_score": (float(job.ubci_score) if job.ubci_score is not None else None),
         }
-
 
     except WMSTaskDispatchError as error:
         logger.error(
@@ -1089,8 +1011,7 @@ def process_inspection(
     # 예상하지 못한 일반 오류를 최종 실패 처리
     except Exception as error:
         logger.exception(
-            "Inspection processing failed. "
-            "task_id=%s job_id=%s error=%s",
+            "Inspection processing failed. task_id=%s job_id=%s error=%s",
             task_id,
             job_id,
             error,
@@ -1098,8 +1019,7 @@ def process_inspection(
 
         if self.request.retries < self.max_retries:
             logger.warning(
-                "Retrying AI inspection. "
-                "task_id=%s job_id=%s retry=%s/%s",
+                "Retrying AI inspection. task_id=%s job_id=%s retry=%s/%s",
                 task_id,
                 job_id,
                 self.request.retries,
@@ -1109,7 +1029,7 @@ def process_inspection(
             raise self.retry(
                 exc=error,
                 countdown=RETRY_DELAY_SECONDS,
-            )
+            ) from error
 
         handle_inspection_failure(
             job_id=job_id,
@@ -1118,6 +1038,5 @@ def process_inspection(
             error=error,
             retry_count=self.request.retries,
         )
-        
-        raise
 
+        raise

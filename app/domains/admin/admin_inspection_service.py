@@ -3,13 +3,28 @@ from datetime import datetime, timedelta
 from uuid import UUID
 
 from fastapi import HTTPException, status
-
+from pydantic import ValidationError
 from sqlalchemy import func
 from sqlmodel import Session, select
 
-from pydantic import ValidationError
-
-
+from app.domains.admin.schemas.admin_inspection import (
+    AgentLogStep,
+    ConfirmedDefect,
+    HITLBoardItem,
+    HITLHistoryItem,
+    HITLQueueListResponse,
+    HITLQueueMetricsResponse,
+    InspectionAIResult,
+    InspectionBookDetail,
+    InspectionDetailResponse,
+    InspectionErrorDetail,
+    InspectionHistoryListResponse,
+    InspectionHistoryRow,
+    VisionDefect,
+    YoloCandidate,
+)
+from app.domains.inspections.schemas.hitl import HITLQueueBucket
+from app.domains.lpn.lpn_service import build_label_scan_qr_url
 from app.models.wms import (
     Book,
     ConditionGrade,
@@ -19,24 +34,6 @@ from app.models.wms import (
     ReturnJobStatus,
     User,
 )
-from app.domains.admin.schemas.admin_inspection import (
-    AgentLogStep,
-    HITLHistoryItem,
-    InspectionAIResult,
-    InspectionBookDetail,
-    InspectionDetailResponse,
-    InspectionErrorDetail,
-    InspectionHistoryRow,
-    InspectionHistoryListResponse,
-    VisionDefect,
-    HITLBoardItem,
-    HITLQueueListResponse,
-    HITLQueueMetricsResponse,
-    ConfirmedDefect,
-    YoloCandidate,
-)
-from app.domains.inspections.schemas.hitl import HITLQueueBucket
-from app.domains.lpn.lpn_service import build_label_scan_qr_url
 
 VALID_FINAL_GRADES = {
     "MINT",
@@ -56,6 +53,7 @@ def _extract_final_grade(
 
     return None
 
+
 def _resolve_final_grade(
     condition_grade: ConditionGrade | None,
     agent_logs: dict | None,
@@ -70,6 +68,7 @@ def _resolve_final_grade(
         return condition_grade.value
 
     return _extract_final_grade(agent_logs)
+
 
 def _extract_final_report_summary(
     final_report: str | None,
@@ -107,6 +106,7 @@ def _extract_final_report_summary(
         return result.strip()
 
     return normalized_report
+
 
 # 문자열 값을 중복 없이 목록에 추가한다.
 def _append_unique(
@@ -159,6 +159,7 @@ def _extract_reason_codes(
 
     return reason_codes
 
+
 # step 변환
 def _build_agent_steps(
     raw_steps: object,
@@ -174,12 +175,8 @@ def _build_agent_steps(
 
         step_order = raw_step.get("step_order")
         agent_name = raw_step.get("agent_name")
-        execution_status = raw_step.get(
-            "execution_status"
-        )
-        result_summary = raw_step.get(
-            "result_summary"
-        )
+        execution_status = raw_step.get("execution_status")
+        result_summary = raw_step.get("result_summary")
 
         if not isinstance(step_order, int):
             continue
@@ -205,6 +202,7 @@ def _build_agent_steps(
         )
 
     return steps
+
 
 def _apply_inspection_history_filters(
     statement,
@@ -257,8 +255,7 @@ def _apply_inspection_history_filters(
     if fast_track is not None:
         statement = statement.where(
             func.coalesce(
-                ReturnJob.agent_logs["is_fast_track"]
-                .as_boolean(),
+                ReturnJob.agent_logs["is_fast_track"].as_boolean(),
                 False,
             )
             == fast_track,
@@ -268,9 +265,7 @@ def _apply_inspection_history_filters(
 
     if normalized_reason_code:
         statement = statement.where(
-            ReturnJob.agent_logs["reason_code"]
-            .as_string()
-            == normalized_reason_code,
+            ReturnJob.agent_logs["reason_code"].as_string() == normalized_reason_code,
         )
 
     return statement
@@ -320,16 +315,13 @@ def get_inspection_history(
 
     offset = (page - 1) * size
 
-    history_statement = (
-        select(
-            ReturnJob,
-            Book.title,
-            Book.cover_image_url,
-        )
-        .join(
-            Book,
-            ReturnJob.book_id == Book.id,
-        )
+    history_statement = select(
+        ReturnJob,
+        Book.title,
+        Book.cover_image_url,
+    ).join(
+        Book,
+        ReturnJob.book_id == Book.id,
     )
 
     history_statement = _apply_inspection_history_filters(
@@ -345,8 +337,7 @@ def get_inspection_history(
     )
 
     rows = session.exec(
-        history_statement
-        .order_by(
+        history_statement.order_by(
             ReturnJob.created_at.desc(),
             ReturnJob.id.desc(),
         )
@@ -373,9 +364,7 @@ def get_inspection_history(
                     ),
                     agent_logs=logs,
                 ),
-                is_fast_track=(
-                    logs.get("is_fast_track") is True
-                ),
+                is_fast_track=(logs.get("is_fast_track") is True),
                 status=return_job.status,
                 ubci_score=return_job.ubci_score,
                 final_report=_extract_final_report_summary(
@@ -390,11 +379,7 @@ def get_inspection_history(
             )
         )
 
-    total_pages = (
-        (total + size - 1) // size
-        if total > 0
-        else 0
-    )
+    total_pages = (total + size - 1) // size if total > 0 else 0
 
     return InspectionHistoryListResponse(
         items=inspection_history,
@@ -403,6 +388,7 @@ def get_inspection_history(
         size=size,
         total_pages=total_pages,
     )
+
 
 def _apply_hitl_queue_bucket_filter(
     statement,
@@ -507,11 +493,7 @@ def get_hitl_queue(
             ReturnJob.id.asc(),
         )
 
-    rows = session.exec(
-        statement
-        .offset((page - 1) * size)
-        .limit(size)
-    ).all()
+    rows = session.exec(statement.offset((page - 1) * size).limit(size)).all()
 
     items: list[HITLBoardItem] = []
 
@@ -542,19 +524,13 @@ def get_hitl_queue(
                 reviewer_id=return_job.hitl_reviewer_id,
                 reviewer_employee_id=reviewer_employee_id,
                 reviewer_name=reviewer_name,
-                review_started_at=(
-                    return_job.hitl_review_started_at
-                ),
+                review_started_at=(return_job.hitl_review_started_at),
                 created_at=return_job.created_at,
                 updated_at=return_job.updated_at,
             )
         )
 
-    total_pages = (
-        (total + size - 1) // size
-        if total > 0
-        else 0
-    )
+    total_pages = (total + size - 1) // size if total > 0 else 0
 
     return HITLQueueListResponse(
         items=items,
@@ -564,6 +540,7 @@ def get_hitl_queue(
         total_pages=total_pages,
         has_more=page < total_pages,
     )
+
 
 def get_hitl_queue_metrics(
     *,
@@ -621,6 +598,7 @@ def get_hitl_queue_metrics(
         overdue_count=overdue_count,
     )
 
+
 def _parse_final_report(
     final_report: str | None,
 ) -> dict | None:
@@ -672,21 +650,18 @@ def _build_hitl_history(
         history_items.append(
             HITLHistoryItem(
                 action=history.get("action"),
-                reviewer_reason_code=history.get(
-                    "reviewer_reason_code"
-                ),
+                reviewer_reason_code=history.get("reviewer_reason_code"),
                 target_grade=history.get("target_grade"),
                 comment=history.get("comment"),
                 reviewer_id=history.get("reviewer_id"),
-                reviewer_employee_id=history.get(
-                    "reviewer_employee_id"
-                ),
+                reviewer_employee_id=history.get("reviewer_employee_id"),
                 reviewed_at=history.get("reviewed_at"),
                 task_id=history.get("task_id"),
             )
         )
 
     return history_items
+
 
 def get_inspection_agent_logs(
     session: Session,
@@ -709,6 +684,7 @@ def get_inspection_agent_logs(
     logs = return_job.agent_logs or {}
 
     return _build_agent_steps(logs.get("steps"))
+
 
 def get_inspection_detail(
     session: Session,
@@ -756,9 +732,7 @@ def get_inspection_detail(
     ) = row
 
     logs = return_job.agent_logs or {}
-    parsed_report = _parse_final_report(
-        return_job.final_report
-    )
+    parsed_report = _parse_final_report(return_job.final_report)
 
     defects = logs.get("defects")
 
@@ -773,20 +747,14 @@ def get_inspection_detail(
             defects = report_defects
 
     raw_yolo_candidates = logs.get("yolo_candidates")
-    yolo_candidates = _build_yolo_candidates(
-        raw_yolo_candidates
-        if isinstance(raw_yolo_candidates, list)
-        else []
-    )
+    yolo_candidates = _build_yolo_candidates(raw_yolo_candidates if isinstance(raw_yolo_candidates, list) else [])
 
     raw_confirmed_defects = logs.get("confirmed_defects")
 
     # 신규 AI 결과는 confirmed_defects를 사용한다.
     # 기존 검수 데이터는 defects를 최종 확정 결함으로 간주해 호환한다.
     confirmed_defects = _build_confirmed_defects(
-        raw_confirmed_defects
-        if isinstance(raw_confirmed_defects, list)
-        else defects
+        raw_confirmed_defects if isinstance(raw_confirmed_defects, list) else defects
     )
 
     # 기존 프론트의 visionDetections 응답은 유지한다.
@@ -794,11 +762,7 @@ def get_inspection_detail(
 
     # 신규 형식만 존재하는 경우에도 기존 화면이 깨지지 않도록 보조 변환한다.
     if not legacy_vision_detections and confirmed_defects:
-        legacy_vision_detections = (
-            _build_legacy_vision_detections_from_confirmed(
-                confirmed_defects
-            )
-        )
+        legacy_vision_detections = _build_legacy_vision_detections_from_confirmed(confirmed_defects)
 
     ai_reason_code = logs.get("reason_code")
 
@@ -818,19 +782,10 @@ def get_inspection_detail(
         final_grade=_extract_final_grade(logs),
         lpn_barcode=lpn_barcode,
         label_scan_url=build_label_scan_qr_url(certificate_token) if certificate_token else None,
-        is_fast_track=(
-            (return_job.agent_logs or {}).get(
-                "is_fast_track"
-            ) is True
-        ),
+        is_fast_track=((return_job.agent_logs or {}).get("is_fast_track") is True),
         ubci_score=return_job.ubci_score,
-        final_report=_extract_final_report_summary(
-            return_job.final_report
-        ),
-        original_image_urls=[
-            str(image_path)
-            for image_path in (return_job.image_paths or [])
-        ],
+        final_report=_extract_final_report_summary(return_job.final_report),
+        original_image_urls=[str(image_path) for image_path in (return_job.image_paths or [])],
         vision_detections=legacy_vision_detections,
         yolo_candidates=yolo_candidates,
         confirmed_defects=confirmed_defects,
@@ -838,35 +793,18 @@ def get_inspection_detail(
             decision=logs.get("ai_decision"),
             reason_code=ai_reason_code,
             defects=defects,
-            revision_count=(
-                logs.get("revision_count")
-                if isinstance(logs.get("revision_count"), int)
-                else 0
-            ),
-            repair_directive=logs.get(
-                "repair_directive"
-            ),
+            revision_count=(logs.get("revision_count") if isinstance(logs.get("revision_count"), int) else 0),
+            repair_directive=logs.get("repair_directive"),
         ),
-        hitl=(
-            logs.get("hitl")
-            if isinstance(logs.get("hitl"), dict)
-            else {}
-        ),
-        hitl_history=_build_hitl_history(
-            logs.get("hitl_history")
-        ),
-        error=_build_error_detail(
-            logs.get("error")
-        ),
-        wms_error=_build_error_detail(
-            logs.get("wms_error")
-        ),
-        steps=_build_agent_steps(
-            logs.get("steps")
-        ),
+        hitl=(logs.get("hitl") if isinstance(logs.get("hitl"), dict) else {}),
+        hitl_history=_build_hitl_history(logs.get("hitl_history")),
+        error=_build_error_detail(logs.get("error")),
+        wms_error=_build_error_detail(logs.get("wms_error")),
+        steps=_build_agent_steps(logs.get("steps")),
         inspected_at=return_job.created_at,
         updated_at=return_job.updated_at,
     )
+
 
 def _build_vision_detections(
     defects: list[object],
@@ -885,15 +823,14 @@ def _build_vision_detections(
             continue
 
         try:
-            detections.append(
-                VisionDefect.model_validate(defect)
-            )
+            detections.append(VisionDefect.model_validate(defect))
         except ValidationError:
             # 과거 형식 또는 불완전한 Agent 출력은
             # 검수 상세 API 전체 실패 대신 오버레이에서만 제외한다.
             continue
 
     return detections
+
 
 def _build_yolo_candidates(
     candidates: list[object],
@@ -905,9 +842,7 @@ def _build_yolo_candidates(
             continue
 
         try:
-            result.append(
-                YoloCandidate.model_validate(candidate)
-            )
+            result.append(YoloCandidate.model_validate(candidate))
         except ValidationError:
             continue
 
@@ -939,9 +874,7 @@ def _build_confirmed_defects(
             payload["image_view"] = "INNER"
 
         try:
-            result.append(
-                ConfirmedDefect.model_validate(payload)
-            )
+            result.append(ConfirmedDefect.model_validate(payload))
         except ValidationError:
             continue
 
@@ -958,11 +891,7 @@ def _build_legacy_vision_detections_from_confirmed(
     return [
         VisionDefect(
             image_index=defect.image_index,
-            image_view=(
-                "INSIDE"
-                if defect.image_view == "INNER"
-                else defect.image_view
-            ),
+            image_view=("INSIDE" if defect.image_view == "INNER" else defect.image_view),
             image_url=defect.image_url,
             type=defect.defect_type,
             ratio=0,

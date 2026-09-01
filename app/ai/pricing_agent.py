@@ -1,10 +1,9 @@
 import logging
 import os
-
 from decimal import (
-    Decimal,
     ROUND_CEILING,
     ROUND_HALF_UP,
+    Decimal,
 )
 
 from dotenv import load_dotenv
@@ -19,7 +18,6 @@ from app.domains.pricing.schemas.pricing import (
     PricingRecommendationRequest,
     PricingRecommendationResponse,
 )
-
 
 load_dotenv()
 

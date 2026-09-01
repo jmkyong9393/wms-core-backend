@@ -1,3 +1,4 @@
+import contextlib
 import json
 from collections.abc import AsyncGenerator
 from uuid import UUID
@@ -9,10 +10,9 @@ from sqlmodel import Session, select
 
 from app.core.config import settings
 from app.core.database import engine
-from app.models.wms import ReturnJob, ReturnJobStatus
 from app.core.redis_pubsub import get_return_job_channel
 from app.core.sse_ticket_service import validate_sse_ticket
-
+from app.models.wms import ReturnJob, ReturnJobStatus
 
 router = APIRouter()
 
@@ -42,12 +42,14 @@ SSE_HEADERS = {
     "X-Accel-Buffering": "no",
 }
 
+
 # Enum과 문자열 상태 통일
 def normalize_status(status: ReturnJobStatus | str) -> str:
     if isinstance(status, ReturnJobStatus):
         return status.value
-    
+
     return str(status)
+
 
 # 상태값을 화면 표시용 진행률로 변환
 def get_progress_by_status(
@@ -73,15 +75,18 @@ def format_sse_message(
 ) -> str:
     return f"event: {event}\ndata: {data}\n\n"
 
+
 # SSE 연결 유지를 위한 Heartbeat 생성
 def format_sse_heartbeat() -> str:
     return ": heartbeat\n\n"
+
 
 # 브라우저 EventSource의 자동 재접속 대기시간 설정
 def format_sse_retry(
     retry_milliseconds: int,
 ) -> str:
     return f"retry: {retry_milliseconds}\n\n"
+
 
 # ReturnJob 조회 중복 분리
 def find_return_job(
@@ -105,11 +110,7 @@ def build_job_event_data(
 
     wms_task_id = agent_logs.get("wms_task_id")
 
-    current_task_id = (
-        str(wms_task_id)
-        if wms_task_id
-        else job.task_id
-    )
+    current_task_id = str(wms_task_id) if wms_task_id else job.task_id
 
     event_data: dict[str, object] = {
         "job_id": str(job.id),
@@ -120,11 +121,7 @@ def build_job_event_data(
     }
 
     if status == ReturnJobStatus.RECHECK_REQUIRED.value:
-        hitl_logs = (
-            agent_logs.get("hitl")
-            if isinstance(agent_logs.get("hitl"), dict)
-            else {}
-        )
+        hitl_logs = agent_logs.get("hitl") if isinstance(agent_logs.get("hitl"), dict) else {}
 
         event_data.update(
             {
@@ -142,12 +139,8 @@ def build_job_event_data(
             {
                 "failure_stage": "WMS_TASK_DISPATCH",
                 "wms_dispatch_failed": True,
-                "error_message": agent_logs.get(
-                    "wms_dispatch_error"
-                ),
-                "failed_at": agent_logs.get(
-                    "wms_dispatch_failed_at"
-                ),
+                "error_message": agent_logs.get("wms_dispatch_error"),
+                "failed_at": agent_logs.get("wms_dispatch_failed_at"),
             }
         )
 
@@ -191,7 +184,6 @@ def build_job_not_found_message() -> str:
     )
 
 
-
 # Redis Pub/Sub 이벤트와 Heartbeat를 SSE로 전달
 async def generate_inspection_pubsub_stream(
     job_id: UUID,
@@ -209,9 +201,7 @@ async def generate_inspection_pubsub_stream(
         await pubsub.subscribe(channel)
 
         # 브라우저의 자동 재접속 대기시간 설정
-        yield format_sse_retry(
-            settings.SSE_RETRY_MILLISECONDS
-        )
+        yield format_sse_retry(settings.SSE_RETRY_MILLISECONDS)
 
         # 1. SSE 연결 직후 DB 현재 상태를 1회 전달
         job = find_return_job(
@@ -265,16 +255,12 @@ async def generate_inspection_pubsub_stream(
             except json.JSONDecodeError:
                 continue
 
-            if is_terminal_status(
-                parsed_data.get("status", "")
-            ):
+            if is_terminal_status(parsed_data.get("status", "")):
                 return
 
     finally:
-        try:
+        with contextlib.suppress(Exception):
             await pubsub.unsubscribe(channel)
-        except Exception:
-            pass
 
         await pubsub.aclose()
         await redis_client.aclose()
@@ -305,14 +291,12 @@ async def stream_inspection_status(
         )
 
     try:
-        ticket_tenant_id = UUID(
-            str(ticket_payload["tenant_id"])
-        )
-    except (KeyError, TypeError, ValueError):
+        ticket_tenant_id = UUID(str(ticket_payload["tenant_id"]))
+    except (KeyError, TypeError, ValueError) as error:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="SSE 티켓의 테넌트 정보가 올바르지 않습니다.",
-        )
+        ) from error
 
     return StreamingResponse(
         generate_inspection_pubsub_stream(

@@ -28,9 +28,7 @@ class CertificateResponse(BaseModel):
                 "cover_image_url": "https://example.com/book-cover.jpg",
                 "condition_grade": "EXCELLENT",
                 "ubci_score": "92.00",
-                "report_summary": (
-                    "경미한 모서리 찍힘이 있으나 전체 상태는 우수합니다."
-                ),
+                "report_summary": ("경미한 모서리 찍힘이 있으나 전체 상태는 우수합니다."),
                 "inspected_at": "2026-07-27T10:00:00",
             }
         }

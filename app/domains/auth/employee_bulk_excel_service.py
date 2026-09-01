@@ -7,12 +7,11 @@ from openpyxl.styles import Font, PatternFill
 from openpyxl.utils.exceptions import InvalidFileException
 from pydantic import ValidationError
 
-from app.models.wms import UserRole
 from app.domains.auth.schemas.auth import (
     EmployeeBulkCreateResultRow,
     EmployeeBulkCreateRow,
 )
-
+from app.models.wms import UserRole
 
 EMPLOYEE_BULK_INPUT_HEADERS = (
     "이름",
@@ -54,9 +53,7 @@ class EmployeeBulkExcelValidationError(ValueError):
     ) -> None:
         self.errors = errors
 
-        super().__init__(
-            "직원 일괄 생성 엑셀 검증에 실패했습니다."
-        )
+        super().__init__("직원 일괄 생성 엑셀 검증에 실패했습니다.")
 
 
 def _normalize_cell_text(
@@ -112,19 +109,10 @@ def _format_validation_error(
     messages = []
 
     for error in exc.errors():
-        field_name = (
-            str(error["loc"][-1])
-            if error.get("loc")
-            else "알 수 없는 필드"
-        )
-        messages.append(
-            f"{field_name}: {error['msg']}"
-        )
+        field_name = str(error["loc"][-1]) if error.get("loc") else "알 수 없는 필드"
+        messages.append(f"{field_name}: {error['msg']}")
 
-    return (
-        f"{source_row}행 - "
-        + ", ".join(messages)
-    )
+    return f"{source_row}행 - " + ", ".join(messages)
 
 
 def parse_employee_bulk_create_xlsx(
@@ -149,9 +137,7 @@ def parse_employee_bulk_create_xlsx(
         KeyError,
         OSError,
     ) as exc:
-        raise EmployeeBulkExcelValidationError(
-            ["업로드 파일은 올바른 .xlsx 형식이어야 합니다."]
-        ) from exc
+        raise EmployeeBulkExcelValidationError(["업로드 파일은 올바른 .xlsx 형식이어야 합니다."]) from exc
 
     try:
         worksheet = workbook.active
@@ -166,36 +152,19 @@ def parse_employee_bulk_create_xlsx(
         )
 
         if header_row is None:
-            raise EmployeeBulkExcelValidationError(
-                ["엑셀 헤더 행이 없습니다."]
-            )
+            raise EmployeeBulkExcelValidationError(["엑셀 헤더 행이 없습니다."])
 
-        actual_headers = tuple(
-            _normalize_cell_text(value)
-            for value in header_row[:len(
-                EMPLOYEE_BULK_INPUT_HEADERS
-            )]
-        )
+        actual_headers = tuple(_normalize_cell_text(value) for value in header_row[: len(EMPLOYEE_BULK_INPUT_HEADERS)])
 
         if actual_headers != EMPLOYEE_BULK_INPUT_HEADERS:
-            expected = " | ".join(
-                EMPLOYEE_BULK_INPUT_HEADERS
-            )
-            actual = " | ".join(
-                value or "(비어 있음)"
-                for value in actual_headers
-            )
+            expected = " | ".join(EMPLOYEE_BULK_INPUT_HEADERS)
+            actual = " | ".join(value or "(비어 있음)" for value in actual_headers)
 
             raise EmployeeBulkExcelValidationError(
-                [
-                    "엑셀 헤더가 올바르지 않습니다. "
-                    f"기대값: {expected}, 실제값: {actual}"
-                ]
+                [f"엑셀 헤더가 올바르지 않습니다. 기대값: {expected}, 실제값: {actual}"]
             )
 
-        parsed_rows: list[
-            EmployeeBulkCreateRow
-        ] = []
+        parsed_rows: list[EmployeeBulkCreateRow] = []
         errors: list[str] = []
 
         for source_row, values in enumerate(
@@ -205,15 +174,9 @@ def parse_employee_bulk_create_xlsx(
             ),
             start=2,
         ):
-            input_values = values[:len(
-                EMPLOYEE_BULK_INPUT_HEADERS
-            )]
+            input_values = values[: len(EMPLOYEE_BULK_INPUT_HEADERS)]
 
-            if all(
-                value is None
-                or _normalize_cell_text(value) is None
-                for value in input_values
-            ):
+            if all(value is None or _normalize_cell_text(value) is None for value in input_values):
                 continue
 
             name = _normalize_cell_text(
@@ -230,17 +193,11 @@ def parse_employee_bulk_create_xlsx(
             )
 
             if input_values[1] is not None and hire_date is None:
-                errors.append(
-                    f"{source_row}행 - 입사일은 "
-                    "YYYY-MM-DD 형식이어야 합니다."
-                )
+                errors.append(f"{source_row}행 - 입사일은 YYYY-MM-DD 형식이어야 합니다.")
                 continue
 
             if input_values[2] is not None and role is None:
-                errors.append(
-                    f"{source_row}행 - 역할은 ADMIN, WORKER, "
-                    "관리자, 작업자 중 하나여야 합니다."
-                )
+                errors.append(f"{source_row}행 - 역할은 ADMIN, WORKER, 관리자, 작업자 중 하나여야 합니다.")
                 continue
 
             try:
@@ -262,23 +219,13 @@ def parse_employee_bulk_create_xlsx(
                 )
 
         if not parsed_rows and not errors:
-            errors.append(
-                "생성할 직원 행이 없습니다."
-            )
+            errors.append("생성할 직원 행이 없습니다.")
 
-        if (
-            len(parsed_rows)
-            > MAX_EMPLOYEE_BULK_CREATE_ROWS
-        ):
-            errors.append(
-                "한 번에 생성할 수 있는 직원 수는 "
-                f"{MAX_EMPLOYEE_BULK_CREATE_ROWS}명입니다."
-            )
+        if len(parsed_rows) > MAX_EMPLOYEE_BULK_CREATE_ROWS:
+            errors.append(f"한 번에 생성할 수 있는 직원 수는 {MAX_EMPLOYEE_BULK_CREATE_ROWS}명입니다.")
 
         if errors:
-            raise EmployeeBulkExcelValidationError(
-                errors
-            )
+            raise EmployeeBulkExcelValidationError(errors)
 
         return parsed_rows
 
@@ -311,9 +258,7 @@ def build_employee_bulk_template_xlsx() -> bytes:
     worksheet = workbook.active
     worksheet.title = "직원 일괄 생성"
 
-    worksheet.append(
-        EMPLOYEE_BULK_INPUT_HEADERS
-    )
+    worksheet.append(EMPLOYEE_BULK_INPUT_HEADERS)
     _apply_header_style(worksheet)
 
     worksheet.freeze_panes = "A2"
@@ -341,9 +286,7 @@ def build_employee_bulk_result_xlsx(
     worksheet = workbook.active
     worksheet.title = "직원 계정 발급 결과"
 
-    worksheet.append(
-        EMPLOYEE_BULK_RESULT_HEADERS
-    )
+    worksheet.append(EMPLOYEE_BULK_RESULT_HEADERS)
     _apply_header_style(worksheet)
 
     for result in results:
@@ -368,9 +311,7 @@ def build_employee_bulk_result_xlsx(
         "E": 18,
         "F": 24,
     }.items():
-        worksheet.column_dimensions[
-            column
-        ].width = width
+        worksheet.column_dimensions[column].width = width
 
     for cell in worksheet["B"][1:]:
         cell.number_format = "yyyy-mm-dd"

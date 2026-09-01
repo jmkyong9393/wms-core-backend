@@ -8,6 +8,10 @@ from sqlalchemy import func
 from sqlmodel import Session, select
 
 from app.ai.restock_agent import restock_agent
+from app.domains.restock.schemas.restock import (
+    RestockRecommendationRequest,
+    RestockRecommendationResponse,
+)
 from app.models.wms import (
     Book,
     InboundItem,
@@ -19,14 +23,10 @@ from app.models.wms import (
     OrderProposalStatus,
     OrderStatus,
     OrderType,
+    RestockProposalSource,
     ReturnJob,
     ReturnJobStatus,
     UsedInventoryStatus,
-    RestockProposalSource,
-)
-from app.domains.restock.schemas.restock import (
-    RestockRecommendationRequest,
-    RestockRecommendationResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -46,6 +46,7 @@ RESTOCK_GENERATION_COMPLETED = "COMPLETED"
 RESTOCK_GENERATION_FAILED = "FAILED"
 
 SAFETY_STOCK_REASON_CODE = "SAFETY_STOCK_SHORTAGE"
+
 
 @dataclass(frozen=True)
 class RestockProposalCreationResult:
@@ -72,21 +73,14 @@ def create_restock_proposal_for_rejected_job(
     따라서 Worker가 Agent 호출 직후 종료되더라도, 응답이 이미 저장된 경우에는
     재시도 시 OpenAI를 다시 호출하지 않고 OrderProposal 저장을 이어서 처리한다.
     """
-    return_job = session.exec(
-        select(ReturnJob)
-        .where(ReturnJob.id == return_job_id)
-        .with_for_update()
-    ).first()
+    return_job = session.exec(select(ReturnJob).where(ReturnJob.id == return_job_id).with_for_update()).first()
 
     if return_job is None:
-        raise ValueError(
-            f"Restock proposal target ReturnJob was not found: {return_job_id}"
-        )
+        raise ValueError(f"Restock proposal target ReturnJob was not found: {return_job_id}")
 
     if return_job.status != ReturnJobStatus.REJECTED:
         raise ValueError(
-            "Restock proposal can only be created for a rejected ReturnJob. "
-            f"current_status={return_job.status}"
+            f"Restock proposal can only be created for a rejected ReturnJob. current_status={return_job.status}"
         )
 
     existing_proposal = session.exec(
@@ -103,9 +97,7 @@ def create_restock_proposal_for_rejected_job(
 
     book = session.get(Book, return_job.book_id)
     if book is None:
-        raise ValueError(
-            f"Book for ReturnJob was not found: {return_job.book_id}"
-        )
+        raise ValueError(f"Book for ReturnJob was not found: {return_job.book_id}")
 
     generation_log = _get_restock_generation_log(return_job)
     saved_request = generation_log.get("request")
@@ -115,23 +107,16 @@ def create_restock_proposal_for_rejected_job(
     # OpenAI를 다시 호출하지 않고 추천안 DB 저장만 이어서 수행한다.
     if saved_response is not None:
         if not isinstance(saved_request, dict):
-            raise RuntimeError(
-                "Saved Restock Agent response exists without request snapshot."
-            )
+            raise RuntimeError("Saved Restock Agent response exists without request snapshot.")
 
-        request = RestockRecommendationRequest.model_validate(
-            saved_request
-        )
-        recommendation = RestockRecommendationResponse.model_validate(
-            saved_response
-        )
+        request = RestockRecommendationRequest.model_validate(saved_request)
+        recommendation = RestockRecommendationResponse.model_validate(saved_response)
 
     # 다른 Worker가 이미 Agent 호출을 시작했고 아직 응답을 남기지 않은 경우:
     # 중복 OpenAI 호출을 막고 현재 작업은 조용히 종료한다.
     elif generation_log.get("status") == RESTOCK_GENERATION_GENERATING:
         logger.warning(
-            "Restock Agent generation is already in progress. "
-            "return_job_id=%s",
+            "Restock Agent generation is already in progress. return_job_id=%s",
             return_job.id,
         )
 
@@ -144,14 +129,8 @@ def create_restock_proposal_for_rejected_job(
     else:
         # Agent 통신 실패 후 재시도하는 경우에도,
         # 최초 Agent 호출에 사용한 입력 스냅샷을 그대로 재사용한다.
-        if (
-            generation_log.get("status")
-            == RESTOCK_GENERATION_FAILED
-            and isinstance(saved_request, dict)
-        ):
-            request = RestockRecommendationRequest.model_validate(
-                saved_request
-            )
+        if generation_log.get("status") == RESTOCK_GENERATION_FAILED and isinstance(saved_request, dict):
+            request = RestockRecommendationRequest.model_validate(saved_request)
         else:
             request = _build_restock_recommendation_request(
                 session=session,
@@ -170,9 +149,7 @@ def create_restock_proposal_for_rejected_job(
         session.commit()
 
         try:
-            recommendation = generate_restock_recommendation(
-                request
-            )
+            recommendation = generate_restock_recommendation(request)
 
         except Exception as error:
             # 일반적인 API 통신 실패는 FAILED로 기록하고 Celery 재시도를 허용한다.
@@ -204,14 +181,10 @@ def create_restock_proposal_for_rejected_job(
         proposal_source=RestockProposalSource.RETURN_REJECTION,
         recent_sales_quantity=request.recent_sales_quantity,
         current_stock=request.current_stock,
-        pending_auto_po_quantity=(
-            request.pending_auto_po_quantity
-        ),
+        pending_auto_po_quantity=(request.pending_auto_po_quantity),
         rejected_quantity=request.rejected_quantity,
         rejection_reason_code=request.rejection_reason_code,
-        recommended_order_quantity=(
-            recommendation.recommended_order_quantity
-        ),
+        recommended_order_quantity=(recommendation.recommended_order_quantity),
         reason_summary=recommendation.reason_summary,
         evidence=recommendation.evidence,
         risk_level=recommendation.risk_level,
@@ -236,8 +209,7 @@ def create_restock_proposal_for_rejected_job(
     session.refresh(proposal)
 
     logger.info(
-        "Restock proposal created. proposal_id=%s return_job_id=%s "
-        "recommended_order_quantity=%s",
+        "Restock proposal created. proposal_id=%s return_job_id=%s recommended_order_quantity=%s",
         proposal.id,
         return_job.id,
         proposal.recommended_order_quantity,
@@ -247,6 +219,7 @@ def create_restock_proposal_for_rejected_job(
         proposal=proposal,
         created=True,
     )
+
 
 def create_restock_proposal_for_safety_stock(
     session: Session,
@@ -262,29 +235,20 @@ def create_restock_proposal_for_safety_stock(
     CronJob 재실행으로 인한 중복 추천안을 막는다.
     """
     if safety_stock_quantity < 1:
-        raise ValueError(
-            "Safety stock quantity must be at least 1."
-        )
+        raise ValueError("Safety stock quantity must be at least 1.")
 
     # 승인 처리와 배치 추천 생성이 같은 도서에서 동시에 실행될 때를 직렬화한다.
-    book = session.exec(
-        select(Book)
-        .where(Book.id == book_id)
-        .with_for_update()
-    ).first()
+    book = session.exec(select(Book).where(Book.id == book_id).with_for_update()).first()
 
     if book is None:
-        raise ValueError(
-            f"Safety-stock restock target book was not found: {book_id}"
-        )
+        raise ValueError(f"Safety-stock restock target book was not found: {book_id}")
 
     existing_proposal = session.exec(
         select(OrderProposal)
         .where(
             OrderProposal.tenant_id == tenant_id,
             OrderProposal.book_id == book.id,
-            OrderProposal.proposal_source
-            == RestockProposalSource.SAFETY_STOCK,
+            OrderProposal.proposal_source == RestockProposalSource.SAFETY_STOCK,
             OrderProposal.status == OrderProposalStatus.PENDING,
         )
         .with_for_update()
@@ -305,9 +269,7 @@ def create_restock_proposal_for_safety_stock(
         book_id=book.id,
     )
 
-    effective_stock = (
-        current_stock + pending_auto_po_quantity
-    )
+    effective_stock = current_stock + pending_auto_po_quantity
 
     # 배치가 후보를 찾은 뒤 재고가 늘어난 경우 Agent 호출 자체를 생략한다.
     if effective_stock >= safety_stock_quantity:
@@ -342,14 +304,10 @@ def create_restock_proposal_for_safety_stock(
         proposal_source=RestockProposalSource.SAFETY_STOCK,
         recent_sales_quantity=request.recent_sales_quantity,
         current_stock=request.current_stock,
-        pending_auto_po_quantity=(
-            request.pending_auto_po_quantity
-        ),
+        pending_auto_po_quantity=(request.pending_auto_po_quantity),
         rejected_quantity=0,
         rejection_reason_code=SAFETY_STOCK_REASON_CODE,
-        recommended_order_quantity=(
-            recommendation.recommended_order_quantity
-        ),
+        recommended_order_quantity=(recommendation.recommended_order_quantity),
         reason_summary=recommendation.reason_summary,
         evidence=recommendation.evidence,
         risk_level=recommendation.risk_level,
@@ -365,9 +323,7 @@ def create_restock_proposal_for_safety_stock(
     session.refresh(proposal)
 
     logger.info(
-        "Safety-stock restock proposal created. "
-        "proposal_id=%s book_id=%s "
-        "recommended_order_quantity=%s",
+        "Safety-stock restock proposal created. proposal_id=%s book_id=%s recommended_order_quantity=%s",
         proposal.id,
         book.id,
         proposal.recommended_order_quantity,
@@ -377,6 +333,7 @@ def create_restock_proposal_for_safety_stock(
         proposal=proposal,
         created=True,
     )
+
 
 def _build_restock_recommendation_request(
     session: Session,
@@ -416,11 +373,7 @@ def _get_restock_generation_log(
     agent_logs = return_job.agent_logs or {}
     generation_log = agent_logs.get(RESTOCK_GENERATION_LOG_KEY)
 
-    return (
-        dict(generation_log)
-        if isinstance(generation_log, dict)
-        else {}
-    )
+    return dict(generation_log) if isinstance(generation_log, dict) else {}
 
 
 def _save_restock_generation_log(
@@ -452,6 +405,7 @@ def _save_restock_generation_log(
     agent_logs[RESTOCK_GENERATION_LOG_KEY] = generation_log
     return_job.agent_logs = agent_logs
 
+
 def _get_recent_sales_quantity(
     session: Session,
     book_id: UUID,
@@ -469,10 +423,7 @@ def _get_recent_sales_quantity(
             OrderItem.book_id == book_id,
             Order.type == OrderType.B2B_ORDER,
             Order.status == OrderStatus.SHIPPED,
-            Order.created_at >= (
-                datetime.utcnow()
-                - timedelta(days=RECENT_SALES_DAYS)
-            ),
+            Order.created_at >= (datetime.utcnow() - timedelta(days=RECENT_SALES_DAYS)),
         )
     ).one()
 
@@ -492,10 +443,7 @@ def get_current_available_stock(
     new_stock = session.exec(
         select(
             func.coalesce(
-                func.sum(
-                    Inventory.quantity
-                    - Inventory.reserved_quantity
-                ),
+                func.sum(Inventory.quantity - Inventory.reserved_quantity),
                 0,
             )
         ).where(
@@ -506,14 +454,12 @@ def get_current_available_stock(
     available_used_lpn_count = session.exec(
         select(func.count(InventoryUsedItem.id)).where(
             InventoryUsedItem.book_id == book_id,
-            InventoryUsedItem.status
-            == UsedInventoryStatus.AVAILABLE,
+            InventoryUsedItem.status == UsedInventoryStatus.AVAILABLE,
         )
     ).one()
 
-    return int(new_stock or 0) + int(
-        available_used_lpn_count or 0
-    )
+    return int(new_stock or 0) + int(available_used_lpn_count or 0)
+
 
 def get_pending_auto_po_quantity(
     session: Session,
@@ -542,6 +488,7 @@ def get_pending_auto_po_quantity(
 
     return int(result or 0)
 
+
 def _get_rejected_quantity(
     session: Session,
     return_job: ReturnJob,
@@ -567,8 +514,4 @@ def _get_rejection_reason_code(
     """관리자 HITL 사유를 우선 사용하고, 없으면 AI 사유 코드를 사용한다."""
     agent_logs = return_job.agent_logs or {}
 
-    return (
-        agent_logs.get("admin_decision_code")
-        or agent_logs.get("reason_code")
-        or "UNKNOWN"
-    )
+    return agent_logs.get("admin_decision_code") or agent_logs.get("reason_code") or "UNKNOWN"

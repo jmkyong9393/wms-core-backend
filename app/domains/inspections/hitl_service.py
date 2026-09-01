@@ -1,22 +1,20 @@
-from uuid import UUID
 from datetime import datetime
 from typing import Any
-
-from sqlmodel import Session, select
+from uuid import UUID
 
 from fastapi import HTTPException, status
+from sqlmodel import Session, select
 
 from app.core.exceptions import (
     HITLJobNotFoundException,
     InvalidHITLStateException,
 )
-from app.models.wms import ConditionGrade, ReturnJob, ReturnJobStatus, User
 from app.domains.inspections.schemas.hitl import (
     HITLAction,
     HITLReasonCode,
     HITLTargetGrade,
 )
-
+from app.models.wms import ConditionGrade, ReturnJob, ReturnJobStatus, User
 
 
 def save_return_job(
@@ -56,15 +54,12 @@ def validate_hitl_required_status(
     return_job: ReturnJob,
 ) -> None:
     if return_job.status != ReturnJobStatus.HITL_REQUIRED:
-        current_status = (
-            return_job.status.value
-            if hasattr(return_job.status, "value")
-            else str(return_job.status)
-        )
+        current_status = return_job.status.value if hasattr(return_job.status, "value") else str(return_job.status)
 
         raise InvalidHITLStateException(
             current_status=current_status,
         )
+
 
 def start_hitl_review(
     *,
@@ -91,14 +86,9 @@ def start_hitl_review(
                 status_code=status.HTTP_409_CONFLICT,
                 detail={
                     "message": "다른 관리자가 이미 검토 중인 건입니다.",
-                    "reviewer_id": str(
-                        return_job.hitl_reviewer_id
-                    ),
+                    "reviewer_id": str(return_job.hitl_reviewer_id),
                     "review_started_at": (
-                        return_job.hitl_review_started_at
-                        .isoformat()
-                        if return_job.hitl_review_started_at
-                        else None
+                        return_job.hitl_review_started_at.isoformat() if return_job.hitl_review_started_at else None
                     ),
                 },
             )
@@ -115,8 +105,8 @@ def start_hitl_review(
         return_job=return_job,
     )
     return return_job, False
-    
-    
+
+
 # 관리자 HITL 판단 내용을 DB 로그에 저장할 수 있는 형태로 생성
 def build_hitl_decision_log(
     *,
@@ -147,9 +137,7 @@ def append_hitl_history(
 ) -> dict[str, Any]:
     updated_logs = dict(agent_logs or {})
 
-    hitl_history = list(
-        updated_logs.get("hitl_history") or []
-    )
+    hitl_history = list(updated_logs.get("hitl_history") or [])
 
     hitl_history.append(decision_log)
 
@@ -185,9 +173,7 @@ def apply_hitl_final_decision(
         wms_decision = "REJECT"
 
     else:
-        raise ValueError(
-            f"최종 HITL 판단으로 처리할 수 없는 action입니다: {action}"
-        )
+        raise ValueError(f"최종 HITL 판단으로 처리할 수 없는 action입니다: {action}")
 
     if action == HITLAction.APPROVE_NORMAL:
         # AI가 UBCI 점수를 산출한 건은 WMS가 점수로 등급을 유도한다(final_grade=None 허용).
@@ -198,11 +184,7 @@ def apply_hitl_final_decision(
             final_grade = ConditionGrade.MINT.value
 
     elif action == HITLAction.APPROVE_DOWNGRADE:
-        final_grade = (
-            target_grade.value
-            if target_grade is not None
-            else None
-        )
+        final_grade = target_grade.value if target_grade is not None else None
 
     elif action in rejection_actions:
         final_grade = "REJECT"
@@ -322,11 +304,7 @@ def store_hitl_precedent_safely(
         from app.ai.rag.critic_cases import upsert_authoritative_hitl_case
 
         logs = dict(return_job.agent_logs or {})
-        ai_target_grade = (
-            _HITL_TO_AI_GRADE.get(target_grade.value)
-            if target_grade is not None
-            else None
-        )
+        ai_target_grade = _HITL_TO_AI_GRADE.get(target_grade.value) if target_grade is not None else None
 
         if action == HITLAction.APPROVE_NORMAL:
             ai_final_grade = "S"
@@ -340,11 +318,7 @@ def store_hitl_precedent_safely(
             "is_mint": logs.get("is_mint"),
             "defects": logs.get("defects") or [],
             "vision_confidence": logs.get("vision_confidence"),
-            "ubci_score": (
-                float(return_job.ubci_score)
-                if return_job.ubci_score is not None
-                else None
-            ),
+            "ubci_score": (float(return_job.ubci_score) if return_job.ubci_score is not None else None),
             "predicted_grade": logs.get("predicted_grade"),
             "score_breakdown": logs.get("score_breakdown") or [],
             "policy_confidence": logs.get("policy_confidence"),
@@ -356,24 +330,15 @@ def store_hitl_precedent_safely(
             state,
             case_id=f"hitl-{return_job.id}",
             final_decision=action.value,
-            primary_reason_code=(
-                logs.get("admin_decision_code") or "UNKNOWN"
-            ),
+            primary_reason_code=(logs.get("admin_decision_code") or "UNKNOWN"),
             target_grade=ai_target_grade,
         )
         if stored:
             print(f"[Critic RAG] HITL 권위 판례 저장 - {stored}")
         else:
-            print(
-                "[Critic RAG] HITL 판례 저장 건너뜀 - "
-                "점수·등급 근거 불완전 (Vision 직행 HITL 등)"
-            )
+            print("[Critic RAG] HITL 판례 저장 건너뜀 - 점수·등급 근거 불완전 (Vision 직행 HITL 등)")
     except Exception as error:
-        print(
-            "[Critic RAG] HITL 판례 저장 실패 - "
-            f"{type(error).__name__}"
-        )
-
+        print(f"[Critic RAG] HITL 판례 저장 실패 - {type(error).__name__}")
 
 
 def save_hitl_decision(
@@ -401,9 +366,7 @@ def save_hitl_decision(
 
     # 3. Celery 등록 실패 시 복구할 수 있도록 변경 전 데이터 백업
     # 이전 HITL 처리에서 삭제되지 못한 임시 백업은 새로운 복구 백업 안에 중첩되지 않도록 제거한다.
-    previous_agent_logs = dict(
-        return_job.agent_logs or {}
-    )
+    previous_agent_logs = dict(return_job.agent_logs or {})
     previous_agent_logs.pop(
         "hitl_dispatch_backup",
         None,
@@ -411,16 +374,8 @@ def save_hitl_decision(
 
     previous_job_data = {
         "task_id": return_job.task_id,
-        "status": (
-            return_job.status.value
-            if hasattr(return_job.status, "value")
-            else str(return_job.status)
-        ),
-        "ubci_score": (
-            float(return_job.ubci_score)
-            if return_job.ubci_score is not None
-            else None
-        ),
+        "status": (return_job.status.value if hasattr(return_job.status, "value") else str(return_job.status)),
+        "ubci_score": (float(return_job.ubci_score) if return_job.ubci_score is not None else None),
         "final_report": return_job.final_report,
         "agent_logs": previous_agent_logs,
     }
@@ -431,11 +386,7 @@ def save_hitl_decision(
         reviewer_id=current_admin.id,
         reviewer_employee_id=current_admin.employee_id,
         reviewer_reason_code=reviewer_reason_code.value,
-        target_grade=(
-            target_grade.value
-            if target_grade is not None
-            else None
-        ),
+        target_grade=(target_grade.value if target_grade is not None else None),
         comment=comment,
         task_id=task_id,
     )
@@ -458,9 +409,7 @@ def save_hitl_decision(
         HITLAction.REJECT_DISCARD,
     }:
         if task_id is None:
-            raise ValueError(
-                "WMS 후속 처리에는 task_id가 필요합니다."
-            )
+            raise ValueError("WMS 후속 처리에는 task_id가 필요합니다.")
 
         apply_hitl_final_decision(
             return_job=return_job,
@@ -478,9 +427,7 @@ def save_hitl_decision(
         )
 
     else:
-        raise ValueError(
-            f"지원하지 않는 HITL 판단입니다: {action}"
-        )
+        raise ValueError(f"지원하지 않는 HITL 판단입니다: {action}")
 
     # 7. 변경된 ReturnJob을 DB에 저장
     save_return_job(
@@ -518,15 +465,11 @@ def restore_hitl_after_dispatch_failure(
     backup = current_logs.get("hitl_dispatch_backup")
 
     if not isinstance(backup, dict):
-        raise ValueError(
-            "HITL 작업 복구에 필요한 백업 데이터를 찾을 수 없습니다."
-        )
+        raise ValueError("HITL 작업 복구에 필요한 백업 데이터를 찾을 수 없습니다.")
 
     if return_job.status != ReturnJobStatus.PROCESSING:
         raise ValueError(
-            "HITL 후속 Task 실패 상태를 복구할 수 없는 상태입니다. "
-            f"job_id={job_id} "
-            f"current_status={return_job.status}"
+            f"HITL 후속 Task 실패 상태를 복구할 수 없는 상태입니다. job_id={job_id} current_status={return_job.status}"
         )
 
     if return_job.task_id != failed_task_id:
@@ -544,9 +487,7 @@ def restore_hitl_after_dispatch_failure(
     return_job.ubci_score = backup.get("ubci_score")
     return_job.final_report = backup.get("final_report")
 
-    previous_logs = dict(
-        backup.get("agent_logs") or {}
-    )
+    previous_logs = dict(backup.get("agent_logs") or {})
 
     # 후속 Task 등록 실패 정보는 복구된 로그에 남김
     previous_logs["hitl_dispatch_error"] = {
@@ -565,6 +506,7 @@ def restore_hitl_after_dispatch_failure(
     )
 
     return return_job
+
 
 # 후속 Celery 작업 등록 성공 후 임시 복구 백업 데이터를 제거
 def clear_hitl_dispatch_backup(

@@ -9,7 +9,6 @@ from app.core.database import get_session
 from app.domain.aladin_category_policy import (
     UnsupportedAladinCategoryError,
 )
-from app.models.wms import Book, BookCategory
 from app.domains.books.aladin_book_service import (
     AladinBookNotFoundError,
     AladinConfigurationError,
@@ -17,6 +16,7 @@ from app.domains.books.aladin_book_service import (
     AladinUpstreamError,
 )
 from app.domains.books.book_registration_service import register_book_by_isbn
+from app.models.wms import Book, BookCategory
 
 router = APIRouter()
 
@@ -46,9 +46,7 @@ class BookLookupResponse(BaseModel):
 
 
 class BookRegistrationRequest(BaseModel):
-    model_config = ConfigDict(
-        json_schema_extra={"example": {"isbn": "9788912345678"}}
-    )
+    model_config = ConfigDict(json_schema_extra={"example": {"isbn": "9788912345678"}})
 
     isbn: str = Field(
         min_length=10,
@@ -59,9 +57,7 @@ class BookRegistrationRequest(BaseModel):
 
 class BookRegistrationResponse(BookLookupResponse):
     book_id: UUID = Field(description="등록되거나 조회된 도서 마스터 ID")
-    created: bool = Field(
-        description="이번 요청에서 도서 마스터가 새로 생성되었는지 여부"
-    )
+    created: bool = Field(description="이번 요청에서 도서 마스터가 새로 생성되었는지 여부")
 
 
 @router.post(
@@ -76,9 +72,7 @@ class BookRegistrationResponse(BookLookupResponse):
     ),
     responses={
         404: {"description": "알라딘에서 ISBN을 찾을 수 없음"},
-        422: {
-            "description": "ISBN 또는 카테고리를 WMS 정책으로 처리할 수 없음"
-        },
+        422: {"description": "ISBN 또는 카테고리를 WMS 정책으로 처리할 수 없음"},
         502: {"description": "알라딘 OpenAPI가 잘못된 응답을 반환함"},
         503: {"description": "알라딘 OpenAPI 설정 누락 또는 통신 실패"},
     },
@@ -141,11 +135,7 @@ def register_book(
     responses={
         404: {
             "description": "등록되지 않은 ISBN",
-            "content": {
-                "application/json": {
-                    "example": {"detail": "등록되지 않은 도서입니다."}
-                }
-            },
+            "content": {"application/json": {"example": {"detail": "등록되지 않은 도서입니다."}}},
         }
     },
 )

@@ -3,14 +3,14 @@ from datetime import datetime, time, timedelta
 
 from sqlmodel import Session, select
 
+from app.domains.admin.schemas.admin_dashboard import (
+    DashboardFlowTrendItem,
+    DashboardFlowTrendResponse,
+)
 from app.models.wms import (
     InventoryLog,
     InventoryTransactionType,
     ReturnJob,
-)
-from app.domains.admin.schemas.admin_dashboard import (
-    DashboardFlowTrendItem,
-    DashboardFlowTrendResponse,
 )
 
 
@@ -50,9 +50,7 @@ def get_dashboard_flow_trend(
             inbound_by_date[log_date] += inventory_log.quantity_change
 
         elif inventory_log.transaction_type == InventoryTransactionType.OUTBOUND:
-            outbound_by_date[log_date] += abs(
-                inventory_log.quantity_change
-            )
+            outbound_by_date[log_date] += abs(inventory_log.quantity_change)
 
     completed_jobs = session.exec(
         select(ReturnJob).where(
@@ -71,15 +69,10 @@ def get_dashboard_flow_trend(
 
         processing_seconds = max(
             0.0,
-            (
-                completed_at
-                - return_job.ai_inspection_started_at
-            ).total_seconds(),
+            (completed_at - return_job.ai_inspection_started_at).total_seconds(),
         )
 
-        inspection_seconds_by_date[
-            completed_at.date()
-        ].append(processing_seconds)
+        inspection_seconds_by_date[completed_at.date()].append(processing_seconds)
 
     items: list[DashboardFlowTrendItem] = []
 
@@ -93,9 +86,7 @@ def get_dashboard_flow_trend(
                 inbound_quantity=inbound_by_date[current_date],
                 outbound_quantity=outbound_by_date[current_date],
                 average_inspection_processing_seconds=(
-                    sum(processing_seconds) / len(processing_seconds)
-                    if processing_seconds
-                    else 0.0
+                    sum(processing_seconds) / len(processing_seconds) if processing_seconds else 0.0
                 ),
             )
         )

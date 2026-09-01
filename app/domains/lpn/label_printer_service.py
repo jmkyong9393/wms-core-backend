@@ -4,7 +4,6 @@ from dataclasses import dataclass
 
 from app.core.config import settings
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -39,9 +38,7 @@ def send_zpl_to_label_printer(
         raise ValueError("ZPL content must not be empty")
 
     if not settings.LABEL_PRINTER_ENABLED:
-        logger.info(
-            "Label printer is disabled. ZPL sending skipped."
-        )
+        logger.info("Label printer is disabled. ZPL sending skipped.")
         return LabelPrintResult(
             sent=False,
             skipped=True,
@@ -49,20 +46,14 @@ def send_zpl_to_label_printer(
         )
 
     if not settings.LABEL_PRINTER_HOST.strip():
-        raise LabelPrinterError(
-            "LABEL_PRINTER_HOST is required when "
-            "LABEL_PRINTER_ENABLED is true"
-        )
+        raise LabelPrinterError("LABEL_PRINTER_HOST is required when LABEL_PRINTER_ENABLED is true")
 
     try:
         payload = zpl.encode(
             settings.LABEL_PRINTER_ENCODING,
         )
     except UnicodeEncodeError as exc:
-        raise LabelPrinterError(
-            "ZPL cannot be encoded with the configured "
-            "LABEL_PRINTER_ENCODING"
-        ) from exc
+        raise LabelPrinterError("ZPL cannot be encoded with the configured LABEL_PRINTER_ENCODING") from exc
 
     try:
         with socket.create_connection(

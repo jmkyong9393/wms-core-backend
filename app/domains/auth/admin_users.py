@@ -16,19 +16,6 @@ from sqlmodel import Session
 
 from app.api.dependencies.auth import require_master
 from app.core.database import get_session
-from app.models.wms import (
-    User,
-    UserRole,
-    UserStatus,
-)
-from app.domains.auth.schemas.auth import (
-    EmployeeCreateRequest,
-    EmployeeCreateResponse,
-    EmployeeListResponse,
-    UserResponse,
-    UserRoleUpdateRequest,
-    UserStatusUpdateRequest,
-)
 from app.domains.auth.auth_service import (
     create_employee,
     create_employees_bulk,
@@ -42,8 +29,22 @@ from app.domains.auth.employee_bulk_excel_service import (
     build_employee_bulk_template_xlsx,
     parse_employee_bulk_create_xlsx,
 )
+from app.domains.auth.schemas.auth import (
+    EmployeeCreateRequest,
+    EmployeeCreateResponse,
+    EmployeeListResponse,
+    UserResponse,
+    UserRoleUpdateRequest,
+    UserStatusUpdateRequest,
+)
+from app.models.wms import (
+    User,
+    UserRole,
+    UserStatus,
+)
 
 router = APIRouter()
+
 
 # 권한.상태 변경 응답 반복 제거
 def build_user_response(
@@ -58,6 +59,7 @@ def build_user_response(
         status=user.status,
         must_change_password=user.must_change_password,
     )
+
 
 @router.get(
     "",
@@ -107,6 +109,7 @@ def get_employee_accounts(
         size=size,
     )
 
+
 @router.get(
     "/bulk-template",
     summary="MASTER 직원 일괄 생성 엑셀 양식 다운로드",
@@ -124,14 +127,9 @@ def download_employee_bulk_template(
 
     return StreamingResponse(
         BytesIO(content),
-        media_type=(
-            "application/vnd.openxmlformats-officedocument."
-            "spreadsheetml.sheet"
-        ),
+        media_type=("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
         headers={
-            "Content-Disposition": (
-                'attachment; filename="employee_bulk_template.xlsx"'
-            ),
+            "Content-Disposition": ('attachment; filename="employee_bulk_template.xlsx"'),
             "Cache-Control": "no-store",
         },
     )
@@ -141,20 +139,11 @@ def download_employee_bulk_template(
     "/bulk-create",
     status_code=status.HTTP_201_CREATED,
     summary="MASTER 직원 계정 엑셀 일괄 생성",
-    responses={
-        422: {
-            "description": (
-                "엑셀 형식, 개별 행 값 또는 이메일 중복 검증 실패"
-            )
-        }
-    },
+    responses={422: {"description": ("엑셀 형식, 개별 행 값 또는 이메일 중복 검증 실패")}},
 )
 async def create_employee_accounts_bulk(
     file: UploadFile = File(
-        description=(
-            "이름 | 입사일 | 역할 | 이메일 헤더를 가진 "
-            ".xlsx 직원 일괄 생성 파일"
-        ),
+        description=("이름 | 입사일 | 역할 | 이메일 헤더를 가진 .xlsx 직원 일괄 생성 파일"),
     ),
     current_master: User = Depends(require_master),
     session: Session = Depends(get_session),
@@ -171,12 +160,8 @@ async def create_employee_accounts_bulk(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
-                "message": (
-                    "직원 일괄 생성 파일은 .xlsx 형식이어야 합니다."
-                ),
-                "errors": [
-                    "파일 확장자를 확인해주세요."
-                ],
+                "message": ("직원 일괄 생성 파일은 .xlsx 형식이어야 합니다."),
+                "errors": ["파일 확장자를 확인해주세요."],
             },
         )
 
@@ -185,20 +170,14 @@ async def create_employee_accounts_bulk(
 
         if not file_content:
             raise HTTPException(
-                status_code=(
-                    status.HTTP_422_UNPROCESSABLE_ENTITY
-                ),
+                status_code=(status.HTTP_422_UNPROCESSABLE_ENTITY),
                 detail={
-                    "message": (
-                        "업로드한 엑셀 파일이 비어 있습니다."
-                    ),
+                    "message": ("업로드한 엑셀 파일이 비어 있습니다."),
                     "errors": [],
                 },
             )
 
-        rows = parse_employee_bulk_create_xlsx(
-            file_content
-        )
+        rows = parse_employee_bulk_create_xlsx(file_content)
 
         results = create_employees_bulk(
             session=session,
@@ -206,9 +185,7 @@ async def create_employee_accounts_bulk(
             current_master=current_master,
         )
 
-        result_xlsx = build_employee_bulk_result_xlsx(
-            results
-        )
+        result_xlsx = build_employee_bulk_result_xlsx(results)
 
     except EmployeeBulkExcelValidationError as exc:
         raise HTTPException(
@@ -223,9 +200,7 @@ async def create_employee_accounts_bulk(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
-                "message": (
-                    "직원 계정 일괄 생성에 실패했습니다."
-                ),
+                "message": ("직원 계정 일괄 생성에 실패했습니다."),
                 "errors": [str(exc)],
             },
         ) from exc
@@ -233,30 +208,20 @@ async def create_employee_accounts_bulk(
     finally:
         await file.close()
 
-    issued_at = datetime.utcnow().strftime(
-        "%Y%m%d_%H%M%S"
-    )
-    download_filename = (
-        f"employee_accounts_{issued_at}.xlsx"
-    )
+    issued_at = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    download_filename = f"employee_accounts_{issued_at}.xlsx"
 
     return StreamingResponse(
         BytesIO(result_xlsx),
         status_code=status.HTTP_201_CREATED,
-        media_type=(
-            "application/vnd.openxmlformats-officedocument."
-            "spreadsheetml.sheet"
-        ),
+        media_type=("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
         headers={
-            "Content-Disposition": (
-                f'attachment; filename="{download_filename}"'
-            ),
+            "Content-Disposition": (f'attachment; filename="{download_filename}"'),
             # 최초 비밀번호가 포함된 파일이므로 브라우저 캐시 금지
             "Cache-Control": "no-store",
             "Pragma": "no-cache",
         },
     )
-
 
 
 # MASTER 전용 직원 계정 생성
@@ -286,6 +251,7 @@ def create_employee_account(
         temporary_password=temporary_password,
         must_change_password=user.must_change_password,
     )
+
 
 # MASTER 전용 사용자 권한 변경
 @router.patch(

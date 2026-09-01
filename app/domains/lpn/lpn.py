@@ -5,13 +5,14 @@ from sqlmodel import Session, select
 
 from app.api.dependencies.auth import require_wms_operator
 from app.core.database import get_session
-from app.models.wms import (
-    Book,
-    InboundItem,
-    InventoryUsedItem,
-    Location,
-    User,
+from app.domains.lpn.label_printer_service import (
+    send_zpl_to_label_printer,
 )
+from app.domains.lpn.label_reprint_service import (
+    build_label_reprint_zpl,
+)
+from app.domains.lpn.lpn_scan_service import get_lpn_scan_detail
+from app.domains.lpn.lpn_service import build_public_qr_url
 from app.domains.lpn.schemas.label import (
     LabelPrintStatus,
     LabelReprintResponse,
@@ -25,22 +26,21 @@ from app.domains.lpn.schemas.lpn import (
     PrintLpnResponse,
 )
 from app.domains.lpn.schemas.lpn_scan import LpnScanResponse
-from app.domains.lpn.label_printer_service import (
-    send_zpl_to_label_printer,
-)
-from app.domains.lpn.label_reprint_service import (
-    build_label_reprint_zpl,
-)
 from app.domains.lpn.zpl_label_service import (
     build_custom_label_zpl,
 )
-from app.domains.lpn.lpn_scan_service import get_lpn_scan_detail
-from app.domains.lpn.lpn_service import build_public_qr_url
-
+from app.models.wms import (
+    Book,
+    InboundItem,
+    InventoryUsedItem,
+    Location,
+    User,
+)
 
 router = APIRouter()
 
 logger = logging.getLogger(__name__)
+
 
 @router.get(
     "/scan/{scan_value}",
@@ -48,8 +48,7 @@ logger = logging.getLogger(__name__)
     operation_id="getLpnScanDetail",
     summary="작업자용 LPN QR 스캔 상세 조회",
     description=(
-        "작업자 모바일 앱이 LPN 라벨 QR의 스캔 토큰으로 "
-        "입고·검수·재촬영·재고 편입 상태와 현재 로케이션을 조회합니다."
+        "작업자 모바일 앱이 LPN 라벨 QR의 스캔 토큰으로 입고·검수·재촬영·재고 편입 상태와 현재 로케이션을 조회합니다."
     ),
     responses={
         401: {"description": "인증 토큰이 없거나 유효하지 않음"},
@@ -74,6 +73,7 @@ def get_lpn_scan(
         scan_value=scan_value,
     )
 
+
 @router.post(
     "/{lpn_barcode}/labels/{label_type}/reprint",
     response_model=LabelReprintResponse,
@@ -89,11 +89,7 @@ def get_lpn_scan(
         401: {"description": "인증 토큰이 없거나 유효하지 않음"},
         403: {"description": "WMS 작업자 권한이 없음"},
         404: {"description": "LPN 라벨 원본 데이터를 찾을 수 없음"},
-        409: {
-            "description": (
-                "UBCI 라벨 출력 조건 미충족 또는 출고 완료 단품"
-            )
-        },
+        409: {"description": ("UBCI 라벨 출력 조건 미충족 또는 출고 완료 단품")},
     },
 )
 def reprint_lpn_label(
@@ -131,22 +127,16 @@ def reprint_lpn_label(
             lpn_barcode=lpn_barcode,
             label_type=label_type,
             label_print_status=LabelPrintStatus.FAILED,
-            label_print_error=(
-                "라벨 재출력에 실패했습니다. "
-                "프린터 상태를 확인한 뒤 다시 시도해주세요."
-            ),
+            label_print_error=("라벨 재출력에 실패했습니다. 프린터 상태를 확인한 뒤 다시 시도해주세요."),
         )
 
     return LabelReprintResponse(
         lpn_barcode=lpn_barcode,
         label_type=label_type,
-        label_print_status=(
-            LabelPrintStatus.SKIPPED
-            if print_result.skipped
-            else LabelPrintStatus.SENT
-        ),
+        label_print_status=(LabelPrintStatus.SKIPPED if print_result.skipped else LabelPrintStatus.SENT),
         label_print_error=None,
     )
+
 
 @router.get(
     "/{lpn_barcode}",
@@ -219,11 +209,7 @@ def get_lpn_detail(
         base_price=book.base_price,
         discount_rate=inventory_item.discount_rate,
         sale_price=inventory_item.sale_price,
-        pricing_status=(
-            "AGENT_PRICED"
-            if inventory_item.sale_price is not None
-            else "PENDING"
-        ),
+        pricing_status=("AGENT_PRICED" if inventory_item.sale_price is not None else "PENDING"),
         location=LpnLocationDetail(
             id=location.id,
             barcode=location.barcode,
@@ -269,8 +255,8 @@ def print_lpn_label_direct(
         logger.exception("Failed to print custom LPN label directly.")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"라벨 출력에 실패했습니다. (사유: {str(e)})",
-        )
+            detail=f"라벨 출력에 실패했습니다. (사유: {e!s})",
+        ) from e
 
     if print_result.skipped:
         return PrintLpnResponse(

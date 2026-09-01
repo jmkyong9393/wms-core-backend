@@ -56,10 +56,7 @@ class LpnDetailResponse(BaseModel):
                     "shelf": "3",
                 },
                 "stocked_at": "2026-07-27T10:00:00",
-                "certificate_url": (
-                    "https://wms.example.com/certificate/"
-                    "m7sX0zYV2wF6U3pG8nR4cQ1aK9tB5eHjL0dSxWvNqPo"
-                ),
+                "certificate_url": ("https://wms.example.com/certificate/m7sX0zYV2wF6U3pG8nR4cQ1aK9tB5eHjL0dSxWvNqPo"),
             }
         }
     )
@@ -108,11 +105,10 @@ class PrintLpnRequest(BaseModel):
     title: str
     isbn: str
     worker_id: str = Field(alias="workerId")
-    
+
     model_config = ConfigDict(populate_by_name=True)
 
 
 class PrintLpnResponse(BaseModel):
     success: bool
     message: str
-

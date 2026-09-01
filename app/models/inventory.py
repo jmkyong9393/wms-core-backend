@@ -1,8 +1,6 @@
 import uuid
-from uuid import UUID
 from datetime import datetime
 from decimal import Decimal
-from enum import Enum
 from typing import Optional
 
 from sqlalchemy import CheckConstraint, Column, Index, UniqueConstraint
@@ -10,18 +8,23 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import Numeric
 from sqlmodel import Field, SQLModel
 
-from app.models.enums import *  # noqa: F401,F403
+from app.models.enums import *
 
 
 class Inventory(SQLModel, table=True):
     __tablename__ = "inventory"
     __table_args__ = (
         UniqueConstraint("book_id", "location_id", name="uq_inventory_book_location"),
-        CheckConstraint("reserved_quantity >= 0", name="ck_inventory_reserved_quantity_non_negative",),
-        CheckConstraint("reserved_quantity <= quantity", name="ck_inventory_reserved_quantity_not_exceed_quantity",),
         CheckConstraint(
-            "discount_rate IS NULL OR "
-            "(discount_rate >= 0 AND discount_rate < 1)",
+            "reserved_quantity >= 0",
+            name="ck_inventory_reserved_quantity_non_negative",
+        ),
+        CheckConstraint(
+            "reserved_quantity <= quantity",
+            name="ck_inventory_reserved_quantity_not_exceed_quantity",
+        ),
+        CheckConstraint(
+            "discount_rate IS NULL OR (discount_rate >= 0 AND discount_rate < 1)",
             name="ck_inventory_discount_rate",
         ),
         CheckConstraint(
@@ -39,7 +42,10 @@ class Inventory(SQLModel, table=True):
     location_id: uuid.UUID = Field(foreign_key="locations.id")
     quantity: int = Field(default=0)
     # 피킹 지시서에 배정되어 다른 주문이 사용할 수 없는 신간 재고 수량
-    reserved_quantity: int = Field(default=0, nullable=False,)
+    reserved_quantity: int = Field(
+        default=0,
+        nullable=False,
+    )
     discount_rate: Optional[Decimal] = Field(
         default=None,
         sa_column=Column(Numeric(5, 4)),
@@ -60,8 +66,7 @@ class InventoryUsedItem(SQLModel, table=True):
             name="ck_inventory_used_items_sellable_grade",
         ),
         CheckConstraint(
-            "discount_rate IS NULL OR "
-            "(discount_rate >= 0 AND discount_rate < 1)",
+            "discount_rate IS NULL OR (discount_rate >= 0 AND discount_rate < 1)",
             name="ck_inventory_used_items_discount_rate",
         ),
         CheckConstraint(

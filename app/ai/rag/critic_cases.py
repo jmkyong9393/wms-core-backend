@@ -2,13 +2,11 @@ import hashlib
 import json
 import math
 import os
-
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Any, Literal
 
 import chromadb
-
 from dotenv import load_dotenv
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
@@ -17,7 +15,6 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..state import Grade, WMSInspectionState
-
 
 load_dotenv()
 
@@ -446,7 +443,7 @@ def upsert_critic_case(
         (
             f"{parsed_case.tenant_id}\0"
             f"{parsed_case.case_id}"
-        ).encode("utf-8")
+        ).encode()
     ).hexdigest()
     get_case_vectorstore().add_documents(
         documents=[document],
@@ -511,7 +508,7 @@ def upsert_authoritative_hitl_case(
             source="HITL",
             is_authoritative=True,
             reviewed_at=datetime.now(
-                timezone.utc
+                UTC
             ).isoformat(),
         )
     )

@@ -45,8 +45,55 @@ packages = ["app"]
 
 [dependency-groups]
 dev = [
+    "mypy>=2.3.1",
     "pytest>=8.2.2",
+    "ruff>=0.16.5",
 ]
+
+[tool.ruff]
+# 기존 코드가 한글 주석·긴 f-string으로 88자를 자주 넘는다. 줄바꿈 강제는
+# 한글 문장을 어색하게 쪼개므로 실측 분포(중앙값 98, 최대 180)를 감안해 120으로 둔다.
+line-length = 120
+
+[tool.ruff.lint]
+# 룰셋을 ruff 버전 기본값에 맡기지 않고 명시 고정한다 — 도구 업그레이드가
+# CI를 갑자기 빨갛게 만들지 않도록.
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "DTZ", "RUF"]
+
+# 아래 ignore는 "안 고친 것"이 아니라 "검토 후 내린 결정"이다. 되살릴 때는 근거를 남길 것.
+ignore = [
+    # ── 런타임 어노테이션 보류: FastAPI·Pydantic·SQLModel이 타입 힌트를 런타임에
+    #    평가한다. 일괄 현대화(list[str]·X | None)는 필드 추론을 바꿀 수 있어
+    #    도메인별 실물 검증 없이 만지지 않는다.
+    "UP006", "UP045", "UP035", "RUF013",
+    # ── FastAPI 관용구: Depends()/Query()를 기본 인자로 쓰는 것이 프레임워크 표준이다.
+    "B008",
+    # ── 기존 코드가 naive datetime(utcnow)으로 DB 컬럼을 채운다. tz-aware 전환은
+    #    저장값 의미가 바뀌는 마이그레이션 건이라 린트로 강제하지 않는다.
+    "DTZ003", "DTZ005",
+    # ── 한글 주석·문서화 문자열의 전각 문장부호를 "혼동 문자"로 잡는다.
+    #    이 코드베이스의 서술 언어가 한국어이므로 규칙 자체가 맞지 않는다.
+    "RUF001", "RUF002", "RUF003",
+    # ── str-Enum 현대화 보류: SQLModel 컬럼·Pydantic 직렬화가 (str, Enum)
+    #    조합의 값 표현에 의존한다. StrEnum 전환은 저장·응답 값 검증이 필요한 별건.
+    "UP042",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# agents 패키지는 분할 시 재수출(`import *`)로 임포트 호환을 유지한다.
+# 미사용으로 보이는 심볼이 실제로는 하위 모듈의 공개 API다.
+"app/ai/agents/*.py" = ["F401", "F403", "F405"]
+"app/models/wms.py" = ["F401", "F403"]
+"app/models/*.py" = ["F403", "F405"]
+"app/worker/__init__.py" = ["F401", "F403"]
+# 프리즈 구역(app/ai) 기존 코드의 미용 위반. 이 구역은 코드 수정에 조장 승인이
+# 필요하므로(01-freeze-zones.md) 린트가 임의 diff를 유발하지 않게 분리한다.
+# B905(zip strict)는 길이 불일치 시 예외를 던지므로 미용이 아니라 동작 변경이다.
+# 새로 작성하는 app/ai 파일에는 적용되지 않는다 — 아래 목록은 파일 단위로 좁혔다.
+"app/ai/agents/common.py" = ["SIM108"]
+"app/ai/agents/detector.py" = ["B905", "RUF046"]
+"app/ai/agents/human.py" = ["E501"]
+"app/ai/reporting/*.py" = ["E402", "E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

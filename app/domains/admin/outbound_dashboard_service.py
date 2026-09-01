@@ -2,6 +2,10 @@ from datetime import datetime
 
 from sqlmodel import Session, select
 
+from app.domains.admin.schemas.admin_dashboard import (
+    OutboundDashboardOrderResponse,
+    OutboundDashboardSummaryResponse,
+)
 from app.models.wms import (
     Order,
     OrderItem,
@@ -10,11 +14,6 @@ from app.models.wms import (
     OrderStatus,
     OrderType,
 )
-from app.domains.admin.schemas.admin_dashboard import (
-    OutboundDashboardOrderResponse,
-    OutboundDashboardSummaryResponse,
-)
-
 
 RECENT_OUTBOUND_ORDER_LIMIT = 10
 
@@ -43,53 +42,27 @@ def get_outbound_dashboard_summary(
     picked_quantity = 0
 
     if active_order_ids:
-        active_order_items = session.exec(
-            select(OrderItem).where(
-                OrderItem.order_id.in_(active_order_ids)
-            )
-        ).all()
-        active_order_item_ids = [
-            order_item.id
-            for order_item in active_order_items
-        ]
+        active_order_items = session.exec(select(OrderItem).where(OrderItem.order_id.in_(active_order_ids))).all()
+        active_order_item_ids = [order_item.id for order_item in active_order_items]
 
         if active_order_item_ids:
             new_allocations = session.exec(
                 select(OrderItemInventoryAllocation).where(
-                    OrderItemInventoryAllocation.order_item_id.in_(
-                        active_order_item_ids
-                    )
+                    OrderItemInventoryAllocation.order_item_id.in_(active_order_item_ids)
                 )
             ).all()
 
-            expected_quantity += sum(
-                allocation.quantity
-                for allocation in new_allocations
-            )
-            picked_quantity += sum(
-                allocation.picked_quantity
-                for allocation in new_allocations
-            )
+            expected_quantity += sum(allocation.quantity for allocation in new_allocations)
+            picked_quantity += sum(allocation.picked_quantity for allocation in new_allocations)
 
             used_allocations = session.exec(
-                select(OrderItemLpnAllocation).where(
-                    OrderItemLpnAllocation.order_item_id.in_(
-                        active_order_item_ids
-                    )
-                )
+                select(OrderItemLpnAllocation).where(OrderItemLpnAllocation.order_item_id.in_(active_order_item_ids))
             ).all()
 
             expected_quantity += len(used_allocations)
-            picked_quantity += sum(
-                allocation.picked_at is not None
-                for allocation in used_allocations
-            )
+            picked_quantity += sum(allocation.picked_at is not None for allocation in used_allocations)
 
-    picking_completion_rate = (
-        round((picked_quantity / expected_quantity) * 100, 1)
-        if expected_quantity
-        else 0.0
-    )
+    picking_completion_rate = round((picked_quantity / expected_quantity) * 100, 1) if expected_quantity else 0.0
 
     today_shipping_label_issued_count = session.exec(
         select(Order).where(
@@ -113,9 +86,7 @@ def get_outbound_dashboard_summary(
     return OutboundDashboardSummaryResponse(
         active_picking_order_count=len(active_picking_orders),
         picking_completion_rate=picking_completion_rate,
-        today_shipping_label_issued_count=(
-            len(today_shipping_label_issued_count)
-        ),
+        today_shipping_label_issued_count=(len(today_shipping_label_issued_count)),
         recent_orders=[
             OutboundDashboardOrderResponse(
                 id=order.id,

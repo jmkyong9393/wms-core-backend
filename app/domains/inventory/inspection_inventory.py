@@ -4,26 +4,23 @@ from fastapi import APIRouter, Depends
 from sqlmodel import Session
 
 from app.core.database import get_session
-
+from app.domains.books.certificate_service import extract_report_summary
+from app.domains.inventory.schemas.inspection_inventory import (
+    InspectionInventoryRequest,
+    InspectionInventoryResponse,
+)
+from app.domains.inventory.used_inventory_service import apply_inspected_item_result
+from app.domains.lpn.label_printer_service import (
+    send_zpl_to_label_printer,
+)
+from app.domains.lpn.schemas.label import LabelPrintStatus
+from app.domains.lpn.zpl_label_service import build_ubci_label_zpl
+from app.domains.pricing.dynamic_pricing_service import execute_dynamic_pricing
 from app.models.wms import (
     InboundItem,
     InventoryUsedItem,
     ReturnJob,
 )
-
-from app.domains.inventory.schemas.inspection_inventory import (
-    InspectionInventoryRequest,
-    InspectionInventoryResponse,
-)
-from app.domains.lpn.schemas.label import LabelPrintStatus
-from app.domains.inventory.used_inventory_service import apply_inspected_item_result
-from app.domains.pricing.dynamic_pricing_service import execute_dynamic_pricing
-from app.domains.lpn.label_printer_service import (
-    send_zpl_to_label_printer,
-)
-from app.domains.lpn.zpl_label_service import build_ubci_label_zpl
-from app.domains.books.certificate_service import extract_report_summary
-
 
 router = APIRouter()
 
@@ -45,17 +42,12 @@ def _try_print_ubci_label(
     if extract_report_summary(return_job.final_report) is None:
         return (
             LabelPrintStatus.SKIPPED,
-            (
-                "공개 품질보증서가 아직 준비되지 않아 "
-                "UBCI 라벨 출력을 보류했습니다."
-            ),
+            ("공개 품질보증서가 아직 준비되지 않아 UBCI 라벨 출력을 보류했습니다."),
         )
 
     try:
         if inbound_item.certificate_token is None:
-            raise RuntimeError(
-                "Inbound item does not have a certificate token"
-            )
+            raise RuntimeError("Inbound item does not have a certificate token")
 
         zpl = build_ubci_label_zpl(
             lpn_barcode=inventory_item.lpn_barcode,
@@ -72,14 +64,14 @@ def _try_print_ubci_label(
 
     except Exception:
         logger.exception(
-            "Failed to print UBCI label. "
-            "inventory_used_item_id=%s",
+            "Failed to print UBCI label. inventory_used_item_id=%s",
             inventory_item.id,
         )
         return (
             LabelPrintStatus.FAILED,
             "UBCI 라벨 출력에 실패했습니다. 수동 출력이 필요합니다.",
         )
+
 
 @router.post(
     "/inspection-results",
@@ -116,11 +108,7 @@ def apply_inspection_inventory_result(
         session.rollback()
         raise
 
-    if (
-        result.decision == "APPROVE"
-        and result.inventory_changed
-        and result.inventory_used_item_id is not None
-    ):
+    if result.decision == "APPROVE" and result.inventory_changed and result.inventory_used_item_id is not None:
         try:
             execute_dynamic_pricing(
                 session=session,
@@ -130,8 +118,7 @@ def apply_inspection_inventory_result(
         except Exception:
             session.rollback()
             logger.exception(
-                "Dynamic pricing failed after inventory admission. "
-                "lpn_barcode=%s",
+                "Dynamic pricing failed after inventory admission. lpn_barcode=%s",
                 result.lpn_barcode,
             )
 
@@ -140,11 +127,7 @@ def apply_inspection_inventory_result(
 
     # 승인된 신규 판매 가능 단품에만 UBCI 라벨을 한 번 자동 출력한다.
     # 반려 건과 동일 검수 결과 재요청은 중복 출력하지 않는다.
-    if (
-        result.decision == "APPROVE"
-        and result.inventory_changed
-        and result.inventory_used_item_id is not None
-    ):
+    if result.decision == "APPROVE" and result.inventory_changed and result.inventory_used_item_id is not None:
         try:
             inbound_item = session.get(
                 InboundItem,
@@ -159,44 +142,30 @@ def apply_inspection_inventory_result(
                 result.return_job_id,
             )
 
-            if (
-                inbound_item is None
-                or inventory_item is None
-                or return_job is None
-            ):
+            if inbound_item is None or inventory_item is None or return_job is None:
                 logger.error(
-                    "UBCI label print data was not found. "
-                    "inbound_item_id=%s inventory_used_item_id=%s",
+                    "UBCI label print data was not found. inbound_item_id=%s inventory_used_item_id=%s",
                     result.inbound_item_id,
                     result.inventory_used_item_id,
                 )
                 label_print_status = LabelPrintStatus.FAILED
-                label_print_error = (
-                    "UBCI 라벨 출력 데이터를 찾을 수 없습니다. "
-                    "수동 출력이 필요합니다."
-                )
+                label_print_error = "UBCI 라벨 출력 데이터를 찾을 수 없습니다. 수동 출력이 필요합니다."
             else:
-                label_print_status, label_print_error = (
-                    _try_print_ubci_label(
-                        inbound_item=inbound_item,
-                        inventory_item=inventory_item,
-                        return_job=return_job,
-                    )
+                label_print_status, label_print_error = _try_print_ubci_label(
+                    inbound_item=inbound_item,
+                    inventory_item=inventory_item,
+                    return_job=return_job,
                 )
         except Exception:
             # 이 시점의 검수 결과·재고 편입·가격 산정 커밋은 이미 끝났다.
             # 라벨 후처리 실패가 API 전체 실패가 되지 않게 한다.
             session.rollback()
             logger.exception(
-                "Failed to prepare UBCI label printing. "
-                "return_job_id=%s",
+                "Failed to prepare UBCI label printing. return_job_id=%s",
                 result.return_job_id,
             )
             label_print_status = LabelPrintStatus.FAILED
-            label_print_error = (
-                "UBCI 라벨 출력 처리 중 오류가 발생했습니다. "
-                "수동 출력이 필요합니다."
-            )
+            label_print_error = "UBCI 라벨 출력 처리 중 오류가 발생했습니다. 수동 출력이 필요합니다."
 
     return InspectionInventoryResponse(
         return_job_id=result.return_job_id,

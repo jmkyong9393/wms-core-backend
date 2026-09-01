@@ -1,8 +1,12 @@
-from uuid import UUID
 from decimal import Decimal
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.domains.lpn.schemas.lpn import (
+    LpnBookDetail,
+    LpnLocationDetail,
+)
 from app.models.wms import (
     ConditionGrade,
     InboundStatus,
@@ -10,10 +14,6 @@ from app.models.wms import (
     RejectedItemStatus,
     ReturnJobStatus,
     UsedInventoryStatus,
-)
-from app.domains.lpn.schemas.lpn import (
-    LpnBookDetail,
-    LpnLocationDetail,
 )
 
 
@@ -63,10 +63,7 @@ class LpnScanResponse(BaseModel):
 
     location: LpnLocationDetail | None = Field(
         default=None,
-        description=(
-            "검수 완료 후 배정·등록된 현재 보관 로케이션. "
-            "검수 전이면 null"
-        ),
+        description=("검수 완료 후 배정·등록된 현재 보관 로케이션. 검수 전이면 null"),
     )
 
     requires_retake: bool = Field(
@@ -75,8 +72,5 @@ class LpnScanResponse(BaseModel):
 
     return_job_id: UUID | None = Field(
         default=None,
-        description=(
-            "재촬영 대상 검수 작업 ID. "
-            "requires_retake가 true일 때 재검수 요청에 사용"
-        ),
+        description=("재촬영 대상 검수 작업 ID. requires_retake가 true일 때 재검수 요청에 사용"),
     )

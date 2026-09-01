@@ -11,6 +11,7 @@ REDIS_URL = os.getenv(
 
 NOTIFICATION_TENANT_CHANNEL_PREFIX = "notification:tenant"
 
+
 # ReturnJob별 Redis Pub/Sub 채널명 생성
 def get_return_job_channel(
     job_id: str,

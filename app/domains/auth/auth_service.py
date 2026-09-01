@@ -1,23 +1,23 @@
+import unicodedata
 from collections import defaultdict
 from datetime import date, datetime, timedelta
-import unicodedata
 from uuid import UUID
 
 from sqlalchemy import func, or_, text
 from sqlmodel import Session, select
 
+from app.core.config import settings
 from app.core.exceptions import (
     DuplicateEmailException,
     InactiveUserException,
     InvalidCredentialsException,
     InvalidCurrentPasswordException,
-    SamePasswordException,
     LastActiveMasterException,
+    SamePasswordException,
     SelfRoleChangeNotAllowedException,
     SelfStatusChangeNotAllowedException,
     UserNotFoundException,
 )
-from app.core.config import settings
 from app.core.security import (
     generate_refresh_token,
     generate_temporary_password,
@@ -25,7 +25,6 @@ from app.core.security import (
     hash_refresh_token,
     verify_password,
 )
-from app.models.wms import User, UserRole, UserStatus
 from app.domains.auth.schemas.auth import (
     EmployeeBulkCreateResultRow,
     EmployeeBulkCreateRow,
@@ -33,6 +32,7 @@ from app.domains.auth.schemas.auth import (
     EmployeeListItemResponse,
     EmployeeListResponse,
 )
+from app.models.wms import User, UserRole, UserStatus
 
 EMPLOYEE_ID_PREFIX = "NZ"
 EMPLOYEE_ID_SEQUENCE_WIDTH = 3
@@ -44,9 +44,7 @@ def get_user_by_employee_id(
     session: Session,
     employee_id: str,
 ) -> User | None:
-    statement = select(User).where(
-        User.employee_id == employee_id
-    )
+    statement = select(User).where(User.employee_id == employee_id)
     return session.exec(statement).first()
 
 
@@ -55,10 +53,9 @@ def get_user_by_email(
     session: Session,
     email: str,
 ) -> User | None:
-    statement = select(User).where(
-        User.email == email
-    )
+    statement = select(User).where(User.email == email)
     return session.exec(statement).first()
+
 
 def _apply_employee_list_filters(
     statement,
@@ -138,8 +135,7 @@ def list_employees(
     )
 
     users = session.exec(
-        list_statement
-        .order_by(
+        list_statement.order_by(
             User.created_at.desc(),
             User.id.desc(),
         )
@@ -161,11 +157,7 @@ def list_employees(
         for user in users
     ]
 
-    total_pages = (
-        (total + size - 1) // size
-        if total > 0
-        else 0
-    )
+    total_pages = (total + size - 1) // size if total > 0 else 0
 
     return EmployeeListResponse(
         items=items,
@@ -175,17 +167,19 @@ def list_employees(
         total_pages=total_pages,
     )
 
+
 # 사용자 조회 중복 제거
 def get_user_or_raise(
-        session: Session,
-        user_id: UUID,
+    session: Session,
+    user_id: UUID,
 ) -> User:
     user = session.get(User, user_id)
 
     if user is None:
         raise UserNotFoundException()
-    
+
     return user
+
 
 # Tenant 기준 사용자 조회 함수
 def get_tenant_user_or_raise(
@@ -205,6 +199,7 @@ def get_tenant_user_or_raise(
 
     return user
 
+
 # 저장 코드 통일
 def save_user(
     session: Session,
@@ -223,10 +218,7 @@ def build_employee_id_prefix(hire_date: date) -> str:
 
     예: 2026-08-01 -> NZ2608
     """
-    return (
-        f"{EMPLOYEE_ID_PREFIX}"
-        f"{hire_date.strftime('%y%m')}"
-    )
+    return f"{EMPLOYEE_ID_PREFIX}{hire_date.strftime('%y%m')}"
 
 
 def extract_employee_sequence(
@@ -241,10 +233,7 @@ def extract_employee_sequence(
     """
     suffix = employee_id.removeprefix(prefix)
 
-    if (
-        len(suffix) != EMPLOYEE_ID_SEQUENCE_WIDTH
-        or not suffix.isdigit()
-    ):
+    if len(suffix) != EMPLOYEE_ID_SEQUENCE_WIDTH or not suffix.isdigit():
         return None
 
     return int(suffix)
@@ -262,11 +251,7 @@ def generate_employee_id(
     """
     prefix = build_employee_id_prefix(hire_date)
 
-    employee_ids = session.exec(
-        select(User.employee_id).where(
-            User.employee_id.startswith(prefix)
-        )
-    ).all()
+    employee_ids = session.exec(select(User.employee_id).where(User.employee_id.startswith(prefix))).all()
 
     issued_sequences = [
         sequence
@@ -276,23 +261,22 @@ def generate_employee_id(
                 employee_id=employee_id,
                 prefix=prefix,
             )
-        ) is not None
+        )
+        is not None
     ]
 
-    next_sequence = max(
-        issued_sequences,
-        default=0,
-    ) + 1
+    next_sequence = (
+        max(
+            issued_sequences,
+            default=0,
+        )
+        + 1
+    )
 
     if next_sequence > MAX_MONTHLY_EMPLOYEE_SEQUENCE:
-        raise ValueError(
-            "해당 입사 월의 사번 발급 가능 인원(999명)을 초과했습니다."
-        )
+        raise ValueError("해당 입사 월의 사번 발급 가능 인원(999명)을 초과했습니다.")
 
-    return (
-        f"{prefix}"
-        f"{next_sequence:0{EMPLOYEE_ID_SEQUENCE_WIDTH}d}"
-    )
+    return f"{prefix}{next_sequence:0{EMPLOYEE_ID_SEQUENCE_WIDTH}d}"
 
 
 # 관리자가 직원 계정 생성
@@ -301,15 +285,11 @@ def create_employee(
     request: EmployeeCreateRequest,
     current_master: User,
 ) -> tuple[User, str]:
-    email = (
-        str(request.email)
-        if request.email
-        else None
-    )
+    email = str(request.email) if request.email else None
 
     if email and get_user_by_email(session, email):
         raise DuplicateEmailException()
-    
+
     # 입사일을 기준으로 사번 자동 생성
     employee_id = generate_employee_id(
         session=session,
@@ -335,6 +315,7 @@ def create_employee(
 
     return user, temporary_password
 
+
 def _lock_employee_id_month(
     session: Session,
     prefix: str,
@@ -346,11 +327,7 @@ def _lock_employee_id_month(
     월별 잠금도 전역 기준으로 사용한다.
     """
     session.exec(
-        text(
-            "SELECT pg_advisory_xact_lock("
-            "hashtextextended(:lock_key, 0)"
-            ")"
-        ).bindparams(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))").bindparams(
             lock_key=f"employee-id-month:{prefix}"
         )
     )
@@ -383,11 +360,7 @@ def _get_issued_employee_sequences(
     session: Session,
     prefix: str,
 ) -> set[int]:
-    employee_ids = session.exec(
-        select(User.employee_id).where(
-            User.employee_id.startswith(prefix)
-        )
-    ).all()
+    employee_ids = session.exec(select(User.employee_id).where(User.employee_id.startswith(prefix))).all()
 
     return {
         sequence
@@ -397,7 +370,8 @@ def _get_issued_employee_sequences(
                 employee_id=employee_id,
                 prefix=prefix,
             )
-        ) is not None
+        )
+        is not None
     }
 
 
@@ -417,10 +391,7 @@ def create_employees_bulk(
     if not rows:
         raise ValueError("생성할 직원 정보가 없습니다.")
 
-    normalized_email_by_row = {
-        row.source_row: _normalize_optional_email(row.email)
-        for row in rows
-    }
+    normalized_email_by_row = {row.source_row: _normalize_optional_email(row.email) for row in rows}
 
     email_rows: dict[str, list[int]] = defaultdict(list)
 
@@ -429,43 +400,23 @@ def create_employees_bulk(
         if email is not None:
             email_rows[email].append(row.source_row)
 
-    duplicated_emails = {
-        email: source_rows
-        for email, source_rows in email_rows.items()
-        if len(source_rows) > 1
-    }
+    duplicated_emails = {email: source_rows for email, source_rows in email_rows.items() if len(source_rows) > 1}
 
     if duplicated_emails:
         details = ", ".join(
-            (
-                f"{email} "
-                f"(행: {', '.join(map(str, source_rows))})"
-            )
-            for email, source_rows in duplicated_emails.items()
+            (f"{email} (행: {', '.join(map(str, source_rows))})") for email, source_rows in duplicated_emails.items()
         )
-        raise ValueError(
-            f"엑셀 파일 내 이메일이 중복되었습니다: {details}"
-        )
+        raise ValueError(f"엑셀 파일 내 이메일이 중복되었습니다: {details}")
 
     emails = list(email_rows)
 
     if emails:
-        existing_emails = session.exec(
-            select(User.email).where(
-                func.lower(User.email).in_(emails)
-            )
-        ).all()
+        existing_emails = session.exec(select(User.email).where(func.lower(User.email).in_(emails))).all()
 
         if existing_emails:
             raise ValueError(
                 "이미 등록된 이메일이 포함되어 있습니다: "
-                + ", ".join(
-                    sorted(
-                        str(email)
-                        for email in existing_emails
-                        if email is not None
-                    )
-                )
+                + ", ".join(sorted(str(email) for email in existing_emails if email is not None))
             )
 
     rows_by_prefix: dict[
@@ -474,9 +425,7 @@ def create_employees_bulk(
     ] = defaultdict(list)
 
     for row in rows:
-        prefix = build_employee_id_prefix(
-            row.hire_date
-        )
+        prefix = build_employee_id_prefix(row.hire_date)
         rows_by_prefix[prefix].append(row)
 
     assigned_employee_id_by_row: dict[int, str] = {}
@@ -489,20 +438,16 @@ def create_employees_bulk(
                 prefix=prefix,
             )
 
-            issued_sequences = (
-                _get_issued_employee_sequences(
-                    session=session,
-                    prefix=prefix,
-                )
+            issued_sequences = _get_issued_employee_sequences(
+                session=session,
+                prefix=prefix,
             )
 
             sorted_rows = sorted(
                 rows_by_prefix[prefix],
                 key=lambda row: (
                     row.hire_date,
-                    _normalize_employee_name_for_sort(
-                        row.name
-                    ),
+                    _normalize_employee_name_for_sort(row.name),
                     row.source_row,
                 ),
             )
@@ -512,14 +457,8 @@ def create_employees_bulk(
                 default=0,
             )
 
-            if (
-                last_sequence + len(sorted_rows)
-                > MAX_MONTHLY_EMPLOYEE_SEQUENCE
-            ):
-                raise ValueError(
-                    f"{prefix} 사번의 월별 발급 가능 "
-                    "인원(999명)을 초과했습니다."
-                )
+            if last_sequence + len(sorted_rows) > MAX_MONTHLY_EMPLOYEE_SEQUENCE:
+                raise ValueError(f"{prefix} 사번의 월별 발급 가능 인원(999명)을 초과했습니다.")
 
             for offset, row in enumerate(
                 sorted_rows,
@@ -527,12 +466,7 @@ def create_employees_bulk(
             ):
                 sequence = last_sequence + offset
 
-                assigned_employee_id_by_row[
-                    row.source_row
-                ] = (
-                    f"{prefix}"
-                    f"{sequence:0{EMPLOYEE_ID_SEQUENCE_WIDTH}d}"
-                )
+                assigned_employee_id_by_row[row.source_row] = f"{prefix}{sequence:0{EMPLOYEE_ID_SEQUENCE_WIDTH}d}"
 
         result_by_source_row: dict[
             int,
@@ -540,40 +474,28 @@ def create_employees_bulk(
         ] = {}
 
         for row in rows:
-            temporary_password = (
-                generate_temporary_password()
-            )
+            temporary_password = generate_temporary_password()
 
             user = User(
                 tenant_id=current_master.tenant_id,
-                employee_id=assigned_employee_id_by_row[
-                    row.source_row
-                ],
-                email=normalized_email_by_row[
-                    row.source_row
-                ],
+                employee_id=assigned_employee_id_by_row[row.source_row],
+                email=normalized_email_by_row[row.source_row],
                 name=row.name,
-                password_hash=hash_password(
-                    temporary_password
-                ),
+                password_hash=hash_password(temporary_password),
                 role=row.role,
                 status=UserStatus.ACTIVE,
                 must_change_password=True,
             )
             session.add(user)
 
-            result_by_source_row[row.source_row] = (
-                EmployeeBulkCreateResultRow(
-                    source_row=row.source_row,
-                    name=row.name,
-                    hire_date=row.hire_date,
-                    role=row.role,
-                    email=normalized_email_by_row[
-                        row.source_row
-                    ],
-                    employee_id=user.employee_id,
-                    temporary_password=temporary_password,
-                )
+            result_by_source_row[row.source_row] = EmployeeBulkCreateResultRow(
+                source_row=row.source_row,
+                name=row.name,
+                hire_date=row.hire_date,
+                role=row.role,
+                email=normalized_email_by_row[row.source_row],
+                employee_id=user.employee_id,
+                temporary_password=temporary_password,
             )
 
         session.commit()
@@ -590,17 +512,18 @@ def create_employees_bulk(
         )
     ]
 
+
 # 사번과 비밀번호 검증하는 함수 (로그인 시 사용)
 # 실패 : 사용자가 없거나 비밀번호가 일치하지 않으면 None 반환
 # 성공 : User 객체 반환
 def authenticate_user(
-        session: Session,
-        employee_id: str,
-        password: str,
+    session: Session,
+    employee_id: str,
+    password: str,
 ) -> User | None:
     user = get_user_by_employee_id(
-        session = session,
-        employee_id = employee_id,
+        session=session,
+        employee_id=employee_id,
     )
 
     if user is None:
@@ -617,6 +540,7 @@ def authenticate_user(
 
     return user
 
+
 # 로그인 성공 시 단일 활성 Refresh Token 세션을 새로 만든다.
 # 새 로그인은 기존 브라우저/기기의 Access Token과 Refresh Token을 무효화한다.
 def create_refresh_session_for_login(
@@ -626,15 +550,8 @@ def create_refresh_session_for_login(
 
     # 새 로그인 시 인증 버전을 증가시켜 기존 Access Token을 즉시 무효화한다.
     user.auth_version += 1
-    user.refresh_token_hash = hash_refresh_token(
-        refresh_token
-    )
-    user.refresh_token_expires_at = (
-        datetime.utcnow()
-        + timedelta(
-            days=settings.REFRESH_TOKEN_EXPIRE_DAYS
-        )
-    )
+    user.refresh_token_hash = hash_refresh_token(refresh_token)
+    user.refresh_token_expires_at = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
     user.updated_at = datetime.utcnow()
 
     return refresh_token
@@ -647,15 +564,8 @@ def rotate_refresh_session(
 ) -> str:
     refresh_token = generate_refresh_token()
 
-    user.refresh_token_hash = hash_refresh_token(
-        refresh_token
-    )
-    user.refresh_token_expires_at = (
-        datetime.utcnow()
-        + timedelta(
-            days=settings.REFRESH_TOKEN_EXPIRE_DAYS
-        )
-    )
+    user.refresh_token_hash = hash_refresh_token(refresh_token)
+    user.refresh_token_expires_at = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
     user.updated_at = datetime.utcnow()
 
     return refresh_token
@@ -669,13 +579,7 @@ def get_user_by_refresh_token(
 ) -> User | None:
     token_hash = hash_refresh_token(refresh_token)
 
-    user = session.exec(
-        select(User)
-        .where(
-            User.refresh_token_hash == token_hash
-        )
-        .with_for_update()
-    ).first()
+    user = session.exec(select(User).where(User.refresh_token_hash == token_hash).with_for_update()).first()
 
     if user is None:
         return None
@@ -697,6 +601,7 @@ def revoke_refresh_session(
     user.refresh_token_expires_at = None
     user.auth_version += 1
     user.updated_at = datetime.utcnow()
+
 
 # 현재 비밀번호를 확인하고 새 비밀번호로 변경
 def change_password(
@@ -761,10 +666,7 @@ def update_user_role(
     if target_user.id == current_master.id:
         raise SelfRoleChangeNotAllowedException()
 
-    is_active_master = (
-        target_user.role == UserRole.MASTER
-        and target_user.status == UserStatus.ACTIVE
-    )
+    is_active_master = target_user.role == UserRole.MASTER and target_user.status == UserStatus.ACTIVE
 
     is_last_active_master = (
         is_active_master
@@ -772,7 +674,8 @@ def update_user_role(
         and count_active_masters(
             session=session,
             tenant_id=current_master.tenant_id,
-        ) <= 1
+        )
+        <= 1
     )
 
     if is_last_active_master:
@@ -811,7 +714,8 @@ def update_user_status(
         and count_active_masters(
             session=session,
             tenant_id=current_master.tenant_id,
-        ) <= 1
+        )
+        <= 1
     )
 
     if is_last_active_master:

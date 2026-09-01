@@ -54,23 +54,15 @@ def get_dynamic_pricing_context(
         .where(InventoryUsedItem.lpn_barcode == lpn_barcode)
     ).first()
     if row is None:
-        raise PricingContextNotFoundError(
-            f"LPN inventory item not found: {lpn_barcode}"
-        )
+        raise PricingContextNotFoundError(f"LPN inventory item not found: {lpn_barcode}")
 
     inventory_item, book = row
     if inventory_item.ubci_score is None:
-        raise PricingContextIncompleteError(
-            "LPN inventory item does not have a confirmed UBCI score"
-        )
+        raise PricingContextIncompleteError("LPN inventory item does not have a confirmed UBCI score")
     if inventory_item.status != UsedInventoryStatus.AVAILABLE:
-        raise PricingContextIncompleteError(
-            "Dynamic pricing is only available for AVAILABLE LPN inventory"
-        )
+        raise PricingContextIncompleteError("Dynamic pricing is only available for AVAILABLE LPN inventory")
     if book.base_price <= 0:
-        raise PricingContextIncompleteError(
-            "Book does not have a positive base price"
-        )
+        raise PricingContextIncompleteError("Book does not have a positive base price")
 
     return DynamicPricingContext(
         inventory_used_item_id=inventory_item.id,
@@ -92,41 +84,24 @@ def apply_dynamic_pricing_result(
     final_price: Decimal,
 ) -> DynamicPricingResult:
     inventory_item = session.exec(
-        select(InventoryUsedItem)
-        .where(InventoryUsedItem.lpn_barcode == lpn_barcode)
-        .with_for_update()
+        select(InventoryUsedItem).where(InventoryUsedItem.lpn_barcode == lpn_barcode).with_for_update()
     ).first()
     if inventory_item is None:
-        raise PricingContextNotFoundError(
-            f"LPN inventory item not found: {lpn_barcode}"
-        )
+        raise PricingContextNotFoundError(f"LPN inventory item not found: {lpn_barcode}")
 
     book = session.get(Book, inventory_item.book_id)
     if book is None:
-        raise PricingContextIncompleteError(
-            "LPN inventory item references a missing book"
-        )
+        raise PricingContextIncompleteError("LPN inventory item references a missing book")
     if inventory_item.ubci_score is None:
-        raise PricingContextIncompleteError(
-            "LPN inventory item does not have a confirmed UBCI score"
-        )
+        raise PricingContextIncompleteError("LPN inventory item does not have a confirmed UBCI score")
     if book.base_price <= 0:
-        raise PricingContextIncompleteError(
-            "Book does not have a positive base price"
-        )
+        raise PricingContextIncompleteError("Book does not have a positive base price")
     if discount_rate < 0 or discount_rate >= 1:
-        raise PricingContextIncompleteError(
-            "Discount rate must be greater than or equal to 0 and less than 1"
-        )
+        raise PricingContextIncompleteError("Discount rate must be greater than or equal to 0 and less than 1")
     if final_price <= 0 or final_price > book.base_price:
-        raise PricingContextIncompleteError(
-            "Final price must be greater than 0 and not exceed the base price"
-        )
+        raise PricingContextIncompleteError("Final price must be greater than 0 and not exceed the base price")
 
-    pricing_changed = (
-        inventory_item.discount_rate != discount_rate
-        or inventory_item.sale_price != final_price
-    )
+    pricing_changed = inventory_item.discount_rate != discount_rate or inventory_item.sale_price != final_price
     if pricing_changed:
         inventory_item.discount_rate = discount_rate
         inventory_item.sale_price = final_price

@@ -81,16 +81,12 @@ class InventoryListItemResponse(BaseModel):
     lpn_status: UsedInventoryStatus | None = Field(
         default=None,
         description=(
-            "중고 LPN 단품 상태. 신간 묶음 재고는 null이며, "
-            "중고 단품은 AVAILABLE 또는 RESERVED 상태를 반환한다."
+            "중고 LPN 단품 상태. 신간 묶음 재고는 null이며, 중고 단품은 AVAILABLE 또는 RESERVED 상태를 반환한다."
         ),
     )
     lpn_barcode: str | None = Field(
         default=None,
-        description=(
-            "중고·반품 단품 식별용 LPN 바코드. "
-            "신간 묶음 재고는 null"
-        ),
+        description=("중고·반품 단품 식별용 LPN 바코드. 신간 묶음 재고는 null"),
     )
     base_price: Decimal = Field(
         description="도서 마스터에 저장된 정가",
@@ -125,9 +121,7 @@ class InventoryListResponse(BaseModel):
             "example": {
                 "items": [
                     {
-                        "id": (
-                            "00000000-0000-4000-8000-000000000001"
-                        ),
+                        "id": ("00000000-0000-4000-8000-000000000001"),
                         "book": {
                             "title": "사피엔스",
                             "isbn": "9788912345678",
@@ -229,9 +223,7 @@ def list_inventory(
     ),
     grade: ConditionGrade | None = Query(
         default=None,
-        description=(
-            "재고 등급 필터. 신간 묶음 재고는 MINT로 조회된다."
-        ),
+        description=("재고 등급 필터. 신간 묶음 재고는 MINT로 조회된다."),
     ),
     zone: str | None = Query(
         default=None,
@@ -283,9 +275,7 @@ def list_inventory(
             Location.shelf.label("shelf"),
             Inventory.quantity.label("quantity"),
             Inventory.reserved_quantity.label("reserved_quantity"),
-            (
-                Inventory.quantity - Inventory.reserved_quantity
-            ).label("available_quantity"),
+            (Inventory.quantity - Inventory.reserved_quantity).label("available_quantity"),
             cast(
                 literal(None),
                 String,
@@ -337,16 +327,14 @@ def list_inventory(
             literal(1).label("quantity"),
             case(
                 (
-                    InventoryUsedItem.status
-                    == UsedInventoryStatus.RESERVED,
+                    InventoryUsedItem.status == UsedInventoryStatus.RESERVED,
                     1,
                 ),
                 else_=0,
             ).label("reserved_quantity"),
             case(
                 (
-                    InventoryUsedItem.status
-                    == UsedInventoryStatus.AVAILABLE,
+                    InventoryUsedItem.status == UsedInventoryStatus.AVAILABLE,
                     1,
                 ),
                 else_=0,
@@ -461,22 +449,23 @@ def list_inventory(
         used_item_statement,
     ).subquery("inventory_union")
 
-    total = session.exec(
-        select(func.count())
-        .select_from(inventory_union)
-    ).one()
+    total = session.exec(select(func.count()).select_from(inventory_union)).one()
 
     offset = (page - 1) * size
 
-    rows = session.execute(
-        select(inventory_union)
-        .order_by(
-            inventory_union.c.date.desc(),
-            inventory_union.c.id.desc(),
+    rows = (
+        session.execute(
+            select(inventory_union)
+            .order_by(
+                inventory_union.c.date.desc(),
+                inventory_union.c.id.desc(),
+            )
+            .offset(offset)
+            .limit(size)
         )
-        .offset(offset)
-        .limit(size)
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
 
     items: list[InventoryListItemResponse] = []
 
@@ -510,11 +499,7 @@ def list_inventory(
             )
         )
 
-    total_pages = (
-        (total + size - 1) // size
-        if total > 0
-        else 0
-    )
+    total_pages = (total + size - 1) // size if total > 0 else 0
 
     return InventoryListResponse(
         items=items,
@@ -530,10 +515,7 @@ def list_inventory(
     response_model=InventoryListItemResponse,
     operation_id="getNewStockInventoryDetail",
     summary="신간 묶음 재고 단건 조회",
-    description=(
-        "재고 ID를 기준으로 신간 묶음 재고의 도서, 로케이션, "
-        "가용 수량과 현재 판매 가격을 조회합니다."
-    ),
+    description=("재고 ID를 기준으로 신간 묶음 재고의 도서, 로케이션, 가용 수량과 현재 판매 가격을 조회합니다."),
     responses={404: {"description": "신간 묶음 재고를 찾을 수 없음"}},
 )
 def get_new_stock_inventory_detail(
@@ -571,18 +553,12 @@ def get_new_stock_inventory_detail(
         ),
         quantity=inventory.quantity,
         reserved_quantity=inventory.reserved_quantity,
-        available_quantity=(
-            inventory.quantity - inventory.reserved_quantity
-        ),
+        available_quantity=(inventory.quantity - inventory.reserved_quantity),
         lpn_status=None,
         lpn_barcode=None,
         base_price=book.base_price,
         discount_rate=inventory.discount_rate,
         sale_price=inventory.sale_price,
-        pricing_status=(
-            "DEFAULT_POLICY"
-            if inventory.sale_price is not None
-            else "PENDING"
-        ),
+        pricing_status=("DEFAULT_POLICY" if inventory.sale_price is not None else "PENDING"),
         date=inventory.updated_at,
     )

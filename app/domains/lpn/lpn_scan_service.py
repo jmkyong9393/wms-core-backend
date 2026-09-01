@@ -1,7 +1,12 @@
 from fastapi import HTTPException, status
-from sqlmodel import Session, select
 from sqlalchemy import or_
+from sqlmodel import Session, select
 
+from app.domains.lpn.schemas.lpn import (
+    LpnBookDetail,
+    LpnLocationDetail,
+)
+from app.domains.lpn.schemas.lpn_scan import LpnScanResponse
 from app.models.wms import (
     Book,
     InboundItem,
@@ -12,11 +17,6 @@ from app.models.wms import (
     ReturnJob,
     ReturnJobStatus,
 )
-from app.domains.lpn.schemas.lpn import (
-    LpnBookDetail,
-    LpnLocationDetail,
-)
-from app.domains.lpn.schemas.lpn_scan import LpnScanResponse
 
 
 def get_lpn_scan_detail(
@@ -55,35 +55,22 @@ def get_lpn_scan_detail(
         inbound_item.inbound_job_id,
     )
     if inbound_job is None:
-        raise RuntimeError(
-            "Inbound item references a missing inbound job"
-        )
+        raise RuntimeError("Inbound item references a missing inbound job")
 
     book = session.get(Book, inbound_item.book_id)
     if book is None:
-        raise RuntimeError(
-            "Inbound item references a missing book"
-        )
+        raise RuntimeError("Inbound item references a missing book")
 
     # 동일 입고 품목으로 생성된 가장 최근 검수 작업을 조회한다.
     return_job = session.exec(
-        select(ReturnJob)
-        .where(ReturnJob.inbound_item_id == inbound_item.id)
-        .order_by(ReturnJob.created_at.desc())
+        select(ReturnJob).where(ReturnJob.inbound_item_id == inbound_item.id).order_by(ReturnJob.created_at.desc())
     ).first()
 
     used_inventory_item = session.exec(
-        select(InventoryUsedItem).where(
-            InventoryUsedItem.lpn_barcode
-            == inbound_item.lpn_barcode
-        )
+        select(InventoryUsedItem).where(InventoryUsedItem.lpn_barcode == inbound_item.lpn_barcode)
     ).first()
 
-    rejected_item = session.exec(
-        select(RejectedItem).where(
-            RejectedItem.inbound_item_id == inbound_item.id
-        )
-    ).first()
+    rejected_item = session.exec(select(RejectedItem).where(RejectedItem.inbound_item_id == inbound_item.id)).first()
 
     # 판매 가능 단품 또는 반려 단품에 등록된 로케이션을 표시한다.
     stored_item = used_inventory_item or rejected_item
@@ -95,9 +82,7 @@ def get_lpn_scan_detail(
             stored_item.location_id,
         )
         if location is None:
-            raise RuntimeError(
-                "Stored item references a missing location"
-            )
+            raise RuntimeError("Stored item references a missing location")
 
         location_response = LpnLocationDetail(
             id=location.id,
@@ -107,22 +92,13 @@ def get_lpn_scan_detail(
             shelf=location.shelf,
         )
 
-    inspection_status = (
-        return_job.status
-        if return_job is not None
-        else None
-    )
+    inspection_status = return_job.status if return_job is not None else None
     final_grade = (
         return_job.condition_grade
-        if return_job is not None
-        and return_job.condition_grade is not None
+        if return_job is not None and return_job.condition_grade is not None
         else inbound_item.condition_grade
     )
-    ubci_score = (
-        return_job.ubci_score
-        if return_job is not None
-        else None
-    )
+    ubci_score = return_job.ubci_score if return_job is not None else None
 
     return LpnScanResponse(
         lpn_barcode=inbound_item.lpn_barcode,
@@ -138,24 +114,9 @@ def get_lpn_scan_detail(
         inspection_status=inspection_status,
         final_grade=final_grade,
         ubci_score=ubci_score,
-        inventory_status=(
-            used_inventory_item.status
-            if used_inventory_item is not None
-            else None
-        ),
-        rejected_item_status=(
-            rejected_item.status
-            if rejected_item is not None
-            else None
-        ),
+        inventory_status=(used_inventory_item.status if used_inventory_item is not None else None),
+        rejected_item_status=(rejected_item.status if rejected_item is not None else None),
         location=location_response,
-        requires_retake=(
-            inspection_status
-            == ReturnJobStatus.RECHECK_REQUIRED
-        ),
-        return_job_id=(
-            return_job.id
-            if inspection_status == ReturnJobStatus.RECHECK_REQUIRED
-            else None
-        ),
+        requires_retake=(inspection_status == ReturnJobStatus.RECHECK_REQUIRED),
+        return_job_id=(return_job.id if inspection_status == ReturnJobStatus.RECHECK_REQUIRED else None),
     )

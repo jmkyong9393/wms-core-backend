@@ -10,7 +10,6 @@ from app.domains.dev.mock_order_generator_service import (
     create_mock_outbound_order,
 )
 
-
 logger = logging.getLogger(__name__)
 
 DEFAULT_INTERVAL_SECONDS = 1.0
@@ -29,29 +28,21 @@ def run_mock_order_generator(
     max_orders가 없으면 판매 가능한 실제 재고가 소진될 때까지 생성한다.
     """
     if interval_seconds <= 0:
-        raise ValueError(
-            "interval_seconds must be greater than zero"
-        )
+        raise ValueError("interval_seconds must be greater than zero")
 
     if max_orders is not None and max_orders <= 0:
-        raise ValueError(
-            "max_orders must be greater than zero"
-        )
+        raise ValueError("max_orders must be greater than zero")
 
     created_count = 0
 
     logger.info(
-        "Mock outbound order generator started. "
-        "interval_seconds=%s max_orders=%s",
+        "Mock outbound order generator started. interval_seconds=%s max_orders=%s",
         interval_seconds,
         max_orders,
     )
 
     try:
-        while (
-            max_orders is None
-            or created_count < max_orders
-        ):
+        while max_orders is None or created_count < max_orders:
             loop_started_at = time.monotonic()
 
             with Session(engine) as session:
@@ -63,10 +54,7 @@ def run_mock_order_generator(
                     )
 
                     if result is None:
-                        logger.info(
-                            "No sellable real inventory is available. "
-                            "Mock order generator stopped."
-                        )
+                        logger.info("No sellable real inventory is available. Mock order generator stopped.")
                         break
 
                     session.commit()
@@ -82,31 +70,19 @@ def run_mock_order_generator(
                         result.order_item_id,
                         result.source,
                         result.book_id,
-                        (
-                            result.condition_grade.value
-                            if result.condition_grade is not None
-                            else None
-                        ),
+                        (result.condition_grade.value if result.condition_grade is not None else None),
                         result.total_price,
                         created_count,
                     )
                 except Exception:
                     session.rollback()
-                    logger.exception(
-                        "Mock order generation failed. "
-                        "The transaction was rolled back."
-                    )
+                    logger.exception("Mock order generation failed. The transaction was rolled back.")
 
-            if (
-                max_orders is not None
-                and created_count >= max_orders
-            ):
+            if max_orders is not None and created_count >= max_orders:
                 break
 
             # DB 처리 시간을 제외한 나머지 시간만 대기해 약 1초 주기를 맞춘다.
-            elapsed_seconds = (
-                time.monotonic() - loop_started_at
-            )
+            elapsed_seconds = time.monotonic() - loop_started_at
             sleep_seconds = max(
                 0,
                 interval_seconds - elapsed_seconds,
@@ -114,26 +90,17 @@ def run_mock_order_generator(
             time.sleep(sleep_seconds)
 
     except KeyboardInterrupt:
-        logger.info(
-            "Mock outbound order generator stopped "
-            "by keyboard interrupt."
-        )
+        logger.info("Mock outbound order generator stopped by keyboard interrupt.")
 
     logger.info(
-        "Mock outbound order generator finished. "
-        "created_count=%s",
+        "Mock outbound order generator finished. created_count=%s",
         created_count,
     )
 
 
 # CLI 실행 옵션을 읽는다.
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description=(
-            "Generate mock outbound orders "
-            "for demo and E2E testing."
-        )
-    )
+    parser = argparse.ArgumentParser(description=("Generate mock outbound orders for demo and E2E testing."))
     parser.add_argument(
         "--interval-seconds",
         type=float,
@@ -160,10 +127,7 @@ def parse_args() -> argparse.Namespace:
         "--isbn",
         type=str,
         default=None,
-        help=(
-            "ISBN of the book to use for mock order generation. "
-            "If omitted, selects sellable real inventory first."
-        ),
+        help=("ISBN of the book to use for mock order generation. If omitted, selects sellable real inventory first."),
     )
 
     return parser.parse_args()
@@ -174,10 +138,7 @@ def main() -> None:
 
     logging.basicConfig(
         level=logging.INFO,
-        format=(
-            "%(asctime)s | %(levelname)s | "
-            "%(name)s | %(message)s"
-        ),
+        format=("%(asctime)s | %(levelname)s | %(name)s | %(message)s"),
     )
 
     run_mock_order_generator(

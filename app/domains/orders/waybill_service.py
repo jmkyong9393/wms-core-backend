@@ -1,9 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 
-
 from app.models.wms import Order
-
 
 WAYBILL_PREFIX = "WB"
 DEFAULT_SHIPPING_CARRIER = "MOCK_COURIER"
@@ -31,17 +29,12 @@ def issue_waybill_for_order(
         issued_date = issued_at.strftime("%Y%m%d")
         order_suffix = order.id.hex[:12].upper()
 
-        order.waybill_number = (
-            f"{WAYBILL_PREFIX}-{issued_date}-{order_suffix}"
-        )
+        order.waybill_number = f"{WAYBILL_PREFIX}-{issued_date}-{order_suffix}"
         order.shipping_carrier = DEFAULT_SHIPPING_CARRIER
 
     return WaybillIssueResult(
         waybill_number=order.waybill_number,
-        shipping_carrier=(
-            order.shipping_carrier
-            or DEFAULT_SHIPPING_CARRIER
-        ),
+        shipping_carrier=(order.shipping_carrier or DEFAULT_SHIPPING_CARRIER),
         # 현재 바코드에는 송장 번호 자체를 인코딩한다.
         barcode_value=order.waybill_number,
     )

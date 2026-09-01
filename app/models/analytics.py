@@ -1,16 +1,13 @@
 import uuid
-from uuid import UUID
 from datetime import datetime
 from decimal import Decimal
-from enum import Enum
 from typing import Optional
 
-from sqlalchemy import CheckConstraint, Column, Index, UniqueConstraint
+from sqlalchemy import Column
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.types import Numeric
 from sqlmodel import Field, SQLModel
 
-from app.models.enums import *  # noqa: F401,F403
+from app.models.enums import *
 
 
 class FdsPolicy(SQLModel, table=True):
@@ -26,7 +23,11 @@ class FdsReport(SQLModel, table=True):
     __tablename__ = "fds_reports"
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    tenant_id: uuid.UUID = Field(foreign_key="tenants.id",nullable=False,index=True,)
+    tenant_id: uuid.UUID = Field(
+        foreign_key="tenants.id",
+        nullable=False,
+        index=True,
+    )
     customer_id: uuid.UUID = Field(nullable=False)
     fraud_score: int = Field(nullable=False)
     fraud_reason: Optional[str] = Field(default=None)

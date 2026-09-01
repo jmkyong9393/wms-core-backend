@@ -45,10 +45,6 @@ def dispatch_hitl_followup_task(
         return
 
     if action == HITLAction.RE_CHECK:
-        raise ValueError(
-            "RE_CHECK는 새 이미지가 등록된 후 검수 작업을 실행해야 합니다."
-        )
+        raise ValueError("RE_CHECK는 새 이미지가 등록된 후 검수 작업을 실행해야 합니다.")
 
-    raise ValueError(
-        f"지원하지 않는 HITL 판단입니다: {action}"
-    )
+    raise ValueError(f"지원하지 않는 HITL 판단입니다: {action}")

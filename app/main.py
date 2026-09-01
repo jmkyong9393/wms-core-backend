@@ -2,31 +2,21 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-
-
-from app.domains.admin import admin
-from app.domains.auth import admin_users
-from app.domains.auth import auth
-from app.domains.books import books
-from app.domains.books import certificates
-from app.domains.dev import db
-from app.domains.inbound import inbound
-from app.domains.inventory import inspection_inventory
-from app.domains.inspections import inspections
-from app.domains.lpn import lpn
-from app.domains.restock import restock
-from app.domains.inventory import inventory
-from app.domains.dev import mock
-from app.domains.notifications import notifications
-from app.domains.orders import orders
-from app.domains.orders import outbound
-from app.domains.pricing import pricing
-from app.domains.inventory import rejected_items
-from app.domains.inspections import stream
-from app.domains.inbound import used_inbound
 from app.core.config import settings
 from app.core.database import initialize_application_data
 from app.core.exceptions import AppException
+from app.domains.admin import admin
+from app.domains.auth import admin_users, auth
+from app.domains.books import books, certificates
+from app.domains.dev import db, mock
+from app.domains.inbound import inbound, used_inbound
+from app.domains.inspections import inspections, stream
+from app.domains.inventory import inspection_inventory, inventory, rejected_items
+from app.domains.lpn import lpn
+from app.domains.notifications import notifications
+from app.domains.orders import orders, outbound
+from app.domains.pricing import pricing
+from app.domains.restock import restock
 
 WMS_OPENAPI_TAGS = [
     {
@@ -43,10 +33,7 @@ WMS_OPENAPI_TAGS = [
     },
     {
         "name": "Inspections",
-        "description": (
-            "중고·반품 도서의 AI 검수 요청, 상태 조회, 재검수 및 "
-            "관리자 HITL 판정 API"
-        ),
+        "description": ("중고·반품 도서의 AI 검수 요청, 상태 조회, 재검수 및 관리자 HITL 판정 API"),
     },
     {
         "name": "LPN",
@@ -72,10 +59,7 @@ WMS_OPENAPI_TAGS = [
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    description=(
-        "B2B WMS의 도서 조회, 입고, 통합 재고 조회, 주문 및 "
-        "동시성 제어 출고 API를 제공합니다."
-    ),
+    description=("B2B WMS의 도서 조회, 입고, 통합 재고 조회, 주문 및 동시성 제어 출고 API를 제공합니다."),
     openapi_tags=WMS_OPENAPI_TAGS,
 )
 
@@ -94,6 +78,7 @@ async def app_exception_handler(
         headers=exc.headers,
     )
 
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -102,15 +87,17 @@ app.add_middleware(
         "http://localhost:3001",
         "http://127.0.0.1:3001",
         # 이후 실제 프론트 URL 추가는 여기에!
-    ],   
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+
 @app.on_event("startup")
 def on_startup():
     initialize_application_data()
+
 
 # 인증 및 관리자 API
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])
@@ -152,11 +139,18 @@ app.include_router(inventory.router, prefix="/api/inventory", tags=["Inventory"]
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["Admin"])
 app.include_router(db.router, prefix="/api/db", tags=["Database"])
 app.include_router(mock.router, prefix="/api/mock", tags=["Mock"])
-app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["Notifications"],)
+app.include_router(
+    notifications.router,
+    prefix="/api/v1/notifications",
+    tags=["Notifications"],
+)
 
 # 자동 발주 추천 Agent 임시 호출 api
-app.include_router(restock.router, prefix="/api/v1/admin/restock", tags=["Admin Restock"],)
-
+app.include_router(
+    restock.router,
+    prefix="/api/v1/admin/restock",
+    tags=["Admin Restock"],
+)
 
 
 @app.get("/")

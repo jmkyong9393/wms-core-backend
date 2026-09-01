@@ -1,6 +1,8 @@
-from uuid import UUID
 from typing import Literal
+from uuid import UUID
+
 from pydantic_settings import BaseSettings
+
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "B2B WMS Platform API"
@@ -8,9 +10,7 @@ class Settings(BaseSettings):
     PUBLIC_WEB_BASE_URL: str = "http://localhost:3000"
 
     # 검수 이미지 조회에 허용할 CloudFront 배포 도메인과 객체 경로
-    CLOUDFRONT_IMAGE_BASE_URL: str = (
-        "https://d3j61tpuly7r0p.cloudfront.net"
-    )
+    CLOUDFRONT_IMAGE_BASE_URL: str = "https://d3j61tpuly7r0p.cloudfront.net"
     CLOUDFRONT_IMAGE_PATH_PREFIX: str = "/uploads/"
 
     CHROMA_SERVER_HOST: str = "localhost"
@@ -37,13 +37,13 @@ class Settings(BaseSettings):
 
     # 안전재고 부족 AUTO_PO 배치가 생성할 관리자 추천안의 테넌트
     AUTO_PO_TENANT_ID: UUID | None = None
-    
+
     # AWS, Supabase or other config can be added here
-    
+
     # JWT 설정
     JWT_SECRET_KEY: str = "local-development-secret-key"
     JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30 #현재는 30분 설정
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30  # 현재는 30분 설정
 
     # Refresh Token 설정
     # 개발 환경에서는 HTTP 접속을 위해 False,
@@ -95,8 +95,10 @@ class Settings(BaseSettings):
 
     # WMS API 요청 제한 시간
     WMS_REQUEST_TIMEOUT_SECONDS: float = 10.0
+
     class Config:
         env_file = ".env"
         extra = "ignore"
+
 
 settings = Settings()

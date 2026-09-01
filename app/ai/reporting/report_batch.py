@@ -1,19 +1,21 @@
 import logging
-from typing import List, Dict, Any
-from sqlmodel import Session, text
 import uuid
+from typing import Any, Dict, List
+
+from sqlmodel import Session, text
+
 from app.core.database import engine
+from app.core.redis_pubsub import (
+    publish_tenant_notification_event,
+)
+from app.domains.notifications.notification_service import (
+    create_notification_for_tenant,
+)
 from app.models.wms import (
     FdsReport,
     NotificationCategory,
     NotificationSeverity,
     WeeklyInsight,
-)
-from app.domains.notifications.notification_service import (
-    create_notification_for_tenant,
-)
-from app.core.redis_pubsub import (
-    publish_tenant_notification_event,
 )
 
 logger = logging.getLogger(__name__)
@@ -93,17 +95,17 @@ def fetch_inventory_stats(session: Session) -> Dict[str, Any]:
         SELECT COALESCE(SUM(quantity), 0) FROM inventory;
     """)
     total_books = session.execute(query).scalar()
-    
+
     query_low = text("""
         SELECT COUNT(*) FROM inventory WHERE quantity < 50;
     """)
     low_stock = session.execute(query_low).scalar()
-    
+
     query_scrap = text("""
         SELECT COUNT(*) FROM rejected_items WHERE status = 'REJECT_HOLD';
     """)
     scrap = session.execute(query_scrap).scalar()
-    
+
     return {
         "total_books_in_stock": total_books,
         "low_stock_items_count": low_stock,
@@ -115,7 +117,7 @@ def fetch_order_stats(session: Session) -> Dict[str, Any]:
     outbound = session.execute(text("SELECT COUNT(*) FROM orders WHERE created_at >= NOW() - INTERVAL '7 days' AND type = 'B2B_ORDER'")).scalar()
     inbound_po = session.execute(text("SELECT COUNT(*) FROM orders WHERE created_at >= NOW() - INTERVAL '7 days' AND type = 'AUTO_PO'")).scalar()
     inbound_received = session.execute(text("SELECT COUNT(*) FROM inbound_jobs WHERE created_at >= NOW() - INTERVAL '7 days' AND status = 'RECEIVED'")).scalar()
-    
+
     return {
         "weekly_outbound_orders": outbound,
         "weekly_inbound_po": inbound_po,
@@ -152,7 +154,7 @@ def fetch_defective_publishers(session: Session) -> Dict[str, int]:
     SELECT b.publisher, COUNT(*) AS count
     FROM return_jobs r
     JOIN books b ON r.book_id = b.id
-    WHERE r.created_at >= NOW() - INTERVAL '7 days' 
+    WHERE r.created_at >= NOW() - INTERVAL '7 days'
       AND (r.status = 'REJECTED' OR r.condition_grade = 'REJECT')
     GROUP BY b.publisher
     ORDER BY count DESC LIMIT 2;
@@ -251,33 +253,33 @@ def save_fds_report(
 
 def generate_weekly_insights(
     session: Session,
-    raw_return_data: List[Dict[str, Any]], 
-    inventory_stats: Dict[str, Any], 
+    raw_return_data: List[Dict[str, Any]],
+    inventory_stats: Dict[str, Any],
     order_stats: Dict[str, Any]
 ) -> Dict[str, Any]:
     logger.info("대시보드용 주간 인사이트 통합 분석을 시작합니다 (SQL Push-down)...")
-    
+
     if not raw_return_data:
         # FDS 데이터가 없더라도 인건비 절감액은 계산될 수 있도록 빈 딕셔너리 반환하지 않음 (이전 로직 수정)
         logger.info("최근 반품 데이터(raw_return_data)가 없지만 전체 검수 건수 집계는 계속 진행합니다.")
-        
+
     # 반품 성공/실패, 중고 입고 성공/실패 여부와 관계없이(단, 사람이 개입한 HITL 제외) 최근 7일 내 AI가 온전히 검수를 마친 건만 조회
     total_ai_inspections = session.execute(
         text("SELECT COUNT(*) FROM return_jobs WHERE created_at >= NOW() - INTERVAL '7 days' AND status IN ('APPROVED', 'REJECTED')")
     ).scalar() or 0
-    
+
     saved_labor_cost_krw = int(total_ai_inspections * 90 * 9860 / 3600)
-    
+
     top_defective_publishers = fetch_defective_publishers(session)
     location_hotspots = fetch_location_hotspots(session)
     logistics_hotspots = fetch_logistics_hotspots(session)
-        
+
     weekly_outbound = order_stats.get("weekly_outbound_orders", 0)
     predicted_returns = int(weekly_outbound * 0.03)
-        
+
     from datetime import datetime
     current_week = f"{datetime.now().year}-W{datetime.now().isocalendar()[1]}"
-    
+
     insights = {
         "report_week": current_week,
         "saved_labor_cost_krw": saved_labor_cost_krw,
@@ -286,7 +288,7 @@ def generate_weekly_insights(
         "logistics_hotspots": logistics_hotspots,
         "predicted_returns": predicted_returns
     }
-    
+
     return insights
 
 def save_insight_report(session: Session, insights: Dict[str, Any]):
@@ -295,10 +297,10 @@ def save_insight_report(session: Session, insights: Dict[str, Any]):
     logger.info("생성된 주간 인사이트 리포트:")
     for key, value in insights.items():
         logger.info(f" - {key}: {value}")
-        
+
     # 동일 주차 리포트가 있으면 멱등성 위해 삭제 후 재삽입
     session.execute(text("DELETE FROM weekly_insights WHERE report_week = :wk"), {"wk": insights["report_week"]})
-    
+
     report = WeeklyInsight(
         id=uuid.uuid4(),
         report_week=insights["report_week"],
@@ -311,22 +313,23 @@ def save_insight_report(session: Session, insights: Dict[str, Any]):
     session.add(report)
 
 def main():
-    from app.ai.reporting.detector import detect_black_consumers, fetch_fds_policies
-    from datetime import datetime
     import sys
-    
+    from datetime import datetime
+
+    from app.ai.reporting.detector import detect_black_consumers, fetch_fds_policies
+
     logger.info(f"🚀 FDS Report Batch 시작 시간: {datetime.now()}")
-    
+
     with Session(engine) as session:
         try:
             config = fetch_fds_policies(session)
             raw_return_data = fetch_recent_returns(session)
             inventory_stats = fetch_inventory_stats(session)
             order_stats = fetch_order_stats(session)
-            
+
             suspicious_records = detect_black_consumers(raw_return_data, config)
             insights = generate_weekly_insights(session, raw_return_data, inventory_stats, order_stats)
-            
+
             logger.info("DB 트랜잭션을 시작합니다 (BEGIN)...")
             alert_candidates = save_fds_report(
                 session,
@@ -396,7 +399,7 @@ def main():
             session.rollback()
             logger.error(f"❌ Batch 실행 중 에러 발생, 롤백 처리: {e}")
             sys.exit(1)
-            
+
     logger.info("✅ FDS Report Batch가 성공적으로 종료되었습니다.")
     sys.exit(0)
 

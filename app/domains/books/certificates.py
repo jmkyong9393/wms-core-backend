@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends, Path
 from sqlmodel import Session
 
 from app.core.database import get_session
-from app.domains.books.schemas.certificate import CertificateResponse
 from app.domains.books.certificate_service import get_certificate_by_token
+from app.domains.books.schemas.certificate import CertificateResponse
 
 router = APIRouter()
 
@@ -21,11 +21,7 @@ router = APIRouter()
     responses={
         404: {
             "description": "조회 가능하거나 발급이 완료된 품질보증서가 없음",
-            "content": {
-                "application/json": {
-                    "example": {"detail": "Certificate not found"}
-                }
-            },
+            "content": {"application/json": {"example": {"detail": "Certificate not found"}}},
         }
     },
 )

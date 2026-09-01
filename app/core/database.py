@@ -9,21 +9,17 @@ from app.models.wms import (
     UserStatus,
 )
 
-
 engine = create_engine(settings.DATABASE_URL, echo=True)
 
 DEFAULT_TENANT_CODE = "AIVLE_WMS"
 DEFAULT_TENANT_NAME = "AIVLE WMS"
 
+
 # 기본 Tenant 조회 또는 생성
 def get_or_create_default_tenant(
     session: Session,
 ) -> Tenant:
-    tenant = session.exec(
-        select(Tenant).where(
-            Tenant.code == DEFAULT_TENANT_CODE
-        )
-    ).first()
+    tenant = session.exec(select(Tenant).where(Tenant.code == DEFAULT_TENANT_CODE)).first()
 
     if tenant is not None:
         return tenant
@@ -42,6 +38,7 @@ def get_or_create_default_tenant(
 
     return tenant
 
+
 # 최초 MASTER 계정이 없을 때 한 번만 생성하는 함수
 def create_initial_master() -> None:
     with Session(engine) as session:
@@ -50,10 +47,7 @@ def create_initial_master() -> None:
         )
 
         existing_user = session.exec(
-            select(User).where(
-                User.employee_id
-                == settings.INITIAL_MASTER_EMPLOYEE_ID
-            )
+            select(User).where(User.employee_id == settings.INITIAL_MASTER_EMPLOYEE_ID)
         ).first()
 
         if existing_user is not None:
@@ -66,9 +60,7 @@ def create_initial_master() -> None:
             employee_id=settings.INITIAL_MASTER_EMPLOYEE_ID,
             name=settings.INITIAL_MASTER_NAME,
             email=settings.INITIAL_MASTER_EMAIL,
-            password_hash=hash_password(
-                settings.INITIAL_MASTER_PASSWORD
-            ),
+            password_hash=hash_password(settings.INITIAL_MASTER_PASSWORD),
             role=UserRole.MASTER,
             status=UserStatus.ACTIVE,
             must_change_password=False,

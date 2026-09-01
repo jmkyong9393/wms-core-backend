@@ -13,10 +13,7 @@ from app.models.wms import (
 def to_camel(field_name: str) -> str:
     parts = field_name.split("_")
 
-    return parts[0] + "".join(
-        word.capitalize()
-        for word in parts[1:]
-    )
+    return parts[0] + "".join(word.capitalize() for word in parts[1:])
 
 
 class RestockRecommendationRequest(BaseModel):
@@ -73,9 +70,7 @@ class RestockRecommendationRequest(BaseModel):
         description="반려 사유 코드",
     )
 
-    proposal_source: RestockProposalSource = (
-        RestockProposalSource.RETURN_REJECTION
-    )
+    proposal_source: RestockProposalSource = RestockProposalSource.RETURN_REJECTION
 
     safety_stock_quantity: int | None = Field(
         default=None,
@@ -121,10 +116,12 @@ class RestockRecommendationResponse(BaseModel):
         "LOW",
     ]
 
+
 class RestockProposalBookResponse(BaseModel):
     """
     Restock 추천안 화면에 함께 반환하는 도서 기본 정보.
     """
+
     model_config = ConfigDict(
         alias_generator=to_camel,
         populate_by_name=True,
@@ -144,6 +141,7 @@ class RestockProposalListItemResponse(BaseModel):
     목록 화면에서 추천 상태, 수량, 위험도와 판단 당시 재고 현황을
     빠르게 확인하는 데 사용한다.
     """
+
     model_config = ConfigDict(
         alias_generator=to_camel,
         populate_by_name=True,
@@ -173,6 +171,7 @@ class RestockProposalDetailResponse(BaseModel):
     Agent 입력 스냅샷, 추천 근거, 검토 이력, 실제 AUTO_PO 연결 정보를
     포함한다.
     """
+
     model_config = ConfigDict(
         alias_generator=to_camel,
         populate_by_name=True,
@@ -211,6 +210,7 @@ class RestockProposalReviewRequest(BaseModel):
     """
     관리자가 PENDING 상태의 추천안을 승인하거나 반려할 때 전달하는 입력값.
     """
+
     model_config = ConfigDict(
         alias_generator=to_camel,
         populate_by_name=True,
@@ -229,6 +229,7 @@ class RestockProposalReviewResponse(BaseModel):
 
     승인된 경우 연결된 AUTO_PO 주문 ID를 함께 반환한다.
     """
+
     model_config = ConfigDict(
         alias_generator=to_camel,
         populate_by_name=True,

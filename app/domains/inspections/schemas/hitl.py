@@ -15,11 +15,13 @@ class HITLAction(str, Enum):
     REJECT_DISCARD = "REJECT_DISCARD"
     RE_CHECK = "RE_CHECK"
 
+
 class HITLQueueBucket(str, Enum):
     PENDING = "PENDING"
     IN_REVIEW = "IN_REVIEW"
     RECHECK = "RECHECK"
     COMPLETED = "COMPLETED"
+
 
 # 관리자 판단 사유 코드
 class HITLReasonCode(str, Enum):
@@ -75,17 +77,13 @@ class HITLDecisionRequest(BaseModel):
     def validate_target_grade(self) -> "HITLDecisionRequest":
         if self.action == HITLAction.APPROVE_DOWNGRADE:
             if self.target_grade is None:
-                raise ValueError(
-                    "APPROVE_DOWNGRADE 판단에는 "
-                    "target_grade EXCELLENT 또는 NORMAL이 필요합니다."
-                )
+                raise ValueError("APPROVE_DOWNGRADE 판단에는 target_grade EXCELLENT 또는 NORMAL이 필요합니다.")
 
         elif self.target_grade is not None:
-            raise ValueError(
-                "target_grade는 APPROVE_DOWNGRADE 판단에서만 사용할 수 있습니다."
-            )
+            raise ValueError("target_grade는 APPROVE_DOWNGRADE 판단에서만 사용할 수 있습니다.")
 
         return self
+
 
 # HITL 관리자 판단 API 응답 데이터
 class HITLDecisionResponse(BaseModel):
@@ -97,6 +95,7 @@ class HITLDecisionResponse(BaseModel):
     task_id: str | None = None
 
     message: str
+
 
 class HITLReviewStartResponse(BaseModel):
     job_id: UUID

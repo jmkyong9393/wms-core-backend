@@ -5,7 +5,6 @@ from fastapi import HTTPException, status
 from sqlmodel import Session, select
 
 from app.models.wms import (
-    ConditionGrade,
     InventoryUsedItem,
     Location,
     OrderItem,
@@ -45,13 +44,10 @@ def select_fifo_lpn_candidate(
         InventoryUsedItem.sale_price.is_not(None),
     )
     if excluded_inventory_ids:
-        statement = statement.where(
-            InventoryUsedItem.id.notin_(excluded_inventory_ids)
-        )
+        statement = statement.where(InventoryUsedItem.id.notin_(excluded_inventory_ids))
 
     inventory_item = session.exec(
-        statement
-        .order_by(InventoryUsedItem.stocked_at, InventoryUsedItem.id)
+        statement.order_by(InventoryUsedItem.stocked_at, InventoryUsedItem.id)
         .limit(1)
         .with_for_update(skip_locked=True)
     ).first()
@@ -70,9 +66,7 @@ def select_fifo_lpn_candidate(
         )
 
     location = session.get(Location, inventory_item.location_id)
-    picked_location = (
-        location.barcode if location else str(inventory_item.location_id)
-    )
+    picked_location = location.barcode if location else str(inventory_item.location_id)
     return FifoLpnCandidate(
         inventory_used_item=inventory_item,
         picked_location=picked_location,

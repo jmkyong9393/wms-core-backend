@@ -3,6 +3,10 @@ from datetime import datetime
 from sqlalchemy import update
 from sqlmodel import Session, select
 
+from app.domain.inventory_pricing_policy import (
+    calculate_new_stock_default_price,
+)
+from app.domains.lpn.lpn_service import build_public_qr_url
 from app.models.wms import (
     Book,
     ConditionGrade,
@@ -16,10 +20,6 @@ from app.models.wms import (
     ReturnJob,
     UsedInventoryStatus,
 )
-from app.domain.inventory_pricing_policy import (
-    calculate_new_stock_default_price,
-)
-from app.domains.lpn.lpn_service import build_public_qr_url
 
 
 def admit_new_stock(
@@ -37,9 +37,7 @@ def admit_new_stock(
         .with_for_update()
     ).first()
     now = datetime.utcnow()
-    default_discount_rate, default_sale_price = (
-        calculate_new_stock_default_price(book.base_price)
-    )
+    default_discount_rate, default_sale_price = calculate_new_stock_default_price(book.base_price)
     if inventory is None:
         inventory = Inventory(
             book_id=book.id,
@@ -51,10 +49,7 @@ def admit_new_stock(
     else:
         inventory.quantity += inbound_item.quantity
         # 기존 재고의 가격 정책은 유지하고, 과거 무가격 행만 기본값으로 보완한다.
-        if (
-            inventory.discount_rate is None
-            and inventory.sale_price is None
-        ):
+        if inventory.discount_rate is None and inventory.sale_price is None:
             inventory.discount_rate = default_discount_rate
             inventory.sale_price = default_sale_price
         inventory.updated_at = now
@@ -80,9 +75,7 @@ def admit_used_stock(
     if inbound_item.lpn_barcode is None:
         raise RuntimeError("Inbound item does not have an LPN barcode")
     certificate_url = (
-        build_public_qr_url(inbound_item.certificate_token)
-        if inbound_item.certificate_token is not None
-        else None
+        build_public_qr_url(inbound_item.certificate_token) if inbound_item.certificate_token is not None else None
     )
     now = datetime.utcnow()
     inventory_item = InventoryUsedItem(

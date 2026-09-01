@@ -1,17 +1,15 @@
 """Report·AutoRefund Agent"""
-# ruff: noqa: F401,F403
 import base64
 import json
 import os
 import re
-
 from dataclasses import dataclass
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
+from typing import Annotated, Literal
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
-from typing import Annotated, Literal
 
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage
@@ -19,6 +17,12 @@ from langchain_openai import ChatOpenAI
 from PIL import Image, ImageDraw, ImageOps
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from ultralytics import YOLO
+
+from app.ai.agents.common import *
+from app.ai.agents.critic import _public_policy_evidence
+from app.ai.agents.policy import *
+from app.ai.agents.schemas import *
+
 from ..rag.critic_cases import (
     CRITIC_PROMPT_VERSION,
     evaluate_with_precedents,
@@ -27,15 +31,7 @@ from ..rag.policy_search import (
     UBCI_POLICY_VERSION,
     search_policy_rules,
 )
-
 from ..state import Grade, WMSInspectionState
-
-
-from app.ai.agents.common import *  # noqa: F401,F403
-from app.ai.agents.schemas import *  # noqa: F401,F403
-from app.ai.agents.policy import *  # noqa: F401,F403
-from app.ai.agents.critic import _public_policy_evidence  # noqa: F401
-
 
 
 def auto_refund_agent(state: WMSInspectionState) -> WMSInspectionState:
@@ -282,7 +278,8 @@ def build_customer_narrative(
 규칙:
 1. 존댓말, 과장·추측 금지. 결함의 심각도에 맞는 어조 (가벼운 사용감은 다정하게, 매입 불가는 정중하되 단호하게).
 2. 누구의 잘못인지(귀책)를 절대 쓰지 않는다.
-3. 내부 코드명이나 규정 조항 전문을 쓰지 않는다. 영문 대문자 코드(FRONT_COVER 등)를 그대로 옮겨 적지 말고 반드시 한글 표현만 사용한다.
+3. 내부 코드명이나 규정 조항 전문을 쓰지 않는다.
+4. 영문 대문자 코드(FRONT_COVER 등)를 그대로 옮겨 적지 말고 한글 표현만 사용한다.
 판정 등급: {GRADE_LABEL_KO.get(final_grade, final_grade)}
 품질 점수: {ubci_score if ubci_score is not None else '해당 없음'}
 확인된 결함:
@@ -322,11 +319,11 @@ def build_customer_narrative(
 
 
 def report_agent(state: WMSInspectionState) -> WMSInspectionState:
-    """
-    5. Report Agent (감성/페르소나 렌더링)
-    TODO: 검증이 완료된 기술적 사유를 바탕으로, 상황에 맞는 CS 페르소나(Tone & Manner)를 입혀 고객용 보증서를 생성하세요.
-    - 핵심: 파이썬 단순 문자열 조합이 아닌, 결함의 심각도(가벼운 오염 vs 심각한 파손)에 따라 동적으로 다정한 위로나 단호한 매입 불가 안내를 작성해야 LLM을 사용하는 명분이 생깁니다.
-    - 출력: final_report (str, JSON format)
+    """5. Report Agent — 판정 결과를 고객용 품질보증서로 렌더링한다.
+
+    판정값(등급·점수·근거)은 결정론적으로 조립하고, 고객이 읽는 문장만
+    build_customer_narrative가 GPT-4o-mini로 생성한다(실패 시 규칙 폴백).
+    출력: final_report (JSON 문자열)
     """
     print("[Agent] Report Agent 실행...")
 

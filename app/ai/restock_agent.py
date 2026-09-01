@@ -4,11 +4,11 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from app.core.config import settings
-from app.models.wms import RestockProposalSource
 from app.domains.restock.schemas.restock import (
     RestockRecommendationRequest,
     RestockRecommendationResponse,
 )
+from app.models.wms import RestockProposalSource
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,7 @@ def restock_agent(
 
     logger.info(
         "Restock Agent 실행"
-    )   
+    )
 
     if not settings.OPENAI_API_KEY.strip():
         raise RuntimeError(

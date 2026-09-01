@@ -10,30 +10,18 @@ def _mm_to_dots(length_mm: int) -> int:
 
     203 DPI 기준으로 50mm × 30mm는 약 400 × 240 dots다.
     """
-    return round(
-        length_mm * settings.LABEL_PRINTER_DPI / 25.4
-    )
+    return round(length_mm * settings.LABEL_PRINTER_DPI / 25.4)
 
 
 def _sanitize_zpl_text(value: str) -> str:
     """DB 텍스트가 ZPL 제어문자로 해석되지 않도록 정리한다."""
-    return (
-        value.replace("^", " ")
-        .replace("~", " ")
-        .replace("\r", " ")
-        .replace("\n", " ")
-        .strip()
-    )
+    return value.replace("^", " ").replace("~", " ").replace("\r", " ").replace("\n", " ").strip()
 
 
 def _build_label_header() -> list[str]:
     """50mm × 30mm 라벨에 공통으로 적용할 ZPL 헤더다."""
-    label_width = _mm_to_dots(
-        settings.LABEL_PRINTER_LABEL_WIDTH_MM
-    )
-    label_height = _mm_to_dots(
-        settings.LABEL_PRINTER_LABEL_HEIGHT_MM
-    )
+    label_width = _mm_to_dots(settings.LABEL_PRINTER_LABEL_WIDTH_MM)
+    label_height = _mm_to_dots(settings.LABEL_PRINTER_LABEL_HEIGHT_MM)
 
     return [
         "^XA",
@@ -99,11 +87,7 @@ def build_ubci_label_zpl(
     """
     safe_lpn = _sanitize_zpl_text(lpn_barcode)
     safe_grade = _sanitize_zpl_text(condition_grade)
-    score_text = (
-        f"{ubci_score:.2f}"
-        if ubci_score is not None
-        else "-"
-    )
+    score_text = f"{ubci_score:.2f}" if ubci_score is not None else "-"
 
     commands = [
         *_build_label_header(),
@@ -134,11 +118,12 @@ def build_custom_label_zpl(
     safe_title = _sanitize_zpl_text(title)
     safe_isbn = _sanitize_zpl_text(isbn)
     safe_worker = _sanitize_zpl_text(worker_id)
-    
+
     # QR URL (단순하게 LPN 바코드를 넣거나, 프론트엔드 스캔 URL로 설정)
     from app.core.config import settings
+
     scan_url = f"{settings.PUBLIC_WEB_BASE_URL}/scan/{safe_lpn}"
-    
+
     commands = [
         *_build_label_header(),
         f"^FO15,12^A0N,20,20^FD{safe_title}^FS",

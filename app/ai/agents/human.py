@@ -1,17 +1,15 @@
 """HITL 중단점 노드"""
-# ruff: noqa: F401,F403
 import base64
 import json
 import os
 import re
-
 from dataclasses import dataclass
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
+from typing import Annotated, Literal
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
-from typing import Annotated, Literal
 
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage
@@ -19,6 +17,9 @@ from langchain_openai import ChatOpenAI
 from PIL import Image, ImageDraw, ImageOps
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from ultralytics import YOLO
+
+from app.ai.agents.common import *
+
 from ..rag.critic_cases import (
     CRITIC_PROMPT_VERSION,
     evaluate_with_precedents,
@@ -27,13 +28,7 @@ from ..rag.policy_search import (
     UBCI_POLICY_VERSION,
     search_policy_rules,
 )
-
 from ..state import Grade, WMSInspectionState
-
-
-from app.ai.agents.common import *  # noqa: F401,F403
-
-
 
 
 def human_node(state: WMSInspectionState) -> WMSInspectionState:

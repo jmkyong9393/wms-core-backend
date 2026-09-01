@@ -3,18 +3,17 @@ from sqlmodel import Session
 
 from app.core.database import get_session
 from app.domains.pricing.dynamic_pricing_service import execute_dynamic_pricing
-from app.domains.pricing.schemas.pricing import (
-    DynamicPricingContextResponse,
-    DynamicPricingResultRequest,
-    DynamicPricingResultResponse,
-)
 from app.domains.pricing.pricing_context_service import (
     PricingContextIncompleteError,
     PricingContextNotFoundError,
     apply_dynamic_pricing_result,
     get_dynamic_pricing_context,
 )
-
+from app.domains.pricing.schemas.pricing import (
+    DynamicPricingContextResponse,
+    DynamicPricingResultRequest,
+    DynamicPricingResultResponse,
+)
 
 router = APIRouter()
 
@@ -90,9 +89,7 @@ def get_pricing_context(
     ),
     responses={
         404: {"description": "등록된 LPN 단품 재고를 찾을 수 없음"},
-        409: {
-            "description": "정가·UBCI 미확정 또는 가격 정책 범위를 벗어난 결과"
-        },
+        409: {"description": "정가·UBCI 미확정 또는 가격 정책 범위를 벗어난 결과"},
     },
 )
 def save_pricing_result(
@@ -137,9 +134,7 @@ def save_pricing_result(
     ),
     responses={
         404: {"description": "등록된 LPN 단품 재고를 찾을 수 없음"},
-        409: {
-            "description": "판매 불가능 상태이거나 정가·UBCI가 확정되지 않음"
-        },
+        409: {"description": "판매 불가능 상태이거나 정가·UBCI가 확정되지 않음"},
     },
 )
 def recalculate_dynamic_pricing(

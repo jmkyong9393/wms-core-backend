@@ -11,17 +11,8 @@ from sqlmodel import Session
 
 from app.api.dependencies.auth import require_admin_or_master
 from app.core.database import get_session
-from app.models.wms import (
-    OrderProposalStatus,
-    User,
-)
-from app.domains.restock.schemas.restock import (
-    RestockProposalDetailResponse,
-    RestockProposalListItemResponse,
-    RestockRecommendationRequest,
-    RestockRecommendationResponse,
-    RestockProposalReviewRequest,
-    RestockProposalReviewResponse,
+from app.domains.inbound.location_assignment_service import (
+    NoAvailableLocationError,
 )
 from app.domains.restock.restock_proposal_service import (
     InvalidRestockProposalStateError,
@@ -34,8 +25,17 @@ from app.domains.restock.restock_proposal_service import (
 from app.domains.restock.restock_service import (
     generate_restock_recommendation,
 )
-from app.domains.inbound.location_assignment_service import (
-    NoAvailableLocationError,
+from app.domains.restock.schemas.restock import (
+    RestockProposalDetailResponse,
+    RestockProposalListItemResponse,
+    RestockProposalReviewRequest,
+    RestockProposalReviewResponse,
+    RestockRecommendationRequest,
+    RestockRecommendationResponse,
+)
+from app.models.wms import (
+    OrderProposalStatus,
+    User,
 )
 
 router = APIRouter()
@@ -74,9 +74,7 @@ def create_mock_restock_recommendation(
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=(
-                "자동 발주 추천 Agent 처리 중 오류가 발생했습니다."
-            ),
+            detail=("자동 발주 추천 Agent 처리 중 오류가 발생했습니다."),
         ) from exc
 
 
@@ -89,10 +87,7 @@ def get_restock_proposal_list(
     proposal_status: OrderProposalStatus | None = Query(
         default=None,
         alias="status",
-        description=(
-            "추천안 상태 필터"
-            "(PENDING, APPROVED, REJECTED, NOT_REQUIRED)"
-        ),
+        description=("추천안 상태 필터(PENDING, APPROVED, REJECTED, NOT_REQUIRED)"),
     ),
     current_admin: User = Depends(
         require_admin_or_master,
@@ -144,18 +139,14 @@ def get_restock_proposal(
             detail="Restock 추천안을 찾을 수 없습니다.",
         ) from exc
 
+
 @router.post(
     "/proposals/{proposal_id}/approve",
     response_model=RestockProposalReviewResponse,
     summary="Restock 추천안 승인 및 AUTO_PO 생성",
     responses={
         404: {"description": "추천안을 찾을 수 없음"},
-        409: {
-            "description": (
-                "이미 처리된 추천안이거나 추가 발주가 필요 없거나, "
-                "신간 적치 가능 로케이션이 없음"
-            )
-        },
+        409: {"description": ("이미 처리된 추천안이거나 추가 발주가 필요 없거나, 신간 적치 가능 로케이션이 없음")},
     },
 )
 def approve_restock_proposal_api(
@@ -205,10 +196,7 @@ def approve_restock_proposal_api(
         session.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "신간 재고를 적치할 수 있는 A Zone 로케이션이 없습니다. "
-                f"{exc}"
-            ),
+            detail=(f"신간 재고를 적치할 수 있는 A Zone 로케이션이 없습니다. {exc}"),
         ) from exc
 
 

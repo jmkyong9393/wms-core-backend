@@ -1,16 +1,10 @@
 import uuid
-from uuid import UUID
 from datetime import datetime
-from decimal import Decimal
-from enum import Enum
 from typing import Optional
 
-from sqlalchemy import CheckConstraint, Column, Index, UniqueConstraint
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.types import Numeric
 from sqlmodel import Field, SQLModel
 
-from app.models.enums import *  # noqa: F401,F403
+from app.models.enums import *
 
 
 class InboundJob(SQLModel, table=True):

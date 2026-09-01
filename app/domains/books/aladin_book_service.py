@@ -60,9 +60,7 @@ def lookup_aladin_book_by_isbn(
                 f"{settings.ALADIN_API_BASE_URL.rstrip('/')}/ItemLookUp.aspx",
                 params={
                     "ttbkey": api_key,
-                    "itemIdType": (
-                        "ISBN13" if len(normalized_isbn) == 13 else "ISBN"
-                    ),
+                    "itemIdType": ("ISBN13" if len(normalized_isbn) == 13 else "ISBN"),
                     "ItemId": normalized_isbn,
                     "output": "js",
                     "Version": "20131101",
@@ -70,25 +68,17 @@ def lookup_aladin_book_by_isbn(
                 timeout=settings.ALADIN_REQUEST_TIMEOUT_SECONDS,
             )
         except httpx.RequestError as exc:
-            raise AladinUpstreamError(
-                "Failed to connect to Aladin OpenAPI"
-            ) from exc
+            raise AladinUpstreamError("Failed to connect to Aladin OpenAPI") from exc
 
         if response.status_code == 429 or response.status_code >= 500:
-            raise AladinUpstreamError(
-                f"Aladin OpenAPI returned status {response.status_code}"
-            )
+            raise AladinUpstreamError(f"Aladin OpenAPI returned status {response.status_code}")
         if response.status_code >= 400:
-            raise AladinInvalidResponseError(
-                f"Aladin OpenAPI rejected the request: {response.status_code}"
-            )
+            raise AladinInvalidResponseError(f"Aladin OpenAPI rejected the request: {response.status_code}")
 
         try:
             payload = response.json()
         except ValueError as exc:
-            raise AladinInvalidResponseError(
-                "Aladin OpenAPI response is not valid JSON"
-            ) from exc
+            raise AladinInvalidResponseError("Aladin OpenAPI response is not valid JSON") from exc
 
         return _parse_book_metadata(payload, fallback_isbn=normalized_isbn)
     finally:
@@ -98,10 +88,7 @@ def lookup_aladin_book_by_isbn(
 
 def normalize_isbn(isbn: str) -> str:
     normalized_isbn = isbn.replace("-", "").strip()
-    if (
-        len(normalized_isbn) not in {10, 13}
-        or not normalized_isbn.isdigit()
-    ):
+    if len(normalized_isbn) not in {10, 13} or not normalized_isbn.isdigit():
         raise ValueError("ISBN must contain 10 or 13 digits")
     return normalized_isbn
 
@@ -112,62 +99,38 @@ def _parse_book_metadata(
     fallback_isbn: str,
 ) -> AladinBookMetadata:
     if not isinstance(payload, dict):
-        raise AladinInvalidResponseError(
-            "Aladin OpenAPI response must be a JSON object"
-        )
+        raise AladinInvalidResponseError("Aladin OpenAPI response must be a JSON object")
     error_code = payload.get("errorCode")
     if str(error_code) == "8":
-        raise AladinBookNotFoundError(
-            f"Book was not found for ISBN {fallback_isbn}"
-        )
+        raise AladinBookNotFoundError(f"Book was not found for ISBN {fallback_isbn}")
     if error_code is not None:
-        raise AladinInvalidResponseError(
-            f"Aladin OpenAPI error: {payload.get('errorMessage', 'unknown')}"
-        )
+        raise AladinInvalidResponseError(f"Aladin OpenAPI error: {payload.get('errorMessage', 'unknown')}")
 
     items = payload.get("item")
     if not isinstance(items, list) or not items:
-        raise AladinBookNotFoundError(
-            f"Book was not found for ISBN {fallback_isbn}"
-        )
+        raise AladinBookNotFoundError(f"Book was not found for ISBN {fallback_isbn}")
 
     item = items[0]
     if not isinstance(item, dict):
-        raise AladinInvalidResponseError(
-            "Aladin OpenAPI item must be a JSON object"
-        )
+        raise AladinInvalidResponseError("Aladin OpenAPI item must be a JSON object")
 
     title = _required_text(item, "title")
     category_name = _required_text(item, "categoryName")
-    returned_isbn = str(
-        item.get("isbn13") or item.get("isbn") or fallback_isbn
-    ).strip()
+    returned_isbn = str(item.get("isbn13") or item.get("isbn") or fallback_isbn).strip()
 
     try:
         base_price = Decimal(str(item["priceStandard"]))
     except (KeyError, InvalidOperation, TypeError, ValueError) as exc:
-        raise AladinInvalidResponseError(
-            "Aladin OpenAPI response has an invalid standard price"
-        ) from exc
+        raise AladinInvalidResponseError("Aladin OpenAPI response has an invalid standard price") from exc
     if base_price <= 0:
-        raise AladinInvalidResponseError(
-            "Aladin OpenAPI standard price must be positive"
-        )
+        raise AladinInvalidResponseError("Aladin OpenAPI standard price must be positive")
 
     category_id = _optional_int(item.get("categoryId"))
     publisher_value = item.get("publisher")
-    publisher = (
-        str(publisher_value).strip()
-        if publisher_value is not None and str(publisher_value).strip()
-        else None
-    )
+    publisher = str(publisher_value).strip() if publisher_value is not None and str(publisher_value).strip() else None
 
     cover_value = item.get("cover")
-    cover_image_url = (
-        str(cover_value).strip()
-        if cover_value is not None and str(cover_value).strip()
-        else None
-    )
+    cover_image_url = str(cover_value).strip() if cover_value is not None and str(cover_value).strip() else None
 
     return AladinBookMetadata(
         isbn=returned_isbn,
@@ -184,9 +147,7 @@ def _parse_book_metadata(
 def _required_text(item: dict[str, Any], field_name: str) -> str:
     value = item.get(field_name)
     if value is None or not str(value).strip():
-        raise AladinInvalidResponseError(
-            f"Aladin OpenAPI response is missing {field_name}"
-        )
+        raise AladinInvalidResponseError(f"Aladin OpenAPI response is missing {field_name}")
     return str(value).strip()
 
 
@@ -196,6 +157,4 @@ def _optional_int(value: Any) -> int | None:
     try:
         return int(value)
     except (TypeError, ValueError) as exc:
-        raise AladinInvalidResponseError(
-            "Aladin OpenAPI response has an invalid categoryId"
-        ) from exc
+        raise AladinInvalidResponseError("Aladin OpenAPI response has an invalid categoryId") from exc

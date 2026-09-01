@@ -19,15 +19,9 @@ class DynamicPricingContextResponse(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "inventory_used_item_id": (
-                    "00000000-0000-4000-8000-000000000001"
-                ),
-                "lpn_barcode": (
-                    "LPN-12345678123456781234567812345678"
-                ),
-                "book_id": (
-                    "00000000-0000-4000-8000-000000000002"
-                ),
+                "inventory_used_item_id": ("00000000-0000-4000-8000-000000000001"),
+                "lpn_barcode": ("LPN-12345678123456781234567812345678"),
+                "book_id": ("00000000-0000-4000-8000-000000000002"),
                 "isbn": "9788912345678",
                 "base_price": "18000.00",
                 "category": "NOVEL",
@@ -62,10 +56,7 @@ class DynamicPricingContextResponse(BaseModel):
     )
 
     category: BookCategory = Field(
-        description=(
-            "알라딘 카테고리를 변환한 "
-            "WMS 내부 도서 카테고리"
-        ),
+        description=("알라딘 카테고리를 변환한 WMS 내부 도서 카테고리"),
     )
 
     ubci_score: Decimal = Field(
@@ -142,10 +133,7 @@ class PricingRecommendationResponse(BaseModel):
     discount_rate: int = Field(
         ge=0,
         le=100,
-        description=(
-            "정가 대비 정수 할인율. "
-            "34는 34퍼센트를 의미"
-        ),
+        description=("정가 대비 정수 할인율. 34는 34퍼센트를 의미"),
     )
 
     pricing_reason: str = Field(
@@ -161,9 +149,7 @@ class DynamicPricingResultRequest(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "lpn_barcode": (
-                    "LPN-12345678123456781234567812345678"
-                ),
+                "lpn_barcode": ("LPN-12345678123456781234567812345678"),
                 "discount_rate": "0.1500",
                 "final_price": "15300.00",
             }

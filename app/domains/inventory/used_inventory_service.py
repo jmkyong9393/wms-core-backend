@@ -8,6 +8,16 @@ from fastapi import HTTPException, status
 from sqlmodel import Session, select
 
 from app.domain.ubci_grade_policy import determine_condition_grade
+from app.domains.inbound.inventory_admission_service import (
+    admit_rejected_item,
+    admit_used_stock,
+)
+from app.domains.inbound.location_assignment_service import (
+    NoAvailableLocationError,
+    assign_graded_inventory_location,
+)
+from app.domains.inspections.schemas.hitl import HITLReasonCode
+from app.domains.inventory.schemas.inspection_inventory import RejectionDisposition
 from app.models.wms import (
     Book,
     ConditionGrade,
@@ -22,17 +32,6 @@ from app.models.wms import (
     ReturnJob,
     ReturnJobStatus,
 )
-from app.domains.inspections.schemas.hitl import HITLReasonCode
-from app.domains.inventory.schemas.inspection_inventory import RejectionDisposition
-from app.domains.inbound.location_assignment_service import (
-    NoAvailableLocationError,
-    assign_graded_inventory_location,
-)
-from app.domains.inbound.inventory_admission_service import (
-    admit_rejected_item,
-    admit_used_stock,
-)
-
 
 AdmissionDecision = Literal["APPROVE", "REJECT"]
 
@@ -83,9 +82,7 @@ def apply_inspected_item_result(
         )
 
     inbound_item = session.exec(
-        select(InboundItem)
-        .where(InboundItem.id == return_job.inbound_item_id)
-        .with_for_update()
+        select(InboundItem).where(InboundItem.id == return_job.inbound_item_id).with_for_update()
     ).first()
     if inbound_item is None:
         raise HTTPException(
@@ -104,9 +101,7 @@ def apply_inspected_item_result(
         )
 
     inbound_job = session.exec(
-        select(InboundJob)
-        .where(InboundJob.id == inbound_item.inbound_job_id)
-        .with_for_update()
+        select(InboundJob).where(InboundJob.id == inbound_item.inbound_job_id).with_for_update()
     ).first()
     if inbound_job is None:
         raise HTTPException(
@@ -130,14 +125,10 @@ def apply_inspected_item_result(
         )
 
     existing_used_item = session.exec(
-        select(InventoryUsedItem).where(
-            InventoryUsedItem.return_job_id == return_job.id
-        )
+        select(InventoryUsedItem).where(InventoryUsedItem.return_job_id == return_job.id)
     ).first()
     existing_rejected_item = session.exec(
-        select(RejectedItem).where(
-            RejectedItem.return_job_id == return_job.id
-        )
+        select(RejectedItem).where(RejectedItem.return_job_id == return_job.id)
     ).first()
     existing_record = existing_used_item or existing_rejected_item
     if existing_record is not None:
@@ -157,14 +148,8 @@ def apply_inspected_item_result(
             lpn_barcode=inbound_item.lpn_barcode,
             location_id=location.id,
             location_barcode=location.barcode,
-            inventory_used_item_id=(
-                existing_used_item.id if existing_used_item is not None else None
-            ),
-            rejected_item_id=(
-                existing_rejected_item.id
-                if existing_rejected_item is not None
-                else None
-            ),
+            inventory_used_item_id=(existing_used_item.id if existing_used_item is not None else None),
+            rejected_item_id=(existing_rejected_item.id if existing_rejected_item is not None else None),
             inventory_changed=False,
         )
 
@@ -230,9 +215,7 @@ def apply_inspected_item_result(
         lpn_barcode=inbound_item.lpn_barcode,
         location_id=location.id,
         location_barcode=location.barcode,
-        inventory_used_item_id=(
-            inventory_used_item.id if inventory_used_item is not None else None
-        ),
+        inventory_used_item_id=(inventory_used_item.id if inventory_used_item is not None else None),
         rejected_item_id=rejected_item.id if rejected_item is not None else None,
         inventory_changed=True,
     )
@@ -292,12 +275,8 @@ def _save_admin_decision_logs(
         return
 
     updated_logs = dict(return_job.agent_logs or {})
-    updated_logs["admin_decision_code"] = (
-        admin_decision_code.value if admin_decision_code is not None else None
-    )
-    updated_logs["final_grade"] = (
-        final_grade.value if final_grade is not None else None
-    )
+    updated_logs["admin_decision_code"] = admin_decision_code.value if admin_decision_code is not None else None
+    updated_logs["final_grade"] = final_grade.value if final_grade is not None else None
     updated_logs["rejection_disposition"] = rejection_disposition
     return_job.agent_logs = updated_logs
     session.add(return_job)

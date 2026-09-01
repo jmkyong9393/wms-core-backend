@@ -23,7 +23,7 @@ VisionStatus = Literal[
     "FAILED",
 ]
 
-# Vision이 관리자 확인 또는 실패 사유를 표시하는 코드 
+# Vision이 관리자 확인 또는 실패 사유를 표시하는 코드
 VisionReasonCode = Literal[
     "QUALITY_ERROR",
     "VISION_IMAGE_QUALITY",
@@ -33,7 +33,7 @@ VisionReasonCode = Literal[
     "VISION_UNCLASSIFIED_DEFECT",
 ]
 
-# HITL 관리자 사유코드 
+# HITL 관리자 사유코드
 PrimaryReasonCode = Literal[
     # AI 오탐: 정상 도서를 결함으로 잘못 판단
     "FP_SHADOW",
@@ -95,7 +95,8 @@ class WMSInspectionState(TypedDict, total=False):
     yolo_model_manifest: Optional[list[dict]] # YOLO 모델 이름, 경로, 역할, 클래스 목록
     book_regions: Optional[list[dict]]  # 사진별 책 영역 탐지 결과
     raw_yolo_detections: Optional[list[dict]] # 각 YOLO 모델이 출력한 가공 전 탐지 결과
-    ensemble_candidates: Optional[list[dict]] # 여러 YOLO 모델의 겹치는 BBOX를 병합한 후보 목록, 이후보가 VLM 2차 검토 입력
+    # 여러 YOLO 모델의 겹치는 BBOX를 병합한 후보 목록. 이 후보가 VLM 2차 검토 입력이 된다
+    ensemble_candidates: Optional[list[dict]]
 
     # 1. Vision Agent (2차 검토)
     reviewed_candidates: Optional[list[dict]] # CONFIRMED ,REJECTED, UNCERTAIN 결과를 모두 포함

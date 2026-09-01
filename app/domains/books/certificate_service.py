@@ -4,8 +4,11 @@ from typing import NoReturn
 from fastapi import HTTPException, status
 from sqlmodel import Session, select
 
+from app.domains.books.schemas.certificate import (
+    CertificateBookDetail,
+    CertificateResponse,
+)
 from app.models.wms import Book, InboundItem, InventoryUsedItem, ReturnJob
-from app.domains.books.schemas.certificate import CertificateBookDetail, CertificateResponse
 
 
 def extract_report_summary(final_report: str | None) -> str | None:
@@ -69,12 +72,7 @@ def get_certificate_by_token(
 
     book = session.get(Book, inbound_item.book_id)
     report_summary = extract_report_summary(return_job.final_report)
-    if (
-        book is None
-        or return_job.condition_grade is None
-        or return_job.ubci_score is None
-        or report_summary is None
-    ):
+    if book is None or return_job.condition_grade is None or return_job.ubci_score is None or report_summary is None:
         _raise_certificate_not_found()
 
     return CertificateResponse(

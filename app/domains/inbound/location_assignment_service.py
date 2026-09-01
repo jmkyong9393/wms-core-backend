@@ -33,14 +33,10 @@ def assign_new_stock_location(
     quantity: int,
 ) -> Location:
     if quantity > SHELF_CAPACITY:
-        raise NoAvailableLocationError(
-            f"New stock intake quantity exceeds shelf capacity {SHELF_CAPACITY}"
-        )
+        raise NoAvailableLocationError(f"New stock intake quantity exceeds shelf capacity {SHELF_CAPACITY}")
 
     if book.category is None:
-        raise NoAvailableLocationError(
-            "Book category is required for new-stock location assignment."
-        )
+        raise NoAvailableLocationError("Book category is required for new-stock location assignment.")
     rack = rack_for_category(book.category)
     _lock_zone_rack(session, NEW_STOCK_ZONE, rack)
 
@@ -78,9 +74,7 @@ def assign_graded_inventory_location(
 ) -> Location:
     zone = zone_for_used_grade(grade)
     if book.category is None:
-        raise NoAvailableLocationError(
-            "Book category is required for graded inventory location assignment."
-        )
+        raise NoAvailableLocationError("Book category is required for graded inventory location assignment.")
     rack = rack_for_category(book.category)
     _lock_zone_rack(session, zone, rack)
     return _assign_available_location(
@@ -116,22 +110,14 @@ def _assign_available_location(
         required_capacity,
     )
     if selected_shelf is None:
-        raise NoAvailableLocationError(
-            f"No available shelf for warehouse zone {zone}, rack {rack}"
-        )
+        raise NoAvailableLocationError(f"No available shelf for warehouse zone {zone}, rack {rack}")
 
     return shelf_locations[selected_shelf]
 
 
 def _lock_zone_rack(session: Session, zone: str, rack: str) -> None:
     lock_key = f"inventory-location:{zone}:{rack}"
-    session.exec(
-        text(
-            "SELECT pg_advisory_xact_lock("
-            "hashtextextended(:lock_key, 0)"
-            ")"
-        ).bindparams(lock_key=lock_key)
-    )
+    session.exec(text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))").bindparams(lock_key=lock_key))
 
 
 def _get_or_create_location(
@@ -168,9 +154,7 @@ def _count_location_occupancy(
     location: Location,
 ) -> int:
     aggregate_quantity = session.exec(
-        select(func.coalesce(func.sum(Inventory.quantity), 0)).where(
-            Inventory.location_id == location.id
-        )
+        select(func.coalesce(func.sum(Inventory.quantity), 0)).where(Inventory.location_id == location.id)
     ).one()
     used_item_quantity = session.exec(
         select(func.count())
@@ -195,9 +179,7 @@ def _count_location_occupancy(
         )
     ).one()
 
-    return int(aggregate_quantity) + int(used_item_quantity) + int(
-        rejected_quantity
-    )
+    return int(aggregate_quantity) + int(used_item_quantity) + int(rejected_quantity)
 
 
 def _select_first_available_shelf(
@@ -206,9 +188,6 @@ def _select_first_available_shelf(
 ) -> str | None:
     for shelf_number in range(1, SHELF_COUNT_PER_RACK + 1):
         shelf = str(shelf_number)
-        if (
-            shelf in shelf_occupancies
-            and shelf_occupancies[shelf] + required_capacity <= SHELF_CAPACITY
-        ):
+        if shelf in shelf_occupancies and shelf_occupancies[shelf] + required_capacity <= SHELF_CAPACITY:
             return shelf
     return None

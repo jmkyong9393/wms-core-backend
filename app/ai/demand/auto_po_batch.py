@@ -7,7 +7,6 @@ from app.core.celery_app import celery_app
 from app.core.config import settings
 from app.core.database import engine
 
-
 logger = logging.getLogger(__name__)
 
 SAFETY_STOCK_RESTOCK_PROPOSAL_TASK_NAME = (

@@ -1,17 +1,15 @@
 """Policy Agent (UBCI 감점 매트릭스 + RAG 근거)"""
-# ruff: noqa: F401,F403
 import base64
 import json
 import os
 import re
-
 from dataclasses import dataclass
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
+from typing import Annotated, Literal
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
-from typing import Annotated, Literal
 
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage
@@ -19,6 +17,11 @@ from langchain_openai import ChatOpenAI
 from PIL import Image, ImageDraw, ImageOps
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from ultralytics import YOLO
+
+from app.ai.agents.common import *
+from app.ai.agents.detector import *
+from app.ai.agents.schemas import *
+
 from ..rag.critic_cases import (
     CRITIC_PROMPT_VERSION,
     evaluate_with_precedents,
@@ -27,16 +30,7 @@ from ..rag.policy_search import (
     UBCI_POLICY_VERSION,
     search_policy_rules,
 )
-
 from ..state import Grade, WMSInspectionState
-
-
-from app.ai.agents.common import *  # noqa: F401,F403
-from app.ai.agents.schemas import *  # noqa: F401,F403
-from app.ai.agents.detector import *  # noqa: F401,F403
-
-
-
 
 PENALTY_MATRIX: dict[
     str,
@@ -281,7 +275,7 @@ def calculate_ubci_grade(
         raise ValueError(
             "ubci_score는 0~100 범위의 숫자여야 합니다."
         )
-    
+
     ubci_score = float(ubci_score)
 
     if fatal_defect_detected or ubci_score < 65:

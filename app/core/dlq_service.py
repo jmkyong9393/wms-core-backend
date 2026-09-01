@@ -1,13 +1,13 @@
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import redis
 
 from app.core.config import settings
 
-
 INSPECTION_DLQ_KEY = "wms:dlq:inspection"
+
 
 # 실패한 Celery 작업 정보를 Redis DLQ에 저장
 def push_inspection_failure_to_dlq(
@@ -29,7 +29,7 @@ def push_inspection_failure_to_dlq(
         "error_type": type(error).__name__,
         "error_message": str(error),
         "retry_count": retry_count,
-        "failed_at": datetime.now(timezone.utc).isoformat(),
+        "failed_at": datetime.now(UTC).isoformat(),
     }
 
     try:

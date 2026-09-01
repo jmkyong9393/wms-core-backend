@@ -29,16 +29,11 @@ def format_lpn_barcode(
 
     issued_date = issued_at.astimezone(KST).strftime("%y%m%d")
 
-    return (
-        f"{LPN_PREFIX}-{LPN_COMPANY_CODE}-"
-        f"{issued_date}-{sequence_number:06d}"
-    )
+    return f"{LPN_PREFIX}-{LPN_COMPANY_CODE}-{issued_date}-{sequence_number:06d}"
 
 
 def generate_lpn_barcode(session: Session) -> str:
-    sequence_number = session.execute(
-        text("SELECT nextval('lpn_barcode_sequence')")
-    ).scalar_one()
+    sequence_number = session.execute(text("SELECT nextval('lpn_barcode_sequence')")).scalar_one()
 
     return format_lpn_barcode(
         issued_at=datetime.now(KST),
@@ -74,11 +69,7 @@ def build_label_scan_qr_url(
     작업자 앱은 인증된 내부 LPN 상세 화면으로,
     일반 브라우저는 공개 품질보증서 화면으로 분기한다.
     """
-    base_url = (
-        public_web_base_url or settings.PUBLIC_WEB_BASE_URL
-    ).rstrip("/")
+    base_url = (public_web_base_url or settings.PUBLIC_WEB_BASE_URL).rstrip("/")
     encoded_token = quote(certificate_token, safe="")
 
-    return (
-        f"{base_url}{LABEL_SCAN_PAGE_PREFIX}/{encoded_token}"
-    )
+    return f"{base_url}{LABEL_SCAN_PAGE_PREFIX}/{encoded_token}"

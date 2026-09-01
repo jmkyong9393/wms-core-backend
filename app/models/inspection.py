@@ -1,23 +1,26 @@
 import uuid
-from uuid import UUID
 from datetime import datetime
 from decimal import Decimal
-from enum import Enum
 from typing import Optional
+from uuid import UUID
 
-from sqlalchemy import CheckConstraint, Column, Index, UniqueConstraint
+from sqlalchemy import Column
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import Numeric
 from sqlmodel import Field, SQLModel
 
-from app.models.enums import *  # noqa: F401,F403
+from app.models.enums import *
 
 
 class ReturnJob(SQLModel, table=True):
     __tablename__ = "return_jobs"
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    tenant_id: UUID = Field(foreign_key="tenants.id", nullable=False, index=True,)
+    tenant_id: UUID = Field(
+        foreign_key="tenants.id",
+        nullable=False,
+        index=True,
+    )
 
     order_id: Optional[uuid.UUID] = Field(default=None, foreign_key="orders.id")
     book_id: uuid.UUID = Field(foreign_key="books.id")
@@ -55,8 +58,14 @@ class ReturnJob(SQLModel, table=True):
         default=None,
     )
 
-    hitl_reviewer_id: UUID | None = Field(default=None,foreign_key="users.id",index=True,)
-    hitl_review_started_at: datetime | None = Field(default=None,)
+    hitl_reviewer_id: UUID | None = Field(
+        default=None,
+        foreign_key="users.id",
+        index=True,
+    )
+    hitl_review_started_at: datetime | None = Field(
+        default=None,
+    )
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

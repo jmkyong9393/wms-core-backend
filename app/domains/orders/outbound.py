@@ -1,20 +1,26 @@
 from datetime import date, datetime
 from decimal import Decimal
-from uuid import UUID
 from enum import Enum
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlmodel import Session, select
 
+from app.api.dependencies.auth import require_wms_operator
 from app.core.database import get_session
+from app.domains.orders.fifo_lpn_service import (
+    FifoLpnCandidate,
+    select_fifo_lpn_candidate,
+)
+from app.domains.orders.waybill_service import issue_waybill_for_order
 from app.models.wms import (
     Book,
     ConditionGrade,
     Inventory,
-    InventoryUsedItem,
     InventoryLog,
     InventoryTransactionType,
+    InventoryUsedItem,
     Location,
     Order,
     OrderItem,
@@ -24,18 +30,14 @@ from app.models.wms import (
     UsedInventoryStatus,
     User,
 )
-from app.domains.orders.fifo_lpn_service import (
-    FifoLpnCandidate,
-    select_fifo_lpn_candidate,
-)
-from app.domains.orders.waybill_service import issue_waybill_for_order
-from app.api.dependencies.auth import require_wms_operator
 
 router = APIRouter()
+
 
 class PickingAllocationType(str, Enum):
     NEW_STOCK = "NEW_STOCK"
     USED_ITEM = "USED_ITEM"
+
 
 class PickRequest(BaseModel):
     model_config = ConfigDict(
@@ -91,8 +93,10 @@ class PickResponse(BaseModel):
     recommended_box: str
     picking_groups: list[PickingZoneGroup]
 
+
 class PickingInstructionDetailResponse(PickResponse):
     is_picking_completed: bool
+
 
 class ShippingLabelContact(BaseModel):
     name: str
@@ -108,6 +112,7 @@ class DemoShippingLabel(BaseModel):
     sender: ShippingLabelContact
     recipient: ShippingLabelContact
 
+
 class ShipmentConfirmResponse(BaseModel):
     order_id: UUID
     status: OrderStatus
@@ -120,23 +125,15 @@ class ShipmentConfirmResponse(BaseModel):
 
 class PickingScanRequest(BaseModel):
     allocation_type: PickingAllocationType = Field(
-        description=(
-            "스캔 대상 예약 재고 유형. "
-            "신간 묶음 재고는 NEW_STOCK, 중고 단품은 USED_ITEM"
-        ),
+        description=("스캔 대상 예약 재고 유형. 신간 묶음 재고는 NEW_STOCK, 중고 단품은 USED_ITEM"),
     )
     allocation_id: UUID = Field(
-        description=(
-            "피킹 지시서 상세에서 받은 예약 Allocation ID. "
-            "스캔 대상 로케이션·품목을 정확히 식별한다."
-        ),
+        description=("피킹 지시서 상세에서 받은 예약 Allocation ID. 스캔 대상 로케이션·품목을 정확히 식별한다."),
     )
     barcode: str = Field(
         min_length=1,
         max_length=255,
-        description=(
-            "신간은 ISBN, 중고 단품은 예약된 LPN 바코드"
-        ),
+        description=("신간은 ISBN, 중고 단품은 예약된 LPN 바코드"),
     )
 
 
@@ -149,6 +146,7 @@ class PickingScanResponse(BaseModel):
     picked_quantity: int
     is_completed: bool
     message: str
+
 
 def build_picking_groups(
     rows: list[tuple[Location, PickingInstructionItem]],
@@ -225,11 +223,7 @@ def create_picking_instruction(
     _: User = Depends(require_wms_operator),
 ) -> PickResponse:
     try:
-        order = session.exec(
-            select(Order)
-            .where(Order.id == request.order_id)
-            .with_for_update()
-        ).first()
+        order = session.exec(select(Order).where(Order.id == request.order_id).with_for_update()).first()
         if order is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -239,16 +233,11 @@ def create_picking_instruction(
         if order.status != OrderStatus.PENDING:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    "Picking instruction can only be created "
-                    f"from PENDING status. current_status={order.status}"
-                ),
+                detail=(f"Picking instruction can only be created from PENDING status. current_status={order.status}"),
             )
 
         order_items = session.exec(
-            select(OrderItem)
-            .where(OrderItem.order_id == order.id)
-            .order_by(OrderItem.book_id, OrderItem.id)
+            select(OrderItem).where(OrderItem.order_id == order.id).order_by(OrderItem.book_id, OrderItem.id)
         ).all()
         if not order_items:
             raise HTTPException(
@@ -256,25 +245,11 @@ def create_picking_instruction(
                 detail="Order has no order items",
             )
 
-        books = session.exec(
-            select(Book).where(
-                Book.id.in_(
-                    {
-                        order_item.book_id
-                        for order_item in order_items
-                    }
-                )
-            )
-        ).all()
+        books = session.exec(select(Book).where(Book.id.in_({order_item.book_id for order_item in order_items}))).all()
 
-        books_by_id = {
-            book.id: book
-            for book in books
-        }
+        books_by_id = {book.id: book for book in books}
 
-        picking_rows: list[
-            tuple[Location, PickingInstructionItem]
-        ] = []
+        picking_rows: list[tuple[Location, PickingInstructionItem]] = []
         selected_used_inventory_ids: set[UUID] = set()
 
         for order_item in order_items:
@@ -285,27 +260,18 @@ def create_picking_instruction(
                     order_item=order_item,
                     excluded_inventory_ids=selected_used_inventory_ids,
                 )
-                inventory_used_item: InventoryUsedItem = (
-                    candidate.inventory_used_item
-                )
+                inventory_used_item: InventoryUsedItem = candidate.inventory_used_item
                 location = session.get(
                     Location,
                     inventory_used_item.location_id,
                 )
                 if location is None:
-                    raise RuntimeError(
-                        "Location for used inventory item was not found"
-                    )
+                    raise RuntimeError("Location for used inventory item was not found")
 
                 selected_used_inventory_ids.add(inventory_used_item.id)
 
-                if (
-                    inventory_used_item.discount_rate is None
-                    or inventory_used_item.sale_price is None
-                ):
-                    raise RuntimeError(
-                        "FIFO selected an LPN without completed pricing"
-                    )
+                if inventory_used_item.discount_rate is None or inventory_used_item.sale_price is None:
+                    raise RuntimeError("FIFO selected an LPN without completed pricing")
 
                 inventory_used_item.status = UsedInventoryStatus.RESERVED
                 inventory_used_item.updated_at = datetime.utcnow()
@@ -359,9 +325,7 @@ def create_picking_instruction(
                 if remaining_quantity <= 0:
                     break
 
-                available_quantity = (
-                    inventory.quantity - inventory.reserved_quantity
-                )
+                available_quantity = inventory.quantity - inventory.reserved_quantity
                 if available_quantity <= 0:
                     continue
 
@@ -374,20 +338,12 @@ def create_picking_instruction(
                     inventory.location_id,
                 )
                 if location is None:
-                    raise RuntimeError(
-                        "Location for inventory was not found"
-                    )
-                if (
-                    inventory.discount_rate is None
-                    or inventory.sale_price is None
-                ):
+                    raise RuntimeError("Location for inventory was not found")
+                if inventory.discount_rate is None or inventory.sale_price is None:
                     raise HTTPException(
                         status_code=status.HTTP_409_CONFLICT,
                         detail={
-                            "message": (
-                                "FIFO selected new stock without "
-                                "completed pricing"
-                            ),
+                            "message": ("FIFO selected new stock without completed pricing"),
                             "inventory_id": str(inventory.id),
                         },
                     )
@@ -422,9 +378,7 @@ def create_picking_instruction(
                         ),
                     )
                 )
-                selected_inventory_total += (
-                    inventory.sale_price * reserved_quantity
-                )
+                selected_inventory_total += inventory.sale_price * reserved_quantity
                 remaining_quantity -= reserved_quantity
 
             if remaining_quantity > 0:
@@ -441,9 +395,7 @@ def create_picking_instruction(
             # 하나의 주문 품목이 서로 다른 가격의 FIFO 재고에 걸쳐 예약될 수
             # 있으므로, unit_price는 실제 선택 금액의 평균 단가로 기록한다.
             order_item.final_price = selected_inventory_total
-            order_item.unit_price = (
-                selected_inventory_total / order_item.quantity
-            )
+            order_item.unit_price = selected_inventory_total / order_item.quantity
             order_item.updated_at = datetime.utcnow()
             session.add(order_item)
 
@@ -499,10 +451,7 @@ def get_picking_instruction(
     }:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "Picking instruction is available only after "
-                "the order enters PICKING status."
-            ),
+            detail=("Picking instruction is available only after the order enters PICKING status."),
         )
 
     new_rows = session.exec(
@@ -514,8 +463,7 @@ def get_picking_instruction(
         )
         .join(
             Inventory,
-            OrderItemInventoryAllocation.inventory_id
-            == Inventory.id,
+            OrderItemInventoryAllocation.inventory_id == Inventory.id,
         )
         .join(
             Location,
@@ -523,8 +471,7 @@ def get_picking_instruction(
         )
         .join(
             OrderItem,
-            OrderItemInventoryAllocation.order_item_id
-            == OrderItem.id,
+            OrderItemInventoryAllocation.order_item_id == OrderItem.id,
         )
         .join(
             Book,
@@ -548,8 +495,7 @@ def get_picking_instruction(
         )
         .join(
             InventoryUsedItem,
-            OrderItemLpnAllocation.inventory_used_item_id
-            == InventoryUsedItem.id,
+            OrderItemLpnAllocation.inventory_used_item_id == InventoryUsedItem.id,
         )
         .join(
             Location,
@@ -557,8 +503,7 @@ def get_picking_instruction(
         )
         .join(
             OrderItem,
-            OrderItemLpnAllocation.order_item_id
-            == OrderItem.id,
+            OrderItemLpnAllocation.order_item_id == OrderItem.id,
         )
         .join(
             Book,
@@ -579,9 +524,7 @@ def get_picking_instruction(
             detail="Order does not have reserved inventory allocations",
         )
 
-    picking_rows: list[
-        tuple[Location, PickingInstructionItem]
-    ] = []
+    picking_rows: list[tuple[Location, PickingInstructionItem]] = []
 
     for allocation, inventory, location, book in new_rows:
         picked_quantity = allocation.picked_quantity
@@ -601,9 +544,7 @@ def get_picking_instruction(
                     condition_grade=ConditionGrade.MINT,
                     lpn_barcode=None,
                     picked_quantity=picked_quantity,
-                    is_completed=(
-                        picked_quantity == allocation.quantity
-                    ),
+                    is_completed=(picked_quantity == allocation.quantity),
                 ),
             )
         )
@@ -629,10 +570,7 @@ def get_picking_instruction(
             )
         )
 
-    is_picking_completed = all(
-        item.is_completed
-        for _, item in picking_rows
-    )
+    is_picking_completed = all(item.is_completed for _, item in picking_rows)
 
     return PickingInstructionDetailResponse(
         order_id=order.id,
@@ -643,6 +581,7 @@ def get_picking_instruction(
         is_picking_completed=is_picking_completed,
     )
 
+
 @router.post(
     "/picking-instructions/{order_id}/scan",
     response_model=PickingScanResponse,
@@ -650,12 +589,7 @@ def get_picking_instruction(
     summary="피킹 예약 품목 바코드 스캔 확인",
     responses={
         404: {"description": "주문 또는 피킹 예약 품목을 찾을 수 없음"},
-        409: {
-            "description": (
-                "주문 상태 오류, 바코드 불일치, "
-                "이미 완료된 신간 예약 수량 또는 중고 LPN 상태 오류"
-            )
-        },
+        409: {"description": ("주문 상태 오류, 바코드 불일치, 이미 완료된 신간 예약 수량 또는 중고 LPN 상태 오류")},
     },
 )
 def scan_picking_item(
@@ -667,11 +601,7 @@ def scan_picking_item(
     scanned_barcode = request.barcode.strip()
 
     try:
-        order = session.exec(
-            select(Order)
-            .where(Order.id == order_id)
-            .with_for_update()
-        ).first()
+        order = session.exec(select(Order).where(Order.id == order_id).with_for_update()).first()
         if order is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -681,10 +611,7 @@ def scan_picking_item(
         if order.status != OrderStatus.PICKING:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    "Barcode scan is available only in PICKING status. "
-                    f"current_status={order.status}"
-                ),
+                detail=(f"Barcode scan is available only in PICKING status. current_status={order.status}"),
             )
 
         if request.allocation_type == PickingAllocationType.NEW_STOCK:
@@ -697,21 +624,18 @@ def scan_picking_item(
                 )
                 .join(
                     Inventory,
-                    OrderItemInventoryAllocation.inventory_id
-                    == Inventory.id,
+                    OrderItemInventoryAllocation.inventory_id == Inventory.id,
                 )
                 .join(
                     OrderItem,
-                    OrderItemInventoryAllocation.order_item_id
-                    == OrderItem.id,
+                    OrderItemInventoryAllocation.order_item_id == OrderItem.id,
                 )
                 .join(
                     Book,
                     OrderItem.book_id == Book.id,
                 )
                 .where(
-                    OrderItemInventoryAllocation.id
-                    == request.allocation_id,
+                    OrderItemInventoryAllocation.id == request.allocation_id,
                     OrderItem.order_id == order.id,
                 )
                 .with_for_update()
@@ -729,10 +653,7 @@ def scan_picking_item(
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail={
-                        "message": (
-                            "Scanned ISBN does not match "
-                            "the reserved picking item"
-                        ),
+                        "message": ("Scanned ISBN does not match the reserved picking item"),
                         "order_item_id": str(order_item.id),
                         "expected_isbn": book.isbn,
                         "scanned_barcode": scanned_barcode,
@@ -743,10 +664,7 @@ def scan_picking_item(
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail={
-                        "message": (
-                            "New-stock picking allocation "
-                            "is already completed"
-                        ),
+                        "message": ("New-stock picking allocation is already completed"),
                         "allocation_id": str(allocation.id),
                         "expected_quantity": allocation.quantity,
                         "picked_quantity": allocation.picked_quantity,
@@ -764,9 +682,7 @@ def scan_picking_item(
                 order_item_id=order_item.id,
                 expected_quantity=allocation.quantity,
                 picked_quantity=allocation.picked_quantity,
-                is_completed=(
-                    allocation.picked_quantity == allocation.quantity
-                ),
+                is_completed=(allocation.picked_quantity == allocation.quantity),
                 message="신간 ISBN 스캔이 확인되었습니다.",
             )
 
@@ -781,13 +697,11 @@ def scan_picking_item(
             )
             .join(
                 InventoryUsedItem,
-                OrderItemLpnAllocation.inventory_used_item_id
-                == InventoryUsedItem.id,
+                OrderItemLpnAllocation.inventory_used_item_id == InventoryUsedItem.id,
             )
             .join(
                 OrderItem,
-                OrderItemLpnAllocation.order_item_id
-                == OrderItem.id,
+                OrderItemLpnAllocation.order_item_id == OrderItem.id,
             )
             .where(
                 OrderItemLpnAllocation.id == request.allocation_id,
@@ -808,14 +722,9 @@ def scan_picking_item(
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail={
-                    "message": (
-                        "Scanned LPN does not match "
-                        "the reserved picking item"
-                    ),
+                    "message": ("Scanned LPN does not match the reserved picking item"),
                     "order_item_id": str(order_item.id),
-                    "expected_lpn_barcode": (
-                        inventory_used_item.lpn_barcode
-                    ),
+                    "expected_lpn_barcode": (inventory_used_item.lpn_barcode),
                     "scanned_barcode": scanned_barcode,
                 },
             )
@@ -864,6 +773,7 @@ def scan_picking_item(
         session.rollback()
         raise
 
+
 def _build_demo_shipping_label(
     order: Order,
     shipped_at: datetime,
@@ -905,11 +815,7 @@ def confirm_shipment(
     _: User = Depends(require_wms_operator),
 ) -> ShipmentConfirmResponse:
     try:
-        order = session.exec(
-            select(Order)
-            .where(Order.id == order_id)
-            .with_for_update()
-        ).first()
+        order = session.exec(select(Order).where(Order.id == order_id).with_for_update()).first()
         if order is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -918,14 +824,8 @@ def confirm_shipment(
 
         # 이미 확정된 주문의 재요청은 기존 송장 정보를 반환한다.
         if order.status == OrderStatus.SHIPPED:
-            if (
-                order.waybill_number is None
-                or order.shipping_carrier is None
-                or order.shipped_at is None
-            ):
-                raise RuntimeError(
-                    "Shipped order does not have complete waybill information"
-                )
+            if order.waybill_number is None or order.shipping_carrier is None or order.shipped_at is None:
+                raise RuntimeError("Shipped order does not have complete waybill information")
 
             return ShipmentConfirmResponse(
                 order_id=order.id,
@@ -943,17 +843,10 @@ def confirm_shipment(
         if order.status != OrderStatus.PICKING:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    "Shipment can only be confirmed from PICKING status. "
-                    f"current_status={order.status}"
-                ),
+                detail=(f"Shipment can only be confirmed from PICKING status. current_status={order.status}"),
             )
 
-        order_items = session.exec(
-            select(OrderItem)
-            .where(OrderItem.order_id == order.id)
-            .order_by(OrderItem.id)
-        ).all()
+        order_items = session.exec(select(OrderItem).where(OrderItem.order_id == order.id).order_by(OrderItem.id)).all()
         if not order_items:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -964,21 +857,13 @@ def confirm_shipment(
 
         new_allocations = session.exec(
             select(OrderItemInventoryAllocation)
-            .where(
-                OrderItemInventoryAllocation.order_item_id.in_(
-                    order_item_ids
-                )
-            )
+            .where(OrderItemInventoryAllocation.order_item_id.in_(order_item_ids))
             .order_by(OrderItemInventoryAllocation.id)
         ).all()
 
         used_allocations = session.exec(
             select(OrderItemLpnAllocation)
-            .where(
-                OrderItemLpnAllocation.order_item_id.in_(
-                    order_item_ids
-                )
-            )
+            .where(OrderItemLpnAllocation.order_item_id.in_(order_item_ids))
             .order_by(OrderItemLpnAllocation.id)
         ).all()
 
@@ -1012,16 +897,9 @@ def confirm_shipment(
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail={
-                    "message": (
-                        "Shipment cannot be confirmed until all "
-                        "reserved items are scanned."
-                    ),
-                    "incomplete_new_allocations": (
-                        incomplete_new_allocations
-                    ),
-                    "incomplete_used_allocations": (
-                        incomplete_used_allocations
-                    ),
+                    "message": ("Shipment cannot be confirmed until all reserved items are scanned."),
+                    "incomplete_new_allocations": (incomplete_new_allocations),
+                    "incomplete_used_allocations": (incomplete_used_allocations),
                 },
             )
 
@@ -1030,19 +908,12 @@ def confirm_shipment(
         # 신간: 실제 수량과 예약 수량을 함께 차감한다.
         for allocation in new_allocations:
             inventory = session.exec(
-                select(Inventory)
-                .where(Inventory.id == allocation.inventory_id)
-                .with_for_update()
+                select(Inventory).where(Inventory.id == allocation.inventory_id).with_for_update()
             ).first()
             if inventory is None:
-                raise RuntimeError(
-                    "Reserved inventory for allocation was not found"
-                )
+                raise RuntimeError("Reserved inventory for allocation was not found")
 
-            if (
-                inventory.quantity < allocation.quantity
-                or inventory.reserved_quantity < allocation.quantity
-            ):
+            if inventory.quantity < allocation.quantity or inventory.reserved_quantity < allocation.quantity:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail={
@@ -1054,11 +925,7 @@ def confirm_shipment(
                 )
 
             location = session.get(Location, inventory.location_id)
-            picked_location = (
-                location.barcode
-                if location and location.barcode
-                else str(inventory.location_id)
-            )
+            picked_location = location.barcode if location and location.barcode else str(inventory.location_id)
 
             inventory.quantity -= allocation.quantity
             inventory.reserved_quantity -= allocation.quantity
@@ -1076,36 +943,26 @@ def confirm_shipment(
             )
 
             shipped_quantity_by_book[inventory.book_id] = (
-                shipped_quantity_by_book.get(inventory.book_id, 0)
-                + allocation.quantity
+                shipped_quantity_by_book.get(inventory.book_id, 0) + allocation.quantity
             )
 
         # 중고: 예약된 LPN을 실제 출고 상태로 변경한다.
         for allocation in used_allocations:
             inventory_used_item = session.exec(
                 select(InventoryUsedItem)
-                .where(
-                    InventoryUsedItem.id
-                    == allocation.inventory_used_item_id
-                )
+                .where(InventoryUsedItem.id == allocation.inventory_used_item_id)
                 .with_for_update()
             ).first()
             if inventory_used_item is None:
-                raise RuntimeError(
-                    "Reserved used inventory item was not found"
-                )
+                raise RuntimeError("Reserved used inventory item was not found")
 
             if inventory_used_item.status != UsedInventoryStatus.RESERVED:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail={
                         "message": "Used LPN is not reserved",
-                        "inventory_used_item_id": str(
-                            inventory_used_item.id
-                        ),
-                        "current_status": (
-                            inventory_used_item.status.value
-                        ),
+                        "inventory_used_item_id": str(inventory_used_item.id),
+                        "current_status": (inventory_used_item.status.value),
                     },
                 )
 
@@ -1114,9 +971,7 @@ def confirm_shipment(
                 inventory_used_item.location_id,
             )
             picked_location = (
-                location.barcode
-                if location and location.barcode
-                else str(inventory_used_item.location_id)
+                location.barcode if location and location.barcode else str(inventory_used_item.location_id)
             )
 
             inventory_used_item.status = UsedInventoryStatus.SHIPPED
@@ -1145,15 +1000,9 @@ def confirm_shipment(
         # 가상 재고도 실제 출고 수량만큼 감소시킨다.
         now = datetime.utcnow()
         for book_id, shipped_quantity in shipped_quantity_by_book.items():
-            book = session.exec(
-                select(Book)
-                .where(Book.id == book_id)
-                .with_for_update()
-            ).first()
+            book = session.exec(select(Book).where(Book.id == book_id).with_for_update()).first()
             if book is None:
-                raise RuntimeError(
-                    "Book for outbound inventory was not found"
-                )
+                raise RuntimeError("Book for outbound inventory was not found")
 
             book.virtual_stock = max(
                 book.virtual_stock - shipped_quantity,

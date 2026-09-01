@@ -32,16 +32,9 @@ class LabelReprintResponse(BaseModel):
         description="재출력한 라벨 유형",
     )
     label_print_status: LabelPrintStatus = Field(
-        description=(
-            "SENT=프린터 전송 완료, "
-            "SKIPPED=프린터 비활성화, "
-            "FAILED=전송 실패"
-        ),
+        description=("SENT=프린터 전송 완료, SKIPPED=프린터 비활성화, FAILED=전송 실패"),
     )
     label_print_error: str | None = Field(
         default=None,
-        description=(
-            "재출력 실패 시 작업자 안내 메시지. "
-            "프린터 IP 등 내부 설정은 포함하지 않는다."
-        ),
+        description=("재출력 실패 시 작업자 안내 메시지. 프린터 IP 등 내부 설정은 포함하지 않는다."),
     )

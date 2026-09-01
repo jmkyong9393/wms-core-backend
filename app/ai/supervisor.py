@@ -5,23 +5,24 @@ import os
 os.environ.setdefault("LANGSMITH_HIDE_INPUTS", "true")
 os.environ.setdefault("LANGSMITH_HIDE_OUTPUTS", "true")
 
-from langgraph.graph import StateGraph, START, END
-from langgraph.checkpoint.memory import MemorySaver
 import json
 
+from langchain_core.messages import AIMessage
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import END, START, StateGraph
+
 from app.domains.inspections.schemas.hitl import HITLAction, HITLReasonCode
-from .state import WMSInspectionState
+
 from .agents import (
     IMAGE_VIEWS,
-    MIN_VISION_CONFIDENCE,
     book_detector_node,
-    vision_agent,
-    policy_agent,
     critic_agent,
     human_node,
-    report_agent
+    policy_agent,
+    report_agent,
+    vision_agent,
 )
-
+from .state import WMSInspectionState
 
 MAX_REVISIONS = 2
 VISION_RETRY_CODES = {"VISION_RESULT_CONFLICT"}
@@ -64,7 +65,7 @@ def _decide_next_node(
     # 5. Critic 검증이 아직 안 됨 (또는 통과 못함) -> reason_code 검토 로직
     #    - 검증 실패 시 policy_agent 재처리 또는 human_node 에스컬레이션 구현
     # 6. Critic 검증 완벽히 통과 시 report_agent 반환
-    
+
     def route(
         node: str,
         reason: str,
@@ -485,8 +486,6 @@ def _decide_next_node(
     )
 
 
-from langchain_core.messages import AIMessage
-
 
 def supervisor_node(state: WMSInspectionState) -> WMSInspectionState:
     """Supervisor 중앙 지휘 노드 — 하위 에이전트 보고를 종합해 다음 행동을 결정한다.
@@ -568,7 +567,7 @@ def build_supervisor_graph():
     builder.add_node("report_agent", instrument("report_agent", report_agent))
 
     # TODO: 나머지 6개의 에이전트 노드 등록
-    
+
     # 2. 시작 시 무조건 supervisor로 이동 (add_edge)
     builder.add_edge(START, "supervisor")
 
@@ -587,7 +586,7 @@ def build_supervisor_graph():
         "report_agent": "report_agent",
         },
     )
-    
+
     # 4. Star Topology: 워커 에이전트 작업 후 다시 supervisor로 반환
     # TODO: 모든 일반 노드의 종료 엣지를 supervisor로 연결
     builder.add_edge("book_detector", "supervisor")
@@ -596,10 +595,10 @@ def build_supervisor_graph():
     builder.add_edge("critic_agent", "supervisor")
     builder.add_edge("human_node", "supervisor")
     builder.add_edge("technical_failure_node", END)
-    
+
     # 5. End 엣지 (종료) — MINT 포함 전 건이 report_agent 단일 출구로 종료
     builder.add_edge("report_agent", END)
-    
+
     # 6. MemorySaver 연동 (HITL 중단점)
     memory = MemorySaver()
     graph = builder.compile(checkpointer=memory, interrupt_before=["human_node"])

@@ -3,10 +3,11 @@ from sqlmodel import Session
 
 from app.api.dependencies.auth import require_admin_or_master
 from app.core.database import get_session
-from app.models.wms import User
-from app.domains.inventory.schemas.rejected_inventory import RejectedItemsDiscardResponse
 from app.domains.inventory.rejected_item_service import discard_all_rejected_items
-
+from app.domains.inventory.schemas.rejected_inventory import (
+    RejectedItemsDiscardResponse,
+)
+from app.models.wms import User
 
 router = APIRouter()
 

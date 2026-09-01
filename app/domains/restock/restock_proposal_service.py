@@ -4,6 +4,19 @@ from uuid import UUID
 
 from sqlmodel import Session, select
 
+from app.domains.inbound.inventory_admission_service import admit_new_stock
+from app.domains.inbound.location_assignment_service import (
+    assign_new_stock_location,
+)
+from app.domains.restock.restock_service import (
+    get_current_available_stock,
+    get_pending_auto_po_quantity,
+)
+from app.domains.restock.schemas.restock import (
+    RestockProposalBookResponse,
+    RestockProposalDetailResponse,
+    RestockProposalListItemResponse,
+)
 from app.models.wms import (
     Book,
     InboundItem,
@@ -18,24 +31,11 @@ from app.models.wms import (
     OrderType,
     User,
 )
-from app.domains.restock.schemas.restock import (
-    RestockProposalBookResponse,
-    RestockProposalDetailResponse,
-    RestockProposalListItemResponse,
-)
-from app.domains.inbound.inventory_admission_service import admit_new_stock
-from app.domains.inbound.location_assignment_service import (
-    NoAvailableLocationError,
-    assign_new_stock_location,
-)
-from app.domains.restock.restock_service import (
-    get_current_available_stock,
-    get_pending_auto_po_quantity,
-)
 
 
 class RestockProposalNotFoundError(LookupError):
     """요청한 테넌트에서 Restock 추천안을 찾을 수 없을 때 발생한다."""
+
 
 class InvalidRestockProposalStateError(ValueError):
     """현재 상태에서 승인 또는 반려할 수 없는 추천안일 때 발생한다."""
@@ -104,9 +104,7 @@ def get_restock_proposal_detail(
     ).first()
 
     if row is None:
-        raise RestockProposalNotFoundError(
-            f"Restock proposal was not found: {proposal_id}"
-        )
+        raise RestockProposalNotFoundError(f"Restock proposal was not found: {proposal_id}")
 
     proposal, book = row
 
@@ -126,14 +124,10 @@ def get_restock_proposal_detail(
         status=proposal.status,
         recent_sales_quantity=proposal.recent_sales_quantity,
         current_stock=proposal.current_stock,
-        pending_auto_po_quantity=(
-            proposal.pending_auto_po_quantity
-        ),
+        pending_auto_po_quantity=(proposal.pending_auto_po_quantity),
         rejected_quantity=proposal.rejected_quantity,
         rejection_reason_code=proposal.rejection_reason_code,
-        recommended_order_quantity=(
-            proposal.recommended_order_quantity
-        ),
+        recommended_order_quantity=(proposal.recommended_order_quantity),
         reason_summary=proposal.reason_summary,
         evidence=list(proposal.evidence or []),
         risk_level=proposal.risk_level,
@@ -157,15 +151,11 @@ def _build_list_item_response(
         book=_build_book_response(book),
         proposal_source=proposal.proposal_source,
         status=proposal.status,
-        recommended_order_quantity=(
-            proposal.recommended_order_quantity
-        ),
+        recommended_order_quantity=(proposal.recommended_order_quantity),
         risk_level=proposal.risk_level,
         recent_sales_quantity=proposal.recent_sales_quantity,
         current_stock=proposal.current_stock,
-        pending_auto_po_quantity=(
-            proposal.pending_auto_po_quantity
-        ),
+        pending_auto_po_quantity=(proposal.pending_auto_po_quantity),
         rejected_quantity=proposal.rejected_quantity,
         created_at=proposal.created_at,
         reviewed_at=proposal.reviewed_at,
@@ -182,6 +172,7 @@ def _build_book_response(
         publisher=book.publisher,
         cover_image_url=book.cover_image_url,
     )
+
 
 def approve_restock_proposal(
     *,
@@ -211,11 +202,9 @@ def approve_restock_proposal(
         book_id=proposal.book_id,
     )
 
-    current_pending_auto_po_quantity = (
-        get_pending_auto_po_quantity(
-            session=session,
-            book_id=proposal.book_id,
-        )
+    current_pending_auto_po_quantity = get_pending_auto_po_quantity(
+        session=session,
+        book_id=proposal.book_id,
     )
 
     # 추천안을 생성한 뒤, 다른 추천안 승인 또는 일반 신간 입고로
@@ -227,8 +216,7 @@ def approve_restock_proposal(
 
     additional_pending_quantity = max(
         0,
-        current_pending_auto_po_quantity
-        - proposal.pending_auto_po_quantity,
+        current_pending_auto_po_quantity - proposal.pending_auto_po_quantity,
     )
 
     additional_available_quantity = max(
@@ -238,9 +226,7 @@ def approve_restock_proposal(
 
     order_quantity = max(
         0,
-        proposal.recommended_order_quantity
-        - additional_pending_quantity
-        - additional_available_quantity,
+        proposal.recommended_order_quantity - additional_pending_quantity - additional_available_quantity,
     )
 
     reviewed_at = datetime.utcnow()
@@ -254,10 +240,7 @@ def approve_restock_proposal(
         proposal.status = OrderProposalStatus.NOT_REQUIRED
 
         if proposal.review_comment is None:
-            proposal.review_comment = (
-                "승인 시점에 진행 중인 AUTO_PO 수량이 증가하여 "
-                "추가 발주가 필요하지 않습니다."
-            )
+            proposal.review_comment = "승인 시점에 진행 중인 AUTO_PO 수량이 증가하여 추가 발주가 필요하지 않습니다."
 
         session.add(proposal)
         session.commit()
@@ -267,10 +250,7 @@ def approve_restock_proposal(
             proposal=proposal,
             auto_po_created=False,
             ordered_quantity=0,
-            message=(
-                "진행 중 AUTO_PO 수량을 반영한 결과 "
-                "추가 발주가 필요하지 않습니다."
-            ),
+            message=("진행 중 AUTO_PO 수량을 반영한 결과 추가 발주가 필요하지 않습니다."),
         )
 
     auto_po_order = Order(
@@ -320,7 +300,7 @@ def approve_restock_proposal(
     inbound_item.location_id = location.id
     session.add(inbound_item)
 
-    inventory = admit_new_stock(
+    admit_new_stock(
         session=session,
         inbound_item=inbound_item,
         book=book,
@@ -345,10 +325,7 @@ def approve_restock_proposal(
         proposal=proposal,
         auto_po_created=True,
         ordered_quantity=order_quantity,
-        message=(
-            f"{order_quantity}권의 AUTO_PO 주문을 생성하고 "
-            "신간 재고에 즉시 편입했습니다."
-        ),
+        message=(f"{order_quantity}권의 AUTO_PO 주문을 생성하고 신간 재고에 즉시 편입했습니다."),
     )
 
 
@@ -391,6 +368,7 @@ def reject_restock_proposal(
         message="Restock 추천안을 반려했습니다.",
     )
 
+
 def _lock_auto_po_approval_book(
     session: Session,
     book_id: UUID,
@@ -402,18 +380,13 @@ def _lock_auto_po_approval_book(
     books 테이블의 고유 행을 SELECT FOR UPDATE로 직접 잠근다.
     따라서 해시 충돌 없이 동일 도서 기준으로만 동시 승인을 제어한다.
     """
-    book = session.exec(
-        select(Book)
-        .where(Book.id == book_id)
-        .with_for_update()
-    ).first()
+    book = session.exec(select(Book).where(Book.id == book_id).with_for_update()).first()
 
     if book is None:
-        raise RuntimeError(
-            f"Restock proposal book was not found: {book_id}"
-        )
+        raise RuntimeError(f"Restock proposal book was not found: {book_id}")
 
     return book
+
 
 def _get_restock_proposal_for_update(
     *,
@@ -433,9 +406,7 @@ def _get_restock_proposal_for_update(
     ).first()
 
     if row is None:
-        raise RestockProposalNotFoundError(
-            f"Restock proposal was not found: {proposal_id}"
-        )
+        raise RestockProposalNotFoundError(f"Restock proposal was not found: {proposal_id}")
 
     return row
 
@@ -445,7 +416,4 @@ def _validate_pending_proposal(
 ) -> None:
     """승인·반려는 아직 검토되지 않은 PENDING 추천안에서만 허용한다."""
     if proposal.status != OrderProposalStatus.PENDING:
-        raise InvalidRestockProposalStateError(
-            "Restock proposal is not pending. "
-            f"current_status={proposal.status}"
-        )
+        raise InvalidRestockProposalStateError(f"Restock proposal is not pending. current_status={proposal.status}")

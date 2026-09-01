@@ -7,7 +7,12 @@ from sqlalchemy import func, update
 from sqlmodel import Session, select
 
 from app.core.database import engine
-
+from app.domains.notifications.schemas.notification import (
+    MarkAllNotificationsReadResponse,
+    MarkNotificationReadResponse,
+    NotificationListResponse,
+    NotificationResponse,
+)
 from app.models.wms import (
     Notification,
     NotificationCategory,
@@ -17,13 +22,6 @@ from app.models.wms import (
     UserRole,
     UserStatus,
 )
-from app.domains.notifications.schemas.notification import (
-    MarkAllNotificationsReadResponse,
-    MarkNotificationReadResponse,
-    NotificationListResponse,
-    NotificationResponse,
-)
-
 
 DEFAULT_NOTIFICATION_LIMIT = 50
 
@@ -177,10 +175,7 @@ def get_notifications_for_user(
     ).one()
 
     return NotificationListResponse(
-        items=[
-            build_notification_response(notification, recipient)
-            for notification, recipient in rows
-        ],
+        items=[build_notification_response(notification, recipient) for notification, recipient in rows],
         unread_count=unread_count,
     )
 
@@ -250,4 +245,3 @@ def mark_all_notifications_as_read(
     return MarkAllNotificationsReadResponse(
         updated_count=result.rowcount or 0,
     )
-

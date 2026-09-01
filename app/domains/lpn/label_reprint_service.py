@@ -1,17 +1,17 @@
 from fastapi import HTTPException, status
 from sqlmodel import Session, select
 
+from app.domains.books.certificate_service import extract_report_summary
+from app.domains.lpn.schemas.label import LabelType
+from app.domains.lpn.zpl_label_service import (
+    build_lpn_label_zpl,
+    build_ubci_label_zpl,
+)
 from app.models.wms import (
     InboundItem,
     InventoryUsedItem,
     ReturnJob,
     UsedInventoryStatus,
-)
-from app.domains.lpn.schemas.label import LabelType
-from app.domains.books.certificate_service import extract_report_summary
-from app.domains.lpn.zpl_label_service import (
-    build_lpn_label_zpl,
-    build_ubci_label_zpl,
 )
 
 
@@ -33,10 +33,7 @@ def build_label_reprint_zpl(
         )
     ).first()
 
-    if (
-        inbound_item is None
-        or inbound_item.certificate_token is None
-    ):
+    if inbound_item is None or inbound_item.certificate_token is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="LPN label source was not found",
@@ -50,10 +47,7 @@ def build_label_reprint_zpl(
         )
     ).first()
 
-    if (
-        inventory_item is not None
-        and inventory_item.status == UsedInventoryStatus.SHIPPED
-    ):
+    if inventory_item is not None and inventory_item.status == UsedInventoryStatus.SHIPPED:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Label cannot be reprinted for a shipped item",
@@ -68,10 +62,7 @@ def build_label_reprint_zpl(
     if inventory_item is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "UBCI label is available after sellable inventory "
-                "is created"
-            ),
+            detail=("UBCI label is available after sellable inventory is created"),
         )
 
     if inventory_item.ubci_score is None:
@@ -92,10 +83,7 @@ def build_label_reprint_zpl(
         )
     ).first()
 
-    if (
-        return_job is None
-        or extract_report_summary(return_job.final_report) is None
-    ):
+    if return_job is None or extract_report_summary(return_job.final_report) is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Public quality certificate is not ready",

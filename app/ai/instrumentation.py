@@ -17,6 +17,8 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List
 
+from langchain_core.callbacks import BaseCallbackHandler
+
 logger = logging.getLogger(__name__)
 
 # 현재 실행 중인 노드 이름과 그 노드의 토큰 수집함.
@@ -45,9 +47,6 @@ def _cost(model: str, prompt: int, completion: int) -> float:
             p = _PRICE[key]
             return prompt / 1000 * p["in"] + completion / 1000 * p["out"]
     return 0.0
-
-
-from langchain_core.callbacks import BaseCallbackHandler
 
 
 class TokenCollector(BaseCallbackHandler):
@@ -130,13 +129,15 @@ def instrument(name: str, fn: Callable) -> Callable:
 
         try:
             out.setdefault("node_timings", [])
-            out["node_timings"] = list(out["node_timings"]) + [
-                {"node": name, "ms": ms, "at": _now_kst_iso()}
+            out["node_timings"] = [
+                *out["node_timings"],
+                {"node": name, "ms": ms, "at": _now_kst_iso()},
             ]
             # 토큰이 0인 노드(결정론적 노드)는 기록하지 않는다 — 목록이 의미 없이 길어진다.
             if sink:
                 out.setdefault("node_tokens", [])
-                out["node_tokens"] = list(out["node_tokens"]) + [
+                out["node_tokens"] = [
+                    *out["node_tokens"],
                     {
                         "node": name,
                         "prompt": sum(x["prompt"] for x in sink),

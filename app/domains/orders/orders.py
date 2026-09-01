@@ -5,9 +5,10 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlmodel import Session, select
 from sqlalchemy import func
+from sqlmodel import Session, select
 
+from app.api.dependencies.auth import require_wms_operator
 from app.core.database import get_session
 from app.models.wms import (
     Book,
@@ -19,8 +20,6 @@ from app.models.wms import (
     User,
 )
 
-from app.api.dependencies.auth import require_wms_operator
-
 router = APIRouter()
 
 
@@ -28,9 +27,7 @@ class OrderItemRequest(BaseModel):
     book_id: UUID = Field(description="주문할 도서 마스터 ID")
     condition_grade: Optional[ConditionGrade] = Field(
         default=None,
-        description=(
-            "중고 단품 주문 등급. 값이 없으면 신간 묶음 재고 주문으로 처리"
-        ),
+        description=("중고 단품 주문 등급. 값이 없으면 신간 묶음 재고 주문으로 처리"),
     )
     quantity: int = Field(gt=0, description="주문 수량")
 
@@ -74,6 +71,7 @@ class CreateOrderResponse(BaseModel):
     applied_discount: str = Field(description="적용된 할인 정책 식별자")
     status: OrderStatus = Field(description="주문 처리 상태")
 
+
 class OrderListItemResponse(BaseModel):
     id: UUID
     customer_name: str
@@ -81,6 +79,7 @@ class OrderListItemResponse(BaseModel):
     total_price: Decimal
     logistics_center: str | None = None
     created_at: datetime
+
 
 class OrderListResponse(BaseModel):
     items: list[OrderListItemResponse]
@@ -127,10 +126,7 @@ def list_outbound_orders(
     ).one()
 
     orders = session.exec(
-        base_statement
-        .order_by(Order.created_at.desc(), Order.id.desc())
-        .offset((page - 1) * size)
-        .limit(size)
+        base_statement.order_by(Order.created_at.desc(), Order.id.desc()).offset((page - 1) * size).limit(size)
     ).all()
 
     return OrderListResponse(
@@ -150,6 +146,7 @@ def list_outbound_orders(
         size=size,
         total_pages=(total + size - 1) // size if total else 0,
     )
+
 
 @router.post(
     "",
@@ -174,11 +171,7 @@ def create_order(
     request: CreateOrderRequest,
     session: Session = Depends(get_session),
 ):
-    rejected_book_ids = [
-        item.book_id
-        for item in request.items
-        if item.condition_grade == ConditionGrade.REJECT
-    ]
+    rejected_book_ids = [item.book_id for item in request.items if item.condition_grade == ConditionGrade.REJECT]
     if rejected_book_ids:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -191,9 +184,7 @@ def create_order(
     new_stock_quantities: dict[UUID, int] = {}
     for item in request.items:
         if item.condition_grade is None:
-            new_stock_quantities[item.book_id] = (
-                new_stock_quantities.get(item.book_id, 0) + item.quantity
-            )
+            new_stock_quantities[item.book_id] = new_stock_quantities.get(item.book_id, 0) + item.quantity
 
     requested_book_ids = {item.book_id for item in request.items}
     books = session.exec(select(Book).where(Book.id.in_(requested_book_ids))).all()
@@ -209,9 +200,7 @@ def create_order(
             },
         )
 
-    unpriced_books = [
-        book_id for book_id, book in books_by_id.items() if book.base_price <= 0
-    ]
+    unpriced_books = [book_id for book_id, book in books_by_id.items() if book.base_price <= 0]
     if unpriced_books:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -221,10 +210,7 @@ def create_order(
             },
         )
 
-    total_price = sum(
-        books_by_id[item.book_id].base_price * item.quantity
-        for item in request.items
-    )
+    total_price = sum(books_by_id[item.book_id].base_price * item.quantity for item in request.items)
 
     order = Order(
         customer_id=request.customer_id,

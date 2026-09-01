@@ -7,29 +7,28 @@ from fastapi.responses import StreamingResponse
 from sqlmodel import Session
 
 from app.api.dependencies.auth import require_admin_or_master
-from app.core.database import get_session
 from app.core.config import settings
-from app.models.wms import User
+from app.core.database import get_session
+from app.core.redis_pubsub import get_tenant_notification_channel
+from app.core.sse_ticket_service import (
+    issue_notification_sse_ticket,
+    validate_notification_sse_ticket,
+)
+from app.domains.notifications.notification_service import (
+    get_notifications_for_user,
+    mark_all_notifications_as_read,
+    mark_notification_as_read,
+)
 from app.domains.notifications.schemas.notification import (
     MarkAllNotificationsReadResponse,
     MarkNotificationReadResponse,
     NotificationListResponse,
     NotificationStreamTicketResponse,
 )
-
-from app.domains.notifications.notification_service import (
-    get_notifications_for_user,
-    mark_all_notifications_as_read,
-    mark_notification_as_read,
-)
-from app.core.redis_pubsub import get_tenant_notification_channel
-from app.core.sse_ticket_service import (
-    issue_notification_sse_ticket,
-    validate_notification_sse_ticket,
-)
-
+from app.models.wms import User
 
 router = APIRouter()
+
 
 @router.post(
     "/stream-ticket",
@@ -115,6 +114,7 @@ def mark_notification_read(
         session.rollback()
         raise
 
+
 @router.get(
     "/stream",
     summary="알림센터 SSE 스트림 연결",
@@ -146,10 +146,7 @@ async def stream_notifications(
         try:
             await pubsub.subscribe(channel)
 
-            yield (
-                "event: connected\n"
-                f"data: {json.dumps({'tenant_id': tenant_id})}\n\n"
-            )
+            yield (f"event: connected\ndata: {json.dumps({'tenant_id': tenant_id})}\n\n")
 
             while not await request.is_disconnected():
                 message = await pubsub.get_message(
@@ -164,10 +161,7 @@ async def stream_notifications(
                 if message["type"] != "message":
                     continue
 
-                yield (
-                    "event: notification\n"
-                    f"data: {message['data']}\n\n"
-                )
+                yield (f"event: notification\ndata: {message['data']}\n\n")
 
         finally:
             await pubsub.unsubscribe(channel)

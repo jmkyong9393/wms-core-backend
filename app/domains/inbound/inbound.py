@@ -8,6 +8,15 @@ from sqlalchemy import func, text
 from sqlmodel import Session, select
 
 from app.core.database import get_session
+from app.domains.inbound.inventory_admission_service import admit_new_stock
+from app.domains.inbound.location_assignment_service import (
+    NoAvailableLocationError,
+    assign_new_stock_location,
+)
+from app.domains.inbound.schemas.new_stock_inbound import (
+    NewStockInboundRequest,
+    NewStockInboundResponse,
+)
 from app.models.wms import (
     Book,
     InboundItem,
@@ -17,37 +26,18 @@ from app.models.wms import (
     Inventory,
     Location,
 )
-from app.domains.inbound.schemas.new_stock_inbound import (
-    NewStockInboundRequest,
-    NewStockInboundResponse,
-)
-from app.domains.inbound.location_assignment_service import (
-    NoAvailableLocationError,
-    assign_new_stock_location,
-)
-from app.domains.inbound.inventory_admission_service import admit_new_stock
 
 router = APIRouter()
 
 
 def _lock_new_stock_request(session: Session, request_id: UUID) -> None:
     session.exec(
-        text(
-            "SELECT pg_advisory_xact_lock("
-            "hashtextextended(:request_id, 0)"
-            ")"
-        ).bindparams(request_id=str(request_id))
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:request_id, 0))").bindparams(request_id=str(request_id))
     )
 
 
 def _lock_new_stock_isbn(session: Session, isbn: str) -> None:
-    session.exec(
-        text(
-            "SELECT pg_advisory_xact_lock("
-            "hashtextextended(:isbn, 0)"
-            ")"
-        ).bindparams(isbn=isbn)
-    )
+    session.exec(text("SELECT pg_advisory_xact_lock(hashtextextended(:isbn, 0))").bindparams(isbn=isbn))
 
 
 def _build_new_stock_response(
@@ -91,11 +81,7 @@ class InboundHistoryItemResponse(BaseModel):
         "로케이션을 확정합니다. 신간에는 LPN과 품질 등급을 발급하지 않습니다."
     ),
     responses={
-        409: {
-            "description": (
-                "Idempotency-Key 충돌 또는 적재 가능한 로케이션 없음"
-            )
-        },
+        409: {"description": ("Idempotency-Key 충돌 또는 적재 가능한 로케이션 없음")},
     },
 )
 def create_new_stock_inbound(
@@ -117,9 +103,7 @@ def create_new_stock_inbound(
             existing_job = session.get(InboundJob, existing_item.inbound_job_id)
             existing_book = session.get(Book, existing_item.book_id)
             if existing_job is None or existing_book is None:
-                raise RuntimeError(
-                    "Existing new stock intake is missing lifecycle records"
-                )
+                raise RuntimeError("Existing new stock intake is missing lifecycle records")
             existing_inventory_query = (
                 select(Inventory, Location)
                 .join(Location, Inventory.location_id == Location.id)
@@ -162,9 +146,7 @@ def create_new_stock_inbound(
             session.commit()
             return response
         _lock_new_stock_isbn(session, request.isbn)
-        book = session.exec(
-            select(Book).where(Book.isbn == request.isbn)
-        ).first()
+        book = session.exec(select(Book).where(Book.isbn == request.isbn)).first()
         if book is None:
             book = Book(
                 isbn=request.isbn,
@@ -248,9 +230,7 @@ def get_inbound_history(
     ),
     session: Session = Depends(get_session),
 ):
-    inbound_jobs = session.exec(
-        select(InboundJob).order_by(InboundJob.created_at.desc()).limit(limit)
-    ).all()
+    inbound_jobs = session.exec(select(InboundJob).order_by(InboundJob.created_at.desc()).limit(limit)).all()
     if not inbound_jobs:
         return []
 
@@ -263,10 +243,7 @@ def get_inbound_history(
         .where(InboundItem.inbound_job_id.in_(inbound_job_ids))
         .group_by(InboundItem.inbound_job_id)
     ).all()
-    quantity_by_job_id = {
-        inbound_job_id: int(total_quantity)
-        for inbound_job_id, total_quantity in quantity_rows
-    }
+    quantity_by_job_id = {inbound_job_id: int(total_quantity) for inbound_job_id, total_quantity in quantity_rows}
 
     return [
         InboundHistoryItemResponse(

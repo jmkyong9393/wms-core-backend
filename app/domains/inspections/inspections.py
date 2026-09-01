@@ -1,6 +1,6 @@
+import logging
 from datetime import datetime
 from uuid import UUID
-import logging
 
 from fastapi import (
     APIRouter,
@@ -16,6 +16,30 @@ from app.api.dependencies.auth import (
     require_admin_or_master,
 )
 from app.core.database import get_session
+from app.core.exceptions import HITLTaskDispatchException
+from app.core.redis_pubsub import publish_return_job_event
+from app.core.sse_ticket_service import issue_sse_ticket
+from app.domains.inspections.hitl_service import (
+    clear_hitl_dispatch_backup,
+    restore_hitl_after_dispatch_failure,
+    save_hitl_decision,
+    start_hitl_review,
+)
+from app.domains.inspections.hitl_task_service import (
+    create_hitl_task_id,
+    dispatch_hitl_followup_task,
+)
+from app.domains.inspections.inspection_image_service import (
+    InspectionImageValidationError,
+    normalize_cloudfront_image_urls,
+)
+from app.domains.inspections.inspection_task_service import enqueue_inspection
+from app.domains.inspections.schemas.hitl import (
+    HITLAction,
+    HITLDecisionRequest,
+    HITLDecisionResponse,
+    HITLReviewStartResponse,
+)
 from app.models.wms import (
     ConditionGrade,
     InboundItem,
@@ -27,35 +51,6 @@ from app.models.wms import (
     ReturnJobStatus,
     User,
 )
-
-from app.domains.inspections.schemas.hitl import (
-    HITLAction,
-    HITLDecisionRequest,
-    HITLDecisionResponse,
-    HITLReviewStartResponse,
-)
-
-from app.domains.inspections.hitl_service import (
-    clear_hitl_dispatch_backup,
-    restore_hitl_after_dispatch_failure,
-    save_hitl_decision,
-    start_hitl_review,
-) 
-from app.domains.inspections.hitl_task_service import (
-    create_hitl_task_id,
-    dispatch_hitl_followup_task,
-)
-from app.domains.inspections.inspection_image_service import (
-    InspectionImageValidationError,
-    normalize_cloudfront_image_urls,
-)
-from app.domains.inspections.inspection_task_service import enqueue_inspection
-from app.core.sse_ticket_service import issue_sse_ticket
-from app.core.redis_pubsub import publish_return_job_event
-
-
-from app.core.exceptions import HITLTaskDispatchException
-
 
 router = APIRouter()
 
@@ -74,14 +69,8 @@ class CreateInspectionRequest(BaseModel):
         ),
         examples=[
             [
-                (
-                    "https://d3j61tpuly7r0p.cloudfront.net/"
-                    "uploads/cover.jpg"
-                ),
-                (
-                    "https://d3j61tpuly7r0p.cloudfront.net/"
-                    "uploads/inside-1.jpg"
-                ),
+                ("https://d3j61tpuly7r0p.cloudfront.net/uploads/cover.jpg"),
+                ("https://d3j61tpuly7r0p.cloudfront.net/uploads/inside-1.jpg"),
             ]
         ],
     )
@@ -94,6 +83,7 @@ class CreateInspectionResponse(BaseModel):
     message: str
     stream_ticket_url: str
 
+
 class InspectionStatusResponse(BaseModel):
     job_id: UUID
     task_id: str | None
@@ -104,16 +94,15 @@ class InspectionStatusResponse(BaseModel):
     final_report: str | None
     original_image_urls: list[str] = Field(
         default_factory=list,
-        description=(
-            "검수 또는 재검수 요청에 사용되어 DB에 저장된 "
-            "CloudFront 이미지 URL 목록"
-        ),
+        description=("검수 또는 재검수 요청에 사용되어 DB에 저장된 CloudFront 이미지 URL 목록"),
     )
+
 
 class StreamTicketResponse(BaseModel):
     ticket: str
     stream_url: str
     expires_in: int
+
 
 class RecheckInspectionRequest(BaseModel):
     image_paths: list[str] = Field(
@@ -125,17 +114,12 @@ class RecheckInspectionRequest(BaseModel):
         ),
         examples=[
             [
-                (
-                    "https://d3j61tpuly7r0p.cloudfront.net/"
-                    "uploads/recheck-cover.jpg"
-                ),
-                (
-                    "https://d3j61tpuly7r0p.cloudfront.net/"
-                    "uploads/recheck-defect-1.jpg"
-                ),
+                ("https://d3j61tpuly7r0p.cloudfront.net/uploads/recheck-cover.jpg"),
+                ("https://d3j61tpuly7r0p.cloudfront.net/uploads/recheck-defect-1.jpg"),
             ]
         ],
     )
+
 
 class RecheckInspectionResponse(BaseModel):
     job_id: UUID
@@ -143,7 +127,6 @@ class RecheckInspectionResponse(BaseModel):
     status: ReturnJobStatus
     message: str
     stream_ticket_url: str
-
 
 
 # 진행률
@@ -188,9 +171,7 @@ def create_inspection(
     session: Session = Depends(get_session),
 ) -> CreateInspectionResponse:
     try:
-        normalized_image_paths = normalize_cloudfront_image_urls(
-            request.image_paths
-        )
+        normalized_image_paths = normalize_cloudfront_image_urls(request.image_paths)
     except InspectionImageValidationError as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -198,9 +179,7 @@ def create_inspection(
         ) from error
 
     inbound_item = session.exec(
-        select(InboundItem)
-        .where(InboundItem.id == request.inbound_item_id)
-        .with_for_update()
+        select(InboundItem).where(InboundItem.id == request.inbound_item_id).with_for_update()
     ).first()
     if inbound_item is None:
         raise HTTPException(
@@ -236,14 +215,9 @@ def create_inspection(
         )
 
     existing_return_job = session.exec(
-        select(ReturnJob)
-        .where(ReturnJob.inbound_item_id == inbound_item.id)
-        .order_by(ReturnJob.created_at.desc())
+        select(ReturnJob).where(ReturnJob.inbound_item_id == inbound_item.id).order_by(ReturnJob.created_at.desc())
     ).first()
-    if (
-        existing_return_job is not None
-        and existing_return_job.status != ReturnJobStatus.FAILED
-    ):
+    if existing_return_job is not None and existing_return_job.status != ReturnJobStatus.FAILED:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Inbound item already has an inspection job",
@@ -270,10 +244,7 @@ def create_inspection(
     except Exception as error:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                "검수 작업을 비동기 처리 큐에 등록하지 못했습니다. "
-                "잠시 후 다시 시도해 주세요."
-            ),
+            detail=("검수 작업을 비동기 처리 큐에 등록하지 못했습니다. 잠시 후 다시 시도해 주세요."),
             headers={"Retry-After": "5"},
         ) from error
 
@@ -282,11 +253,9 @@ def create_inspection(
         task_id=task_id,
         status=return_job.status,
         message="검수 파이프라인 가동 시작",
-        stream_ticket_url=(
-            f"/api/v1/inspections/"
-            f"{return_job.id}/stream-ticket"
-        ),
+        stream_ticket_url=(f"/api/v1/inspections/{return_job.id}/stream-ticket"),
     )
+
 
 # 개별 작업 조회 API 추가
 @router.get(
@@ -322,11 +291,7 @@ def get_inspection_status(
     agent_logs = return_job.agent_logs or {}
     wms_task_id = agent_logs.get("wms_task_id")
 
-    current_task_id = (
-        str(wms_task_id)
-        if wms_task_id
-        else return_job.task_id
-    )
+    current_task_id = str(wms_task_id) if wms_task_id else return_job.task_id
 
     return InspectionStatusResponse(
         job_id=return_job.id,
@@ -336,11 +301,9 @@ def get_inspection_status(
         ubci_score=return_job.ubci_score,
         condition_grade=return_job.condition_grade,
         final_report=return_job.final_report,
-        original_image_urls=[
-            str(image_url)
-            for image_url in (return_job.image_paths or [])
-        ],
+        original_image_urls=[str(image_url) for image_url in (return_job.image_paths or [])],
     )
+
 
 # 재촬영 이미지 등록 API
 @router.post(
@@ -368,9 +331,7 @@ def recheck_inspection(
     session: Session = Depends(get_session),
 ) -> RecheckInspectionResponse:
     try:
-        normalized_image_paths = normalize_cloudfront_image_urls(
-            request.image_paths
-        )
+        normalized_image_paths = normalize_cloudfront_image_urls(request.image_paths)
     except InspectionImageValidationError as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -397,10 +358,7 @@ def recheck_inspection(
     if return_job.status != ReturnJobStatus.RECHECK_REQUIRED:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "재촬영 이미지를 등록할 수 있는 상태가 아닙니다. "
-                f"현재 상태: {return_job.status.value}"
-            ),
+            detail=(f"재촬영 이미지를 등록할 수 있는 상태가 아닙니다. 현재 상태: {return_job.status.value}"),
         )
 
     # 기존 이미지를 재촬영 이미지로 교체
@@ -460,9 +418,7 @@ def recheck_inspection(
             failed_job.task_id = None
 
             failed_logs = dict(failed_job.agent_logs or {})
-            failed_hitl_logs = dict(
-                failed_logs.get("hitl") or {}
-            )
+            failed_hitl_logs = dict(failed_logs.get("hitl") or {})
 
             failed_hitl_logs.update(
                 {
@@ -481,10 +437,7 @@ def recheck_inspection(
 
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                "재검수 작업을 비동기 처리 큐에 등록하지 못했습니다. "
-                "잠시 후 다시 시도해 주세요."
-            ),
+            detail=("재검수 작업을 비동기 처리 큐에 등록하지 못했습니다. 잠시 후 다시 시도해 주세요."),
             headers={"Retry-After": "5"},
         ) from error
 
@@ -509,15 +462,10 @@ def recheck_inspection(
         job_id=return_job.id,
         task_id=task_id,
         status=return_job.status,
-        message=(
-            "재촬영 이미지가 등록되었으며 "
-            "AI 재검수를 시작합니다."
-        ),
-        stream_ticket_url=(
-            f"/api/v1/inspections/"
-            f"{return_job.id}/stream-ticket"
-        ),
+        message=("재촬영 이미지가 등록되었으며 AI 재검수를 시작합니다."),
+        stream_ticket_url=(f"/api/v1/inspections/{return_job.id}/stream-ticket"),
     )
+
 
 @router.post(
     "/{job_id}/hitl/start",
@@ -547,12 +495,9 @@ def start_inspection_hitl_review(
         reviewer_employee_id=current_admin.employee_id,
         review_started_at=return_job.hitl_review_started_at,
         already_claimed_by_me=already_claimed_by_me,
-        message=(
-            "이미 내가 검토 중인 건입니다."
-            if already_claimed_by_me
-            else "검토를 시작했습니다."
-        ),
+        message=("이미 내가 검토 중인 건입니다." if already_claimed_by_me else "검토를 시작했습니다."),
     )
+
 
 # ADMIN이 HITL_REQUIRED 검수 작업에 최종 판단을 내리는 API
 @router.post(
@@ -578,7 +523,7 @@ def resolve_hitl_inspection(
     current_admin: User = Depends(require_admin_or_master),
     session: Session = Depends(get_session),
 ) -> HITLDecisionResponse:
-    
+
     # 관리자 판단 이후 실행할 WMS 처리 또는 AI 재검수 Task ID 생성
     requires_wms_task = request.action in {
         HITLAction.APPROVE_NORMAL,
@@ -587,11 +532,7 @@ def resolve_hitl_inspection(
         HITLAction.REJECT_DISCARD,
     }
 
-    task_id = (
-        create_hitl_task_id()
-        if requires_wms_task
-        else None
-    )
+    task_id = create_hitl_task_id() if requires_wms_task else None
 
     # 관리자 판단 내용과 후속 Task ID를 ReturnJob에 저장
     return_job = save_hitl_decision(
@@ -623,7 +564,6 @@ def resolve_hitl_inspection(
                 return_job.id,
             )
 
-    
     # 관리자 판단 종류에 따라 WMS 처리 또는 AI 재검수 Task 등록
     if requires_wms_task:
         try:
@@ -646,8 +586,7 @@ def resolve_hitl_inspection(
 
             raise HITLTaskDispatchException() from error
 
-
-    # Celery 작업 등록 성공 후 임시 복구 백업 제거
+        # Celery 작업 등록 성공 후 임시 복구 백업 제거
         try:
             return_job = clear_hitl_dispatch_backup(
                 session=session,
@@ -659,44 +598,26 @@ def resolve_hitl_inspection(
             session.rollback()
 
             logger.exception(
-                "HITL 임시 백업 데이터 제거 실패: "
-                "job_id=%s, task_id=%s",
+                "HITL 임시 백업 데이터 제거 실패: job_id=%s, task_id=%s",
                 return_job.id,
                 task_id,
             )
-    
+
     # 관리자 판단 종류에 맞는 응답 메시지 생성
     if request.action == HITLAction.APPROVE_NORMAL:
-        message = (
-            "정상 승인 결과가 저장되었으며 "
-            "기존 AI 판정 등급을 기준으로 "
-            "WMS 입고 처리를 시작합니다."
-        )
+        message = "정상 승인 결과가 저장되었으며 기존 AI 판정 등급을 기준으로 WMS 입고 처리를 시작합니다."
 
     elif request.action == HITLAction.APPROVE_DOWNGRADE:
-        message = (
-            f"하향 승인 결과가 저장되었으며 "
-            f"{request.target_grade.value}등급으로 "
-            "WMS 입고 처리를 시작합니다."
-        )
+        message = f"하향 승인 결과가 저장되었으며 {request.target_grade.value}등급으로 WMS 입고 처리를 시작합니다."
 
     elif request.action == HITLAction.REJECT_RETURN:
-        message = (
-            "고객 반송 결정이 저장되었으며 "
-            "WMS 반려 처리를 시작합니다."
-        )
+        message = "고객 반송 결정이 저장되었으며 WMS 반려 처리를 시작합니다."
 
     elif request.action == HITLAction.REJECT_DISCARD:
-        message = (
-            "자체 폐기 결정이 저장되었으며 "
-            "WMS 반려 처리를 시작합니다."
-        )
+        message = "자체 폐기 결정이 저장되었으며 WMS 반려 처리를 시작합니다."
 
     else:
-        message = (
-            "재촬영 요청이 저장되었습니다. "
-            "새 이미지가 등록되면 검수를 다시 시작합니다."
-        )
+        message = "재촬영 요청이 저장되었습니다. 새 이미지가 등록되면 검수를 다시 시작합니다."
 
     # 관리자 판단 접수 결과 반환
     return HITLDecisionResponse(
@@ -706,8 +627,6 @@ def resolve_hitl_inspection(
         task_id=task_id,
         message=message,
     )
-
-
 
 
 # 티켓 발급 API
@@ -750,10 +669,6 @@ async def create_stream_ticket(
 
     return StreamTicketResponse(
         ticket=ticket,
-        stream_url=(
-            f"/api/v1/inspections/"
-            f"{return_job.id}/stream"
-            f"?ticket={ticket}"
-        ),
+        stream_url=(f"/api/v1/inspections/{return_job.id}/stream?ticket={ticket}"),
         expires_in=expires_in,
     )

@@ -3,16 +3,13 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.wms import InboundStatus, InboundType
-
 from app.domains.lpn.schemas.label import LabelPrintStatus
-
+from app.models.wms import InboundStatus, InboundType
 
 UsedInboundType = Literal[
     InboundType.USED_PURCHASE,
     InboundType.CUSTOMER_RETURN,
 ]
-
 
 
 class UsedBookInboundRequest(BaseModel):
@@ -44,10 +41,7 @@ class UsedBookInboundResponse(BaseModel):
     book_id: UUID = Field(description="도서 마스터 ID")
     lpn_barcode: str = Field(description="검수 전 발급된 단품 추적 LPN")
     certificate_url: str | None = Field(
-        description=(
-            "일반 소비자가 품질보증서를 직접 조회하는 공개 URL. "
-            "검수 완료 전에는 품질보증서를 조회할 수 없다."
-        )
+        description=("일반 소비자가 품질보증서를 직접 조회하는 공개 URL. 검수 완료 전에는 품질보증서를 조회할 수 없다.")
     )
     label_scan_url: str = Field(
         description=(
@@ -66,8 +60,5 @@ class UsedBookInboundResponse(BaseModel):
     )
     label_print_error: str | None = Field(
         default=None,
-        description=(
-            "라벨 전송 실패 시 작업자에게 표시할 안내 메시지. "
-            "프린터 IP 등 내부 설정 정보는 포함하지 않는다."
-        ),
+        description=("라벨 전송 실패 시 작업자에게 표시할 안내 메시지. 프린터 IP 등 내부 설정 정보는 포함하지 않는다."),
     )

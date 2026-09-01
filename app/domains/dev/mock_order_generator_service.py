@@ -7,6 +7,9 @@ from uuid import UUID, uuid4
 from sqlalchemy import func
 from sqlmodel import Session, select
 
+from app.domains.dev.demo_inventory_service import (
+    DEMO_OUTBOUND_BOOK_ISBN,
+)
 from app.models.wms import (
     Book,
     ConditionGrade,
@@ -18,10 +21,6 @@ from app.models.wms import (
     OrderType,
     UsedInventoryStatus,
 )
-from app.domains.dev.demo_inventory_service import (
-    DEMO_OUTBOUND_BOOK_ISBN,
-)
-
 
 MockOrderSource = Literal["NEW_STOCK", "USED_LPN"]
 
@@ -82,9 +81,7 @@ def create_mock_outbound_order(
         else 1
     )
 
-    total_price = (
-        candidate.book.base_price * order_quantity
-    )
+    total_price = candidate.book.base_price * order_quantity
 
     order = Order(
         customer_id=uuid4(),
@@ -132,9 +129,7 @@ def _find_new_stock_candidate(
     statement = (
         select(
             Inventory.book_id,
-            func.sum(
-                Inventory.quantity - Inventory.reserved_quantity
-            ).label("physical_available_quantity"),
+            func.sum(Inventory.quantity - Inventory.reserved_quantity).label("physical_available_quantity"),
         )
         .join(Book, Inventory.book_id == Book.id)
         .where(
@@ -145,34 +140,22 @@ def _find_new_stock_candidate(
     )
 
     if target_isbn is not None:
-        statement = statement.where(
-            Book.isbn == target_isbn
-        )
+        statement = statement.where(Book.isbn == target_isbn)
     else:
-        statement = statement.where(
-            Book.isbn != DEMO_OUTBOUND_BOOK_ISBN
-        )
+        statement = statement.where(Book.isbn != DEMO_OUTBOUND_BOOK_ISBN)
 
-    inventory_rows = session.exec(
-        statement
-        .group_by(Inventory.book_id)
-        .order_by(Inventory.book_id)
-    ).all()
+    inventory_rows = session.exec(statement.group_by(Inventory.book_id).order_by(Inventory.book_id)).all()
 
     candidates: list[MockOrderCandidate] = []
 
     for book_id, physical_available_quantity in inventory_rows:
-        physical_available = int(
-            physical_available_quantity or 0
-        )
+        physical_available = int(physical_available_quantity or 0)
         pending_quantity = pending_quantities.get(
             book_id,
             0,
         )
 
-        available_quantity = (
-            physical_available - pending_quantity
-        )
+        available_quantity = physical_available - pending_quantity
 
         if available_quantity <= 0:
             continue
@@ -206,19 +189,15 @@ def _find_used_lpn_candidate(
         select(
             InventoryUsedItem.book_id,
             InventoryUsedItem.condition_grade,
-            func.count(InventoryUsedItem.id).label(
-                "available_lpn_count"
-            ),
+            func.count(InventoryUsedItem.id).label("available_lpn_count"),
         )
         .join(
             Book,
             InventoryUsedItem.book_id == Book.id,
         )
         .where(
-            InventoryUsedItem.status
-            == UsedInventoryStatus.AVAILABLE,
-            InventoryUsedItem.condition_grade
-            == ConditionGrade.EXCELLENT,
+            InventoryUsedItem.status == UsedInventoryStatus.AVAILABLE,
+            InventoryUsedItem.condition_grade == ConditionGrade.EXCELLENT,
             InventoryUsedItem.discount_rate.is_not(None),
             InventoryUsedItem.sale_price.is_not(None),
             Book.base_price > 0,
@@ -226,26 +205,19 @@ def _find_used_lpn_candidate(
     )
 
     if target_isbn is not None:
-        statement = statement.where(
-            Book.isbn == target_isbn
-        )
+        statement = statement.where(Book.isbn == target_isbn)
     else:
-        statement = statement.where(
-            Book.isbn != DEMO_OUTBOUND_BOOK_ISBN
-        )
+        statement = statement.where(Book.isbn != DEMO_OUTBOUND_BOOK_ISBN)
 
     used_lpn_rows = session.exec(
-        statement
-        .group_by(
+        statement.group_by(
             InventoryUsedItem.book_id,
             InventoryUsedItem.condition_grade,
-        )
-        .order_by(
+        ).order_by(
             InventoryUsedItem.book_id,
             InventoryUsedItem.condition_grade,
         )
     ).all()
-
 
     candidates: list[MockOrderCandidate] = []
 
@@ -255,9 +227,7 @@ def _find_used_lpn_candidate(
             0,
         )
 
-        available_quantity = (
-            int(available_lpn_count) - pending_count
-        )
+        available_quantity = int(available_lpn_count) - pending_count
 
         if available_quantity <= 0:
             continue
@@ -286,9 +256,7 @@ def _get_pending_new_stock_quantities(
     rows = session.exec(
         select(
             OrderItem.book_id,
-            func.sum(OrderItem.quantity).label(
-                "pending_quantity"
-            ),
+            func.sum(OrderItem.quantity).label("pending_quantity"),
         )
         .join(Order, Order.id == OrderItem.order_id)
         .where(
@@ -299,10 +267,7 @@ def _get_pending_new_stock_quantities(
         .group_by(OrderItem.book_id)
     ).all()
 
-    return {
-        book_id: int(pending_quantity or 0)
-        for book_id, pending_quantity in rows
-    }
+    return {book_id: int(pending_quantity or 0) for book_id, pending_quantity in rows}
 
 
 # 아직 피킹되지 않은 중고 PENDING 주문 수를 도서·등급별로 합산한다.
@@ -313,9 +278,7 @@ def _get_pending_used_lpn_order_counts(
         select(
             OrderItem.book_id,
             OrderItem.condition_grade,
-            func.count(OrderItem.id).label(
-                "pending_order_count"
-            ),
+            func.count(OrderItem.id).label("pending_order_count"),
         )
         .join(Order, Order.id == OrderItem.order_id)
         .where(
@@ -330,9 +293,7 @@ def _get_pending_used_lpn_order_counts(
     ).all()
 
     return {
-        (book_id, condition_grade): int(
-            pending_order_count or 0
-        )
+        (book_id, condition_grade): int(pending_order_count or 0)
         for book_id, condition_grade, pending_order_count in rows
         if condition_grade is not None
     }

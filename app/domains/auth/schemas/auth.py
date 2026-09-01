@@ -1,16 +1,17 @@
 from datetime import date, datetime
-from datetime import date
-from uuid import UUID
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.models.wms import UserRole, UserStatus
 
+
 class AuthSchema(BaseModel):
     model_config = ConfigDict(
         str_strip_whitespace=True,
     )
+
 
 # 로그인 요청
 class LoginRequest(BaseModel):
@@ -22,6 +23,7 @@ class LoginRequest(BaseModel):
         min_length=8,
         max_length=100,
     )
+
 
 # 로그인 성공 시 JWT 응답
 class TokenResponse(BaseModel):
@@ -59,6 +61,7 @@ class UserResponse(AuthSchema):
 # 직원 계정 생성 결과 응답
 class EmployeeCreateResponse(UserResponse):
     temporary_password: str
+
 
 class EmployeeBulkCreateRow(AuthSchema):
     """
@@ -112,6 +115,7 @@ class EmployeeBulkCreateResultRow(EmployeeBulkCreateRow):
         description="최초 로그인용 임시 비밀번호",
     )
 
+
 class EmployeeListItemResponse(AuthSchema):
     """
     MASTER 직원 관리 화면의 목록 행.
@@ -143,6 +147,7 @@ class EmployeeListResponse(AuthSchema):
     size: int = Field(ge=1)
     total_pages: int = Field(ge=0)
 
+
 # 비밀번호 변경 요청
 class PasswordChangeRequest(BaseModel):
     current_password: str = Field(
@@ -154,12 +159,14 @@ class PasswordChangeRequest(BaseModel):
         max_length=100,
     )
 
+
 # 사용자 권한 변경 요청
 class UserRoleUpdateRequest(BaseModel):
     role: Literal[
         UserRole.ADMIN,
         UserRole.WORKER,
     ]
+
 
 # 사용자 계정 상태 변경 요청
 class UserStatusUpdateRequest(BaseModel):

@@ -11,7 +11,6 @@ from pydantic import (
 
 from app.models.wms import ReturnJobStatus
 
-
 FinalGrade = Literal[
     "MINT",
     "EXCELLENT",
@@ -19,12 +18,12 @@ FinalGrade = Literal[
     "REJECT",
 ]
 
+
 # snake_case 필드명을 camelCase 응답 필드로 변환한다.
 def to_camel(field_name: str) -> str:
     parts = field_name.split("_")
-    return parts[0] + "".join(
-        word.capitalize() for word in parts[1:]
-    )
+    return parts[0] + "".join(word.capitalize() for word in parts[1:])
+
 
 class AgentLogStep(BaseModel):
     model_config = ConfigDict(
@@ -71,6 +70,7 @@ class InspectionHistoryRow(BaseModel):
     inspected_at: datetime
     updated_at: datetime
 
+
 class InspectionHistoryListResponse(BaseModel):
     """
     관리자 검수 이력 그리드의 서버 페이지네이션 응답.
@@ -105,6 +105,7 @@ class InspectionHistoryListResponse(BaseModel):
         serialization_alias="total_pages",
         description="전체 페이지 수",
     )
+
 
 class HITLBoardItem(BaseModel):
     model_config = ConfigDict(
@@ -147,6 +148,7 @@ class HITLQueueListResponse(BaseModel):
     total_pages: int = Field(ge=0)
     has_more: bool
 
+
 class HITLQueueMetricsResponse(BaseModel):
     model_config = ConfigDict(
         alias_generator=to_camel,
@@ -166,6 +168,7 @@ class HITLQueueMetricsResponse(BaseModel):
         description="30분 이상 미처리 상태인 HITL 건수",
     )
 
+
 class InspectionBookDetail(BaseModel):
     model_config = ConfigDict(
         alias_generator=to_camel,
@@ -176,6 +179,7 @@ class InspectionBookDetail(BaseModel):
     title: str
     isbn: str | None = None
     cover_image_url: str | None = None
+
 
 class InspectionAIResult(BaseModel):
     model_config = ConfigDict(
@@ -188,6 +192,7 @@ class InspectionAIResult(BaseModel):
     defects: list[dict[str, Any]] = Field(default_factory=list)
     revision_count: int = 0
     repair_directive: str | None = None
+
 
 class VisionDefect(BaseModel):
     """
@@ -219,16 +224,11 @@ class VisionDefect(BaseModel):
     def validate_original_image_bbox(self):
         x1, y1, x2, y2 = self.bbox
 
-        if not (
-            0 <= x1 < x2 <= 1
-            and 0 <= y1 < y2 <= 1
-        ):
-            raise ValueError(
-                "bbox must be [x1, y1, x2, y2] in "
-                "ORIGINAL_IMAGE_NORMALIZED coordinates"
-            )
+        if not (0 <= x1 < x2 <= 1 and 0 <= y1 < y2 <= 1):
+            raise ValueError("bbox must be [x1, y1, x2, y2] in ORIGINAL_IMAGE_NORMALIZED coordinates")
 
         return self
+
 
 class YoloCandidate(BaseModel):
     """
@@ -263,14 +263,8 @@ class YoloCandidate(BaseModel):
     def validate_original_image_bbox(self):
         x1, y1, x2, y2 = self.bbox
 
-        if not (
-            0 <= x1 < x2 <= 1
-            and 0 <= y1 < y2 <= 1
-        ):
-            raise ValueError(
-                "bbox must be [x1, y1, x2, y2] in "
-                "ORIGINAL_IMAGE_NORMALIZED coordinates"
-            )
+        if not (0 <= x1 < x2 <= 1 and 0 <= y1 < y2 <= 1):
+            raise ValueError("bbox must be [x1, y1, x2, y2] in ORIGINAL_IMAGE_NORMALIZED coordinates")
 
         return self
 
@@ -300,14 +294,8 @@ class ConfirmedDefect(BaseModel):
     def validate_original_image_bbox(self):
         x1, y1, x2, y2 = self.bbox
 
-        if not (
-            0 <= x1 < x2 <= 1
-            and 0 <= y1 < y2 <= 1
-        ):
-            raise ValueError(
-                "bbox must be [x1, y1, x2, y2] in "
-                "ORIGINAL_IMAGE_NORMALIZED coordinates"
-            )
+        if not (0 <= x1 < x2 <= 1 and 0 <= y1 < y2 <= 1):
+            raise ValueError("bbox must be [x1, y1, x2, y2] in ORIGINAL_IMAGE_NORMALIZED coordinates")
 
         return self
 
@@ -340,8 +328,6 @@ class InspectionErrorDetail(BaseModel):
     failed_at: datetime | None = None
 
 
-
-
 class InspectionDetailResponse(BaseModel):
     model_config = ConfigDict(
         alias_generator=to_camel,
@@ -366,10 +352,7 @@ class InspectionDetailResponse(BaseModel):
 
     vision_detections: list[VisionDefect] = Field(
         default_factory=list,
-        description=(
-            "원본 이미지 기준 정규화 BBOX가 포함된 "
-            "Vision 결함 목록"
-        ),
+        description=("원본 이미지 기준 정규화 BBOX가 포함된 Vision 결함 목록"),
     )
 
     yolo_candidates: list[YoloCandidate] = Field(

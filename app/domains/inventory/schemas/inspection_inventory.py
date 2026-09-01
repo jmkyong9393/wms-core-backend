@@ -4,9 +4,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.models.wms import ConditionGrade
 from app.domains.inspections.schemas.hitl import HITLReasonCode
 from app.domains.lpn.schemas.label import LabelPrintStatus
+from app.models.wms import ConditionGrade
 
 InspectionDecision = Literal["APPROVE", "REJECT"]
 
@@ -62,16 +62,11 @@ class InspectionInventoryRequest(BaseModel):
         default=None,
         description="반려 도서 처리 방식",
     )
+
     @model_validator(mode="after")
     def validate_approved_result(self):
-        if (
-            self.decision == "APPROVE"
-            and self.ubci_score is None
-            and self.final_grade is None
-        ):
-            raise ValueError(
-                "ubci_score or final_grade is required for approval"
-            )
+        if self.decision == "APPROVE" and self.ubci_score is None and self.final_grade is None:
+            raise ValueError("ubci_score or final_grade is required for approval")
         return self
 
 
@@ -101,7 +96,6 @@ class InspectionInventoryResponse(BaseModel):
     label_print_error: str | None = Field(
         default=None,
         description=(
-            "UBCI 라벨 전송 실패 시 작업자에게 표시할 안내 메시지. "
-            "프린터 IP 등 내부 설정 정보는 포함하지 않는다."
+            "UBCI 라벨 전송 실패 시 작업자에게 표시할 안내 메시지. 프린터 IP 등 내부 설정 정보는 포함하지 않는다."
         ),
     )

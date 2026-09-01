@@ -4,7 +4,11 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func
 from sqlmodel import Session, select
 
+from app.api.dependencies.auth import require_master
 from app.core.database import get_session
+from app.domains.dev.demo_inventory_service import (
+    ensure_demo_outbound_inventory,
+)
 from app.models.wms import (
     Board,
     BoardPost,
@@ -34,13 +38,6 @@ from app.models.wms import (
     User,
     UserRole,
     WeeklyInsight,
-    UsedInventoryStatus,
-)
-
-from app.api.dependencies.auth import require_master
-
-from app.domains.dev.demo_inventory_service import (
-    ensure_demo_outbound_inventory,
 )
 
 router = APIRouter()
@@ -57,7 +54,7 @@ def seed_mock_data(
 ):
     seed_suffix = str(uuid4().int)[-10:]
     customer_id = uuid4()
-    
+
     book = Book(
         title="Mock WMS Book",
         isbn=f"978{seed_suffix}",
@@ -71,9 +68,7 @@ def seed_mock_data(
     session.add(book)
     session.flush()
 
-    location = session.exec(
-        select(Location).where(Location.barcode == "A-1-3")
-    ).first()
+    location = session.exec(select(Location).where(Location.barcode == "A-1-3")).first()
     if location is None:
         location = Location(
             zone="A",
@@ -235,9 +230,7 @@ def seed_order_outbound_data(
     session.add(book)
     session.flush()
 
-    location = session.exec(
-        select(Location).where(Location.barcode == "A-2-1")
-    ).first()
+    location = session.exec(select(Location).where(Location.barcode == "A-2-1")).first()
     if location is None:
         location = Location(
             zone="A",
@@ -274,6 +267,7 @@ def seed_order_outbound_data(
         },
     }
 
+
 @router.post("/seed/outbound-demo")
 def seed_outbound_demo_data(
     _master: User = Depends(require_master),
@@ -291,10 +285,7 @@ def seed_outbound_demo_data(
     session.refresh(result.new_inventory)
 
     return {
-        "message": (
-            "Mock outbound demo inventory ensured. "
-            "One book has both new stock and used LPN inventory."
-        ),
+        "message": ("Mock outbound demo inventory ensured. One book has both new stock and used LPN inventory."),
         "book": {
             "id": str(result.demo_book.id),
             "title": result.demo_book.title,
@@ -312,6 +303,7 @@ def seed_outbound_demo_data(
             "location_barcode": result.used_location.barcode,
         },
     }
+
 
 @router.get("/summary")
 def get_mock_summary(
@@ -335,4 +327,6 @@ def get_mock_summary(
         "boards": _count(session, Board),
         "board_posts": _count(session, BoardPost),
     }
+
+
 # 여기서 원하는 column에 대한 값 확인도 가능.

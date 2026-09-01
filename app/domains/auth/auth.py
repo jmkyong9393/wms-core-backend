@@ -18,17 +18,6 @@ from app.core.config import settings
 from app.core.database import get_session
 from app.core.exceptions import UserNotFoundException
 from app.core.security import create_access_token
-from app.models.wms import (
-    Tenant,
-    User,
-    UserStatus,
-)
-from app.domains.auth.schemas.auth import (
-    LoginRequest,
-    PasswordChangeRequest,
-    TokenResponse,
-    UserResponse,
-)
 from app.domains.auth.auth_service import (
     authenticate_user,
     change_password,
@@ -37,7 +26,17 @@ from app.domains.auth.auth_service import (
     revoke_refresh_session,
     rotate_refresh_session,
 )
-
+from app.domains.auth.schemas.auth import (
+    LoginRequest,
+    PasswordChangeRequest,
+    TokenResponse,
+    UserResponse,
+)
+from app.models.wms import (
+    Tenant,
+    User,
+    UserStatus,
+)
 
 router = APIRouter()
 
@@ -50,12 +49,7 @@ def set_refresh_token_cookie(
     response.set_cookie(
         key=settings.REFRESH_TOKEN_COOKIE_NAME,
         value=refresh_token,
-        max_age=(
-            settings.REFRESH_TOKEN_EXPIRE_DAYS
-            * 24
-            * 60
-            * 60
-        ),
+        max_age=(settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60),
         httponly=True,
         secure=settings.REFRESH_TOKEN_COOKIE_SECURE,
         samesite=settings.REFRESH_TOKEN_COOKIE_SAMESITE,
@@ -82,16 +76,12 @@ def validate_refresh_user(
 ) -> None:
     """Refresh Token으로 조회한 사용자의 현재 계정·테넌트 상태를 검증한다."""
     if user.status != UserStatus.ACTIVE:
-        raise unauthorized_exception(
-            "비활성화된 사용자입니다."
-        )
+        raise unauthorized_exception("비활성화된 사용자입니다.")
 
     tenant = session.get(Tenant, user.tenant_id)
 
     if tenant is None or not tenant.is_active:
-        raise unauthorized_exception(
-            "비활성화되었거나 존재하지 않는 테넌트입니다."
-        )
+        raise unauthorized_exception("비활성화되었거나 존재하지 않는 테넌트입니다.")
 
 
 # 로그인 API
@@ -151,14 +141,10 @@ def refresh_access_token(
     response: Response,
     session: Session = Depends(get_session),
 ) -> TokenResponse:
-    refresh_token = request.cookies.get(
-        settings.REFRESH_TOKEN_COOKIE_NAME
-    )
+    refresh_token = request.cookies.get(settings.REFRESH_TOKEN_COOKIE_NAME)
 
     if not refresh_token:
-        raise unauthorized_exception(
-            "Refresh Token이 필요합니다."
-        )
+        raise unauthorized_exception("Refresh Token이 필요합니다.")
 
     user = get_user_by_refresh_token(
         session=session,
@@ -166,9 +152,7 @@ def refresh_access_token(
     )
 
     if user is None:
-        raise unauthorized_exception(
-            "유효하지 않거나 만료된 Refresh Token입니다."
-        )
+        raise unauthorized_exception("유효하지 않거나 만료된 Refresh Token입니다.")
 
     validate_refresh_user(
         session=session,
@@ -213,9 +197,7 @@ def logout(
     response: Response,
     session: Session = Depends(get_session),
 ) -> None:
-    refresh_token = request.cookies.get(
-        settings.REFRESH_TOKEN_COOKIE_NAME
-    )
+    refresh_token = request.cookies.get(settings.REFRESH_TOKEN_COOKIE_NAME)
 
     if refresh_token:
         user = get_user_by_refresh_token(
@@ -229,6 +211,7 @@ def logout(
             session.commit()
 
     delete_refresh_token_cookie(response)
+
 
 # 현재 비밀번호 확인 후 새 비밀번호로 변경
 @router.patch(

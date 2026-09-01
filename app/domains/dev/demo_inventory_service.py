@@ -5,8 +5,13 @@ from uuid import UUID, uuid4
 from sqlalchemy import func
 from sqlmodel import Session, select
 
+from app.domains.inbound.location_assignment_service import (
+    assign_graded_inventory_location,
+    assign_new_stock_location,
+)
 from app.models.wms import (
     Book,
+    BookCategory,
     ConditionGrade,
     Inventory,
     InventoryUsedItem,
@@ -17,14 +22,7 @@ from app.models.wms import (
     OrderType,
     StandardSize,
     UsedInventoryStatus,
-    BookCategory,
 )
-
-from app.domains.inbound.location_assignment_service import (
-    assign_graded_inventory_location,
-    assign_new_stock_location,
-)
-
 
 # 데모 주문 생성기가 사용할 단일 도서 마스터
 DEMO_OUTBOUND_BOOK_ISBN = "9790000000001"
@@ -90,28 +88,31 @@ def ensure_demo_outbound_inventory(
 
     # 신간 가상 가용 수량이 부족하면 묶음 재고를 보충한다.
     added_new_stock_quantity = 0
-    if _get_new_stock_virtual_available_quantity(
-        session=session,
-        book_id=demo_book.id,
-        inventory=new_inventory,
-    ) <= MIN_NEW_STOCK_VIRTUAL_AVAILABLE:
+    if (
+        _get_new_stock_virtual_available_quantity(
+            session=session,
+            book_id=demo_book.id,
+            inventory=new_inventory,
+        )
+        <= MIN_NEW_STOCK_VIRTUAL_AVAILABLE
+    ):
         added_new_stock_quantity = NEW_STOCK_REPLENISH_QUANTITY
 
         new_inventory.quantity += added_new_stock_quantity
-        demo_book.virtual_stock = (
-            (demo_book.virtual_stock or 0)
-            + added_new_stock_quantity
-        )
+        demo_book.virtual_stock = (demo_book.virtual_stock or 0) + added_new_stock_quantity
 
         session.add(new_inventory)
         session.add(demo_book)
 
     # 중고 가상 가용 LPN이 부족하면 새 EXCELLENT LPN을 추가한다.
     added_used_lpn_quantity = 0
-    if _get_used_lpn_virtual_available_quantity(
-        session=session,
-        book_id=demo_book.id,
-    ) <= MIN_USED_LPN_VIRTUAL_AVAILABLE:
+    if (
+        _get_used_lpn_virtual_available_quantity(
+            session=session,
+            book_id=demo_book.id,
+        )
+        <= MIN_USED_LPN_VIRTUAL_AVAILABLE
+    ):
         added_used_lpn_quantity = USED_LPN_REPLENISH_QUANTITY
 
         for _ in range(added_used_lpn_quantity):
@@ -129,10 +130,7 @@ def ensure_demo_outbound_inventory(
                 ),
             )
 
-        demo_book.virtual_stock = (
-            (demo_book.virtual_stock or 0)
-            + added_used_lpn_quantity
-        )
+        demo_book.virtual_stock = (demo_book.virtual_stock or 0) + added_used_lpn_quantity
         session.add(demo_book)
 
     session.flush()
@@ -151,11 +149,7 @@ def ensure_demo_outbound_inventory(
 def _get_or_create_demo_book(
     session: Session,
 ) -> Book:
-    book = session.exec(
-        select(Book).where(
-            Book.isbn == DEMO_OUTBOUND_BOOK_ISBN
-        )
-    ).first()
+    book = session.exec(select(Book).where(Book.isbn == DEMO_OUTBOUND_BOOK_ISBN)).first()
 
     if book is not None:
         return book
@@ -174,8 +168,6 @@ def _get_or_create_demo_book(
     session.flush()
 
     return book
-
-
 
 
 # 특정 도서·로케이션의 신간 재고 행을 조회하고, 없으면 생성한다.
@@ -223,11 +215,7 @@ def _get_new_stock_virtual_available_quantity(
         )
     ).one()
 
-    return (
-        inventory.quantity
-        - inventory.reserved_quantity
-        - int(pending_quantity or 0)
-    )
+    return inventory.quantity - inventory.reserved_quantity - int(pending_quantity or 0)
 
 
 # AVAILABLE 중고 LPN 수에서 PENDING 중고 주문 수를 제외해 가상 가용 수량을 계산한다.
@@ -238,10 +226,8 @@ def _get_used_lpn_virtual_available_quantity(
     available_lpn_count = session.exec(
         select(func.count(InventoryUsedItem.id)).where(
             InventoryUsedItem.book_id == book_id,
-            InventoryUsedItem.condition_grade
-            == ConditionGrade.EXCELLENT,
-            InventoryUsedItem.status
-            == UsedInventoryStatus.AVAILABLE,
+            InventoryUsedItem.condition_grade == ConditionGrade.EXCELLENT,
+            InventoryUsedItem.status == UsedInventoryStatus.AVAILABLE,
             InventoryUsedItem.discount_rate.is_not(None),
             InventoryUsedItem.sale_price.is_not(None),
         )
@@ -254,11 +240,8 @@ def _get_used_lpn_virtual_available_quantity(
             Order.type == OrderType.B2B_ORDER,
             Order.status == OrderStatus.PENDING,
             OrderItem.book_id == book_id,
-            OrderItem.condition_grade
-            == ConditionGrade.EXCELLENT,
+            OrderItem.condition_grade == ConditionGrade.EXCELLENT,
         )
     ).one()
 
-    return int(available_lpn_count or 0) - int(
-        pending_order_count or 0
-    )
+    return int(available_lpn_count or 0) - int(pending_order_count or 0)
