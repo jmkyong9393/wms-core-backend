@@ -45,10 +45,11 @@ metadata:
 type: Opaque
 stringData:
   # 로컬 개발 환경(.env)에 정의된 계정 정보와 완벽히 동기화해 줍니다.
-  INITIAL_MASTER_EMPLOYEE_ID: "NZ0000000"
-  INITIAL_MASTER_NAME: "initial_master"
-  INITIAL_MASTER_PASSWORD: "Newzed1234!"
-  AUTO_PO_TENANT_ID: "33c9450c-cf03-4327-ab52-fd6d14ea0dc8"
+  # 이 레포는 공개이므로 실제 값을 적지 않습니다. 팀 채널 공지 값을 넣으세요.
+  INITIAL_MASTER_EMPLOYEE_ID: "<팀 공지 참조>"
+  INITIAL_MASTER_NAME: "<관리자 이름>"
+  INITIAL_MASTER_PASSWORD: "<팀 공지 참조>"
+  AUTO_PO_TENANT_ID: "<테넌트 UUID>"
 ```
 
 ### 📁 2. `k8s/fds-secret.yaml` 생성

@@ -28,9 +28,10 @@ CHROMA_SERVER_HOST=localhost
 CHROMA_SERVER_PORT=8002
 
 # 최초 MASTER 계정 (Settings 필수값 — 없으면 앱과 테스트가 기동되지 않습니다)
-INITIAL_MASTER_EMPLOYEE_ID=NZ0000000
-INITIAL_MASTER_NAME=관리자이름
-INITIAL_MASTER_PASSWORD=여기에 초기 비밀번호
+# 실제 값은 팀 채널 공지를 참고하세요. 이 레포는 공개이므로 문서에 적지 않습니다.
+INITIAL_MASTER_EMPLOYEE_ID=<팀 공지 참조>
+INITIAL_MASTER_NAME=<관리자 이름>
+INITIAL_MASTER_PASSWORD=<팀 공지 참조>
 
 # S3/CloudFront (검수 이미지 업로드) — 프론트 .env.local에도 동일 값이 필요합니다
 OSS_REGION=ap-northeast-2
