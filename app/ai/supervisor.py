@@ -7,11 +7,13 @@ os.environ.setdefault("LANGSMITH_HIDE_INPUTS", "true")
 os.environ.setdefault("LANGSMITH_HIDE_OUTPUTS", "true")
 
 import json
+from typing import Literal, cast
 
 from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
+from app.ai.rag.critic_cases import FinalDecision
 from app.domains.inspections.schemas.hitl import HITLAction, HITLReasonCode
 
 from .agents import (
@@ -487,7 +489,9 @@ except NotImplementedError:
     app_graph = None
 
 
-TARGET_GRADE_ALIASES = {
+# WMS 등급 표기(EXCELLENT/NORMAL)를 AI 내부 표기(A/B)로 정규화한다.
+# 값 타입을 Literal로 좁혀야 판례 저장 함수의 target_grade 계약과 맞는다.
+TARGET_GRADE_ALIASES: dict[str, Literal["A", "B"]] = {
     "A": "A",
     "EXCELLENT": "A",
     "B": "B",
@@ -629,7 +633,9 @@ def resume_hitl(
             stored_case_id = upsert_authoritative_hitl_case(
                 final_state,
                 case_id=f"hitl-{thread_id}",
-                final_decision=decision,
+                # decision은 위에서 HITLAction으로 검증을 통과한 값이라
+                # FinalDecision Literal 범위임이 보장된다.
+                final_decision=cast(FinalDecision, decision),
                 primary_reason_code=reason,
                 target_grade=normalized_target_grade,
             )

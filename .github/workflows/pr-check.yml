@@ -40,6 +40,7 @@ jobs:
       - name: Test (Pytest)
         run: uv run pytest -q
 
-      # 타입 부채가 남아 있어 아직 비차단이다. 정리 후 `|| true` 를 제거할 것.
-      - name: Type Check (Mypy, non-blocking)
-        run: uv run mypy app/ --ignore-missing-imports || true
+      # 하드 게이트. 오류가 남은 44개 모듈은 pyproject [[tool.mypy.overrides]]에
+      # 사유와 함께 베이스라인으로 제외했고, 나머지 108개 모듈은 여기서 지켜진다.
+      - name: Type Check (Mypy)
+        run: uv run mypy app/
