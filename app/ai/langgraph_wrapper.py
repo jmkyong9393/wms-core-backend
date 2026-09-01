@@ -101,6 +101,12 @@ class LangGraphInspectionWrapper:
                 "is_mint": final_state.get("is_mint"),
                 "is_fast_track": is_fast_track,
                 "defects": final_state.get("defects"),
+                # HITL 판례(critic RAG) 저장에 필요한 판정 근거
+                "vision_confidence": final_state.get("vision_confidence"),
+                "predicted_grade": final_state.get("predicted_grade"),
+                "score_breakdown": final_state.get("score_breakdown"),
+                "policy_confidence": final_state.get("policy_confidence"),
+                "rule_reference": final_state.get("rule_reference"),
                 "reason_code": final_state.get(
                     "reason_code"
                 ),
@@ -180,6 +186,12 @@ class LangGraphInspectionWrapper:
                     "is_mint": current_state.get("is_mint"),
                     "is_fast_track": False,
                     "defects": current_state.get("defects"),
+                    # HITL 판례(critic RAG) 저장에 필요한 판정 근거
+                        "vision_confidence": current_state.get("vision_confidence"),
+                    "predicted_grade": current_state.get("predicted_grade"),
+                    "score_breakdown": current_state.get("score_breakdown"),
+                    "policy_confidence": current_state.get("policy_confidence"),
+                    "rule_reference": current_state.get("rule_reference"),
                     "reason_code": current_state.get(
                         "reason_code"
                     ),

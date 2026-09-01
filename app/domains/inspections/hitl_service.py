@@ -297,6 +297,80 @@ def apply_hitl_recheck_decision(
 
 
 # 관리자 HITL 판단을 검증하고 ReturnJob에 저장
+# HITL 등급 표기(WMS)를 판례 저장용 AI 내부 표기로 변환
+_HITL_TO_AI_GRADE = {
+    "EXCELLENT": "A",
+    "NORMAL": "B",
+}
+
+
+def store_hitl_precedent_safely(
+    *,
+    return_job: ReturnJob,
+    action: HITLAction,
+    target_grade: HITLTargetGrade | None,
+) -> None:
+    """관리자 확정 판단을 Critic RAG 권위 판례로 축적한다.
+
+    판례 저장 실패가 HITL 처리 자체를 막으면 안 되므로 fail-open이며,
+    점수·등급 근거가 불완전한 건(Vision 직행 HITL 등)은 저장 함수가 스스로 건너뛴다.
+    """
+    if action == HITLAction.RE_CHECK:
+        return
+
+    try:
+        from app.ai.rag.critic_cases import upsert_authoritative_hitl_case
+
+        logs = dict(return_job.agent_logs or {})
+        ai_target_grade = (
+            _HITL_TO_AI_GRADE.get(target_grade.value)
+            if target_grade is not None
+            else None
+        )
+
+        if action == HITLAction.APPROVE_NORMAL:
+            ai_final_grade = "S"
+        elif action == HITLAction.APPROVE_DOWNGRADE:
+            ai_final_grade = ai_target_grade
+        else:
+            ai_final_grade = "REJECT"
+
+        state = {
+            "tenant_id": str(return_job.tenant_id),
+            "is_mint": logs.get("is_mint"),
+            "defects": logs.get("defects") or [],
+            "vision_confidence": logs.get("vision_confidence"),
+            "ubci_score": (
+                float(return_job.ubci_score)
+                if return_job.ubci_score is not None
+                else None
+            ),
+            "predicted_grade": logs.get("predicted_grade"),
+            "score_breakdown": logs.get("score_breakdown") or [],
+            "policy_confidence": logs.get("policy_confidence"),
+            "rule_reference": logs.get("rule_reference"),
+            "final_grade": ai_final_grade,
+        }
+
+        stored = upsert_authoritative_hitl_case(
+            state,
+            case_id=f"hitl-{return_job.id}",
+            final_decision=action.value,
+            primary_reason_code=(
+                logs.get("admin_decision_code") or "UNKNOWN"
+            ),
+            target_grade=ai_target_grade,
+        )
+        if stored:
+            print(f"[Critic RAG] HITL 권위 판례 저장 - {stored}")
+    except Exception as error:
+        print(
+            "[Critic RAG] HITL 판례 저장 실패 - "
+            f"{type(error).__name__}"
+        )
+
+
+
 def save_hitl_decision(
     *,
     session: Session,
@@ -407,6 +481,13 @@ def save_hitl_decision(
     save_return_job(
         session=session,
         return_job=return_job,
+    )
+
+    # 8. 확정 판단을 Critic RAG 권위 판례로 축적 (fail-open)
+    store_hitl_precedent_safely(
+        return_job=return_job,
+        action=action,
+        target_grade=target_grade,
     )
 
     return return_job
