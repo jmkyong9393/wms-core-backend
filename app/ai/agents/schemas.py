@@ -230,3 +230,24 @@ class CombinedVisionReview(BaseModel):
     reviews: list[CombinedDefectReview] = Field(max_length=30)
     missed_defect_suspected: bool
     review_confidence: float = Field(ge=0, le=1)
+
+
+class CustomerCertificateNarrative(BaseModel):
+    """고객 공개용 품질 보증서 서술 (Report Agent LLM 출력).
+
+    [고객 노출 경계] 귀책(누구 잘못인지)을 단정하지 않고, 내부 코드·조항 전문을
+    노출하지 않는다. 심각도에 따라 어조를 달리하되 사실만 서술한다.
+    """
+
+    model_config = ConfigDict(strict=True)
+
+    customer_message: str = Field(
+        min_length=10,
+        max_length=600,
+        description="등급·상태를 안내하는 고객용 본문. 존댓말, 과장 금지",
+    )
+    condition_notes: list[str] = Field(
+        default_factory=list,
+        max_length=8,
+        description="결함별 한 줄 안내 (위치·유형만, 내부 코드 금지)",
+    )

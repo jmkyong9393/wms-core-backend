@@ -163,6 +163,145 @@ def auto_refund_agent(state: WMSInspectionState) -> WMSInspectionState:
 
 
 
+# 고객 노출용 결함 한글 라벨 (내부 코드 비노출 원칙)
+DEFECT_LABEL_KO = {
+    "COVER_SCRATCH": "표지 긁힘",
+    "COVER_TEAR": "표지 찢어짐",
+    "STICKER_MARK": "스티커 자국",
+    "CORNER_CRUSH": "모서리 눌림",
+    "EDGE_WEAR": "책 가장자리 마모",
+    "SPINE_CRACKING": "책등 갈라짐",
+    "LOOSE_BINDING": "제본 느슨함",
+    "GENERAL_STAIN": "오염",
+    "FADING": "변색",
+    "SIGNATURE": "서명 흔적",
+    "LIBRARY_STAMP": "도서관 직인",
+    "WATER_DAMAGE": "물 얼룩",
+    "PAGE_WARPING": "페이지 휘어짐",
+    "PAGE_FOLD": "페이지 접힘",
+    "WRITING": "필기 흔적",
+    "HIGHLIGHTING": "형광펜 표시",
+    "BARCODE_DAMAGE": "바코드 훼손",
+    "OTHER_VISIBLE_DAMAGE": "기타 외관 손상",
+}
+
+GRADE_LABEL_KO = {
+    "S": "S등급 (최상)",
+    "A": "A등급 (우수)",
+    "B": "B등급 (양호)",
+    "REJECT": "매입 불가",
+}
+
+
+def _fallback_narrative(
+    final_grade: str,
+    defects: list,
+) -> dict:
+    """LLM 호출 불가 시 사용하는 결정론적 보증서 서술.
+
+    문장은 백엔드에서만 만든다 — 프론트가 등급별 문구를 하드코딩하지 않게 하기 위함.
+    """
+    notes = []
+    for defect in defects or []:
+        if not isinstance(defect, dict):
+            continue
+        label = DEFECT_LABEL_KO.get(
+            str(defect.get("type") or ""),
+            "외관 상태 참고사항",
+        )
+        notes.append(label)
+
+    grade_label = GRADE_LABEL_KO.get(final_grade, final_grade)
+    if final_grade == "REJECT":
+        message = (
+            "정밀 검수 결과 재판매 기준을 충족하지 못해 "
+            "매입이 어려운 상태로 확인되었습니다. 양해 부탁드립니다."
+        )
+    elif notes:
+        message = (
+            f"정밀 검수 결과 {grade_label}으로 판정되었습니다. "
+            "아래 확인된 사항 외의 사용감은 발견되지 않았습니다."
+        )
+    else:
+        message = (
+            f"정밀 검수 결과 {grade_label}으로 판정되었습니다. "
+            "눈에 띄는 결함 없이 양호한 상태입니다."
+        )
+
+    return {
+        "customer_message": message,
+        "condition_notes": notes,
+        "narrative_source": "FALLBACK_RULE",
+    }
+
+
+def build_customer_narrative(
+    final_grade: str,
+    defects: list,
+    ubci_score,
+) -> dict:
+    """GPT-4o-mini로 고객 공개용 보증서 서술을 생성한다. 실패 시 결정론적 폴백.
+
+    [고객 노출 경계] 귀책을 단정하지 않고 내부 코드·조항 전문을 노출하지 않는다.
+    """
+    if os.getenv(
+        "REPORT_NARRATIVE_LLM_ENABLED", "true"
+    ).lower() in ("0", "false"):
+        return _fallback_narrative(final_grade, defects)
+
+    defect_lines = [
+        f"- {DEFECT_LABEL_KO.get(str(d.get('type') or ''), '기타')} "
+        f"(위치: {d.get('location') or '미상'})"
+        for d in (defects or [])
+        if isinstance(d, dict)
+    ]
+
+    defect_block = (
+        chr(10).join(defect_lines) if defect_lines else "- 없음"
+    )
+    prompt = f"""당신은 중고서점 품질보증서를 작성하는 CS 담당자입니다.
+규칙:
+1. 존댓말, 과장·추측 금지. 결함의 심각도에 맞는 어조 (가벼운 사용감은 다정하게, 매입 불가는 정중하되 단호하게).
+2. 누구의 잘못인지(귀책)를 절대 쓰지 않는다.
+3. 내부 코드명이나 규정 조항 전문을 쓰지 않는다.
+판정 등급: {GRADE_LABEL_KO.get(final_grade, final_grade)}
+품질 점수: {ubci_score if ubci_score is not None else '해당 없음'}
+확인된 결함:
+{defect_block}"""
+
+    try:
+        from langchain_openai import ChatOpenAI
+
+        from app.ai.instrumentation import token_collector
+
+        narrative_model = ChatOpenAI(
+            # 프리즈 규정: Report Agent 모델은 gpt-4o-mini 고정
+            model="gpt-4o-mini",
+            temperature=0,
+            timeout=30,
+            max_retries=1,
+            callbacks=[token_collector],
+        ).with_structured_output(
+            CustomerCertificateNarrative,
+        )
+
+        narrative = CustomerCertificateNarrative.model_validate(
+            narrative_model.invoke(prompt)
+        )
+        return {
+            "customer_message": narrative.customer_message,
+            "condition_notes": narrative.condition_notes,
+            "narrative_source": "LLM",
+        }
+    except Exception as error:
+        print(
+            "[Report Agent] 보증서 서술 LLM 실패 - "
+            f"결정론적 폴백 사용 ({type(error).__name__})"
+        )
+        return _fallback_narrative(final_grade, defects)
+
+
+
 def report_agent(state: WMSInspectionState) -> WMSInspectionState:
     """
     5. Report Agent (감성/페르소나 렌더링)
@@ -272,8 +411,17 @@ def report_agent(state: WMSInspectionState) -> WMSInspectionState:
         fallback_source="RULE_ENGINE_FALLBACK",
     )
 
+    # 고객 공개용 서술 생성 (LLM + 결정론적 폴백).
+    # 이 노드는 Celery 워커의 그래프 실행 안에서만 돌므로 API 동기 루프에서 LLM을 부르지 않는다.
+    customer_narrative = build_customer_narrative(
+        final_grade=final_grade,
+        defects=state.get("defects") or [],
+        ubci_score=state.get("ubci_score"),
+    )
+
     report = {
         "result": result,
+        "customer_narrative": customer_narrative,
         "decision": (
             human_feedback
             if human_feedback is not None
