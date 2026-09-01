@@ -10,8 +10,8 @@ from sqlmodel import Session, select
 from app.core.config import settings
 from app.core.database import engine
 from app.models.wms import ReturnJob, ReturnJobStatus
-from app.services.redis_pubsub import get_return_job_channel
-from app.services.sse_ticket_service import validate_sse_ticket
+from app.core.redis_pubsub import get_return_job_channel
+from app.core.sse_ticket_service import validate_sse_ticket
 
 
 router = APIRouter()

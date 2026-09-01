@@ -12,7 +12,7 @@ from app.models.wms import (
 from app.domains.notifications.notification_service import (
     create_notification_for_tenant,
 )
-from app.services.redis_pubsub import (
+from app.core.redis_pubsub import (
     publish_tenant_notification_event,
 )
 

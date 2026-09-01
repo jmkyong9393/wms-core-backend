@@ -5,7 +5,7 @@ from app.models.wms import (
     RestockProposalSource,
     ReturnJobStatus,
 )
-from app import worker
+from app.worker import tasks as worker
 
 
 def build_return_job(status: ReturnJobStatus):

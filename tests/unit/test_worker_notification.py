@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 from uuid import UUID
 
-from app import worker
+from app.worker import tasks as worker
 from app.models.wms import (
     NotificationCategory,
     NotificationSeverity,

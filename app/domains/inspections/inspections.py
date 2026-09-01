@@ -50,8 +50,8 @@ from app.domains.inspections.inspection_image_service import (
     normalize_cloudfront_image_urls,
 )
 from app.domains.inspections.inspection_task_service import enqueue_inspection
-from app.services.sse_ticket_service import issue_sse_ticket
-from app.services.redis_pubsub import publish_return_job_event
+from app.core.sse_ticket_service import issue_sse_ticket
+from app.core.redis_pubsub import publish_return_job_event
 
 
 from app.core.exceptions import HITLTaskDispatchException

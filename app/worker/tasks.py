@@ -19,7 +19,7 @@ from app.domains.restock.restock_service import (
     create_restock_proposal_for_safety_stock,
 )
 from app.services.langgraph_wrapper import LangGraphInspectionWrapper
-from app.services.redis_pubsub import (
+from app.core.redis_pubsub import (
     publish_return_job_event,
     publish_tenant_notification_event,
 )
@@ -34,12 +34,12 @@ from app.domains.inspections.return_job_service import (
     save_wms_processing_failed,
     save_wms_task_id,
 )
-from app.services.wms_client import (
+from app.core.wms_client import (
     WMSRetryableError,
     WMSNonRetryableError,
     call_wms_inspection_result_api,
 )
-from app.services.dlq_service import push_inspection_failure_to_dlq
+from app.core.dlq_service import push_inspection_failure_to_dlq
 from app.domains.notifications.notification_service import (
     create_committed_notification_for_tenant,
 )

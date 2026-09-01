@@ -1,4 +1,4 @@
-from app.services import wms_client
+from app.core import wms_client
 
 
 class FakeResponse:

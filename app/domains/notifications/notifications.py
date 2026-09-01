@@ -22,8 +22,8 @@ from app.domains.notifications.notification_service import (
     mark_all_notifications_as_read,
     mark_notification_as_read,
 )
-from app.services.redis_pubsub import get_tenant_notification_channel
-from app.services.sse_ticket_service import (
+from app.core.redis_pubsub import get_tenant_notification_channel
+from app.core.sse_ticket_service import (
     issue_notification_sse_ticket,
     validate_notification_sse_ticket,
 )

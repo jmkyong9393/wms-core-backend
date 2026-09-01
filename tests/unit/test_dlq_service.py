@@ -1,6 +1,6 @@
 import json
 
-from app.services import dlq_service
+from app.core import dlq_service
 
 
 class FakePipeline:
