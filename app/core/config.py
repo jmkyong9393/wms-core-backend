@@ -22,11 +22,7 @@ class Settings(BaseSettings):
             "http://localhost:3001",
             "http://127.0.0.1:3001",
         ]
-        deployed = [
-            origin.strip()
-            for origin in self.CORS_ALLOWED_ORIGINS.split(",")
-            if origin.strip()
-        ]
+        deployed = [origin.strip() for origin in self.CORS_ALLOWED_ORIGINS.split(",") if origin.strip()]
         # 중복 제거하되 순서를 유지한다.
         return list(dict.fromkeys(local_origins + deployed))
 
