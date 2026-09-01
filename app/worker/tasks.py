@@ -18,7 +18,7 @@ from app.domains.restock.restock_service import (
     create_restock_proposal_for_rejected_job,
     create_restock_proposal_for_safety_stock,
 )
-from app.services.langgraph_wrapper import LangGraphInspectionWrapper
+from app.ai.langgraph_wrapper import LangGraphInspectionWrapper
 from app.core.redis_pubsub import (
     publish_return_job_event,
     publish_tenant_notification_event,
