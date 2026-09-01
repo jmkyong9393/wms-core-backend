@@ -32,6 +32,8 @@ dependencies = [
     "openpyxl>=3.1.5",
     "python-multipart>=0.0.9",
     "alembic>=1.13.0",
+    "clip-anytorch>=2.6.0",
+    "setuptools<81",
 ]
 
 [build-system]
