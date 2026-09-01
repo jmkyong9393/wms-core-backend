@@ -5,7 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.wms import ConditionGrade
-from app.schemas.hitl import HITLReasonCode
+from app.domains.inspections.schemas.hitl import HITLReasonCode
 from app.domains.lpn.schemas.label import LabelPrintStatus
 
 InspectionDecision = Literal["APPROVE", "REJECT"]

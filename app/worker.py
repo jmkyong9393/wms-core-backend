@@ -23,7 +23,7 @@ from app.services.redis_pubsub import (
     publish_return_job_event,
     publish_tenant_notification_event,
 )
-from app.services.return_job_service import (
+from app.domains.inspections.return_job_service import (
     WMSTaskMismatchError,
     prepare_processing_job,
     process_saved_wms_result_with_lock,

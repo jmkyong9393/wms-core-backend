@@ -33,7 +33,7 @@ from app.schemas.admin_dashboard import (
     DashboardFlowTrendResponse,
     InboundDashboardSummaryResponse,
 )
-from app.schemas.hitl import HITLQueueBucket
+from app.domains.inspections.schemas.hitl import HITLQueueBucket
 from app.services.admin_inspection_service import (
     get_inspection_agent_logs,
     get_inspection_detail,

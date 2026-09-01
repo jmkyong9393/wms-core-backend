@@ -28,28 +28,28 @@ from app.models.wms import (
     User,
 )
 
-from app.schemas.hitl import (
+from app.domains.inspections.schemas.hitl import (
     HITLAction,
     HITLDecisionRequest,
     HITLDecisionResponse,
     HITLReviewStartResponse,
 )
 
-from app.services.hitl_service import (
+from app.domains.inspections.hitl_service import (
     clear_hitl_dispatch_backup,
     restore_hitl_after_dispatch_failure,
     save_hitl_decision,
     start_hitl_review,
 ) 
-from app.services.hitl_task_service import (
+from app.domains.inspections.hitl_task_service import (
     create_hitl_task_id,
     dispatch_hitl_followup_task,
 )
-from app.services.inspection_image_service import (
+from app.domains.inspections.inspection_image_service import (
     InspectionImageValidationError,
     normalize_cloudfront_image_urls,
 )
-from app.services.inspection_task_service import enqueue_inspection
+from app.domains.inspections.inspection_task_service import enqueue_inspection
 from app.services.sse_ticket_service import issue_sse_ticket
 from app.services.redis_pubsub import publish_return_job_event
 

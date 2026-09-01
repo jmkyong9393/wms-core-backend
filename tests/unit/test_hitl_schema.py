@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.hitl import HITLDecisionRequest
+from app.domains.inspections.schemas.hitl import HITLDecisionRequest
 
 
 def test_downgrade_requires_target_grade():

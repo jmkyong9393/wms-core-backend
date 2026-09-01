@@ -22,7 +22,7 @@ from app.models.wms import (
     ReturnJob,
     ReturnJobStatus,
 )
-from app.schemas.hitl import HITLReasonCode
+from app.domains.inspections.schemas.hitl import HITLReasonCode
 from app.domains.inventory.schemas.inspection_inventory import RejectionDisposition
 from app.domains.inbound.location_assignment_service import (
     NoAvailableLocationError,

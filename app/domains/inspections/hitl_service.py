@@ -11,7 +11,7 @@ from app.core.exceptions import (
     InvalidHITLStateException,
 )
 from app.models.wms import ConditionGrade, ReturnJob, ReturnJobStatus, User
-from app.schemas.hitl import (
+from app.domains.inspections.schemas.hitl import (
     HITLAction,
     HITLReasonCode,
     HITLTargetGrade,

@@ -1,7 +1,7 @@
 from uuid import uuid4
 
 from app.core.celery_app import celery_app
-from app.schemas.hitl import HITLAction
+from app.domains.inspections.schemas.hitl import HITLAction
 
 # 관리자 승인,반려 이후 실행할 WMS 후속 Celery Task 이름
 WMS_TASK_NAME = "app.worker.process_wms_action"

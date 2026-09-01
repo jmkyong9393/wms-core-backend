@@ -1,6 +1,6 @@
 import pytest
 
-from app.services.inspection_image_service import (
+from app.domains.inspections.inspection_image_service import (
     InspectionImageValidationError,
     normalize_cloudfront_image_urls,
 )

@@ -35,7 +35,7 @@ from app.schemas.admin_inspection import (
     ConfirmedDefect,
     YoloCandidate,
 )
-from app.schemas.hitl import HITLQueueBucket
+from app.domains.inspections.schemas.hitl import HITLQueueBucket
 from app.domains.lpn.lpn_service import build_label_scan_qr_url
 
 VALID_FINAL_GRADES = {

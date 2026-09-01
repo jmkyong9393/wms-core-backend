@@ -12,7 +12,7 @@ from app.domains.books import certificates
 from app.api.routes import db
 from app.domains.inbound import inbound
 from app.domains.inventory import inspection_inventory
-from app.api.routes import inspections
+from app.domains.inspections import inspections
 from app.domains.lpn import lpn
 from app.domains.restock import restock
 from app.domains.inventory import inventory
@@ -22,7 +22,7 @@ from app.domains.orders import orders
 from app.domains.orders import outbound
 from app.domains.pricing import pricing
 from app.domains.inventory import rejected_items
-from app.api.routes import stream
+from app.domains.inspections import stream
 from app.domains.inbound import used_inbound
 from app.core.config import settings
 from app.core.database import initialize_application_data

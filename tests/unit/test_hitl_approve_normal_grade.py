@@ -5,8 +5,8 @@ final_grade가 MINT로 확정되어야 WMS 재고 편입이 422 없이 통과한
 """
 
 from app.models.wms import ReturnJob, ReturnJobStatus
-from app.schemas.hitl import HITLAction, HITLReasonCode
-from app.services.hitl_service import apply_hitl_final_decision
+from app.domains.inspections.schemas.hitl import HITLAction, HITLReasonCode
+from app.domains.inspections.hitl_service import apply_hitl_final_decision
 
 
 def _make_hitl_job(ubci_score=None) -> ReturnJob:

@@ -851,7 +851,7 @@ def _load_inspection_image(
     # 프론트에서 전달된 CloudFront HTTPS 이미지 처리
     if parsed_url.scheme in {"http", "https"}:
         # 실제 원격 이미지 검증 시점에만 백엔드 설정 로드
-        from app.services.inspection_image_service import (
+        from app.domains.inspections.inspection_image_service import (
             normalize_cloudfront_image_urls,
         )
 

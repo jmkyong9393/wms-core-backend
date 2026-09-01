@@ -9,7 +9,7 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
 import json
 
-from app.schemas.hitl import HITLAction, HITLReasonCode
+from app.domains.inspections.schemas.hitl import HITLAction, HITLReasonCode
 from .state import WMSInspectionState
 from .agents import (
     IMAGE_VIEWS,
