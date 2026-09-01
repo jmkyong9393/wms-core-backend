@@ -14,7 +14,7 @@ from sqlalchemy import (
     or_,
     union_all,
 )
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.api.dependencies.auth import require_admin_or_master
 from app.core.database import get_session
@@ -252,20 +252,20 @@ def list_inventory(
     """
     new_stock_statement = (
         select(
-            Inventory.id.label("id"),
-            Book.title.label("book_title"),
-            Book.isbn.label("book_isbn"),
-            Book.cover_image_url.label("book_cover_image_url"),
+            col(Inventory.id).label("id"),
+            col(Book.title).label("book_title"),
+            col(Book.isbn).label("book_isbn"),
+            col(Book.cover_image_url).label("book_cover_image_url"),
             literal("NEW_STOCK").label("stock_type"),
             literal(
                 ConditionGrade.MINT.value,
             ).label("grade"),
-            Location.barcode.label("barcode"),
-            Location.zone.label("location_zone"),
-            Location.rack.label("rack"),
-            Location.shelf.label("shelf"),
-            Inventory.quantity.label("quantity"),
-            Inventory.reserved_quantity.label("reserved_quantity"),
+            col(Location.barcode).label("barcode"),
+            col(Location.zone).label("location_zone"),
+            col(Location.rack).label("rack"),
+            col(Location.shelf).label("shelf"),
+            col(Inventory.quantity).label("quantity"),
+            col(Inventory.reserved_quantity).label("reserved_quantity"),
             (Inventory.quantity - Inventory.reserved_quantity).label("available_quantity"),
             cast(
                 literal(None),
@@ -275,17 +275,17 @@ def list_inventory(
                 literal(None),
                 String,
             ).label("lpn_barcode"),
-            Book.base_price.label("base_price"),
-            Inventory.discount_rate.label("discount_rate"),
-            Inventory.sale_price.label("sale_price"),
+            col(Book.base_price).label("base_price"),
+            col(Inventory.discount_rate).label("discount_rate"),
+            col(Inventory.sale_price).label("sale_price"),
             case(
                 (
-                    Inventory.sale_price.is_not(None),
+                    col(Inventory.sale_price).is_not(None),
                     "DEFAULT_POLICY",
                 ),
                 else_="PENDING",
             ).label("pricing_status"),
-            Inventory.updated_at.label("date"),
+            col(Inventory.updated_at).label("date"),
         )
         .join(
             Book,
@@ -302,19 +302,19 @@ def list_inventory(
 
     used_item_statement = (
         select(
-            InventoryUsedItem.id.label("id"),
-            Book.title.label("book_title"),
-            Book.isbn.label("book_isbn"),
-            Book.cover_image_url.label("book_cover_image_url"),
+            col(InventoryUsedItem.id).label("id"),
+            col(Book.title).label("book_title"),
+            col(Book.isbn).label("book_isbn"),
+            col(Book.cover_image_url).label("book_cover_image_url"),
             literal("USED_ITEM").label("stock_type"),
             cast(
                 InventoryUsedItem.condition_grade,
                 String,
             ).label("grade"),
-            Location.barcode.label("barcode"),
-            Location.zone.label("location_zone"),
-            Location.rack.label("rack"),
-            Location.shelf.label("shelf"),
+            col(Location.barcode).label("barcode"),
+            col(Location.zone).label("location_zone"),
+            col(Location.rack).label("rack"),
+            col(Location.shelf).label("shelf"),
             literal(1).label("quantity"),
             case(
                 (
@@ -334,18 +334,18 @@ def list_inventory(
                 InventoryUsedItem.status,
                 String,
             ).label("lpn_status"),
-            InventoryUsedItem.lpn_barcode.label("lpn_barcode"),
-            Book.base_price.label("base_price"),
-            InventoryUsedItem.discount_rate.label("discount_rate"),
-            InventoryUsedItem.sale_price.label("sale_price"),
+            col(InventoryUsedItem.lpn_barcode).label("lpn_barcode"),
+            col(Book.base_price).label("base_price"),
+            col(InventoryUsedItem.discount_rate).label("discount_rate"),
+            col(InventoryUsedItem.sale_price).label("sale_price"),
             case(
                 (
-                    InventoryUsedItem.sale_price.is_not(None),
+                    col(InventoryUsedItem.sale_price).is_not(None),
                     "AGENT_PRICED",
                 ),
                 else_="PENDING",
             ).label("pricing_status"),
-            InventoryUsedItem.updated_at.label("date"),
+            col(InventoryUsedItem.updated_at).label("date"),
         )
         .join(
             Book,
@@ -373,21 +373,21 @@ def list_inventory(
     if normalized_keyword:
         search_pattern = f"%{normalized_keyword}%"
         new_stock_keyword_condition = or_(
-            Book.title.ilike(
+            col(Book.title).ilike(
                 search_pattern,
             ),
-            Book.isbn.ilike(
+            col(Book.isbn).ilike(
                 search_pattern,
             ),
         )
         used_item_keyword_condition = or_(
-            Book.title.ilike(
+            col(Book.title).ilike(
                 search_pattern,
             ),
-            Book.isbn.ilike(
+            col(Book.isbn).ilike(
                 search_pattern,
             ),
-            InventoryUsedItem.lpn_barcode.ilike(
+            col(InventoryUsedItem.lpn_barcode).ilike(
                 search_pattern,
             ),
         )

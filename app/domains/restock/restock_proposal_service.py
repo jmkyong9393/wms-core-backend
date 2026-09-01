@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.domains.inbound.inventory_admission_service import admit_new_stock
 from app.domains.inbound.location_assignment_service import (
@@ -65,7 +65,7 @@ def list_restock_proposals(
         select(OrderProposal, Book)
         .join(Book, OrderProposal.book_id == Book.id)
         .where(OrderProposal.tenant_id == tenant_id)
-        .order_by(OrderProposal.created_at.desc())
+        .order_by(col(OrderProposal.created_at).desc())
     )
 
     if status is not None:

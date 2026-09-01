@@ -11,7 +11,7 @@ router = APIRouter()
 @router.get("/health")
 def check_database_health(session: Session = Depends(get_session)):
     try:
-        session.exec(text("SELECT 1")).one()
+        session.execute(text("SELECT 1")).one()
     except SQLAlchemyError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

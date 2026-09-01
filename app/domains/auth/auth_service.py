@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import func, or_, text
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.core.config import settings
 from app.core.exceptions import (
@@ -81,9 +81,9 @@ def _apply_employee_list_filters(
 
         statement = statement.where(
             or_(
-                User.employee_id.ilike(search_pattern),
-                User.name.ilike(search_pattern),
-                User.email.ilike(search_pattern),
+                col(User.employee_id).ilike(search_pattern),
+                col(User.name).ilike(search_pattern),
+                col(User.email).ilike(search_pattern),
             )
         )
 
@@ -136,8 +136,8 @@ def list_employees(
 
     users = session.exec(
         list_statement.order_by(
-            User.created_at.desc(),
-            User.id.desc(),
+            col(User.created_at).desc(),
+            col(User.id).desc(),
         )
         .offset(offset)
         .limit(size)

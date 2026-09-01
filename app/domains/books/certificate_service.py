@@ -2,7 +2,7 @@ import json
 from typing import NoReturn
 
 from fastapi import HTTPException, status
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.domains.books.schemas.certificate import (
     CertificateBookDetail,
@@ -57,7 +57,7 @@ def get_certificate_by_token(
     return_job = session.exec(
         select(ReturnJob)
         .where(ReturnJob.inbound_item_id == inbound_item.id)
-        .order_by(ReturnJob.updated_at.desc(), ReturnJob.id.desc())
+        .order_by(col(ReturnJob.updated_at).desc(), col(ReturnJob.id).desc())
     ).first()
     if return_job is None:
         _raise_certificate_not_found()

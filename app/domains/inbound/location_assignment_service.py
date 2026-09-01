@@ -1,5 +1,5 @@
 from sqlalchemy import func, text
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.domain.warehouse_location_policy import (
     SHELF_CAPACITY,
@@ -161,7 +161,7 @@ def _count_location_occupancy(
         .select_from(InventoryUsedItem)
         .where(
             InventoryUsedItem.location_id == location.id,
-            InventoryUsedItem.status.in_(
+            col(InventoryUsedItem.status).in_(
                 [
                     UsedInventoryStatus.AVAILABLE,
                     UsedInventoryStatus.RESERVED,

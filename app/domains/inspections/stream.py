@@ -121,7 +121,8 @@ def build_job_event_data(
     }
 
     if status == ReturnJobStatus.RECHECK_REQUIRED.value:
-        hitl_logs = agent_logs.get("hitl") if isinstance(agent_logs.get("hitl"), dict) else {}
+        raw_hitl_logs = agent_logs.get("hitl")
+        hitl_logs = raw_hitl_logs if isinstance(raw_hitl_logs, dict) else {}
 
         event_data.update(
             {

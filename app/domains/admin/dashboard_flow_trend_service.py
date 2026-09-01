@@ -1,7 +1,7 @@
 from collections import defaultdict
 from datetime import datetime, time, timedelta
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.domains.admin.schemas.admin_dashboard import (
     DashboardFlowTrendItem,
@@ -31,7 +31,7 @@ def get_dashboard_flow_trend(
     inventory_logs = session.exec(
         select(InventoryLog).where(
             InventoryLog.created_at >= start_at,
-            InventoryLog.transaction_type.in_(
+            col(InventoryLog.transaction_type).in_(
                 [
                     InventoryTransactionType.INBOUND,
                     InventoryTransactionType.OUTBOUND,
@@ -54,7 +54,7 @@ def get_dashboard_flow_trend(
 
     completed_jobs = session.exec(
         select(ReturnJob).where(
-            ReturnJob.ai_inspection_completed_at.is_not(None),
+            col(ReturnJob.ai_inspection_completed_at).is_not(None),
             ReturnJob.ai_inspection_completed_at >= start_at,
         )
     ).all()

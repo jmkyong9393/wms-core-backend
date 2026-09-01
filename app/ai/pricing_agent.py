@@ -12,6 +12,7 @@ from langchain_core.messages import (
     SystemMessage,
 )
 from langchain_openai import ChatOpenAI
+from pydantic import SecretStr
 
 from app.domains.pricing.schemas.pricing import (
     PricingReason,
@@ -227,7 +228,7 @@ def generate_pricing_reason(
         temperature=0,
         timeout=10,
         max_retries=1,
-        api_key=api_key,
+        api_key=SecretStr(api_key),
     )
 
     # LLM의 JSON Schema 형식 준수

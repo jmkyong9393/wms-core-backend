@@ -2,6 +2,7 @@ import logging
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
+from pydantic import SecretStr
 
 from app.core.config import settings
 from app.domains.restock.schemas.restock import (
@@ -48,7 +49,7 @@ def restock_agent(
     llm = ChatOpenAI(
         model=settings.RESTOCK_AGENT_MODEL,
         temperature=settings.RESTOCK_AGENT_TEMPERATURE,
-        api_key=settings.OPENAI_API_KEY,
+        api_key=SecretStr(settings.OPENAI_API_KEY),
         timeout=settings.RESTOCK_AGENT_TIMEOUT_SECONDS,
         max_retries=2,
     )

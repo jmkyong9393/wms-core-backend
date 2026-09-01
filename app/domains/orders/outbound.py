@@ -5,7 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.api.dependencies.auth import require_wms_operator
 from app.core.database import get_session
@@ -245,7 +245,9 @@ def create_picking_instruction(
                 detail="Order has no order items",
             )
 
-        books = session.exec(select(Book).where(Book.id.in_({order_item.book_id for order_item in order_items}))).all()
+        books = session.exec(
+            select(Book).where(col(Book.id).in_({order_item.book_id for order_item in order_items}))
+        ).all()
 
         books_by_id = {book.id: book for book in books}
 
@@ -857,13 +859,13 @@ def confirm_shipment(
 
         new_allocations = session.exec(
             select(OrderItemInventoryAllocation)
-            .where(OrderItemInventoryAllocation.order_item_id.in_(order_item_ids))
+            .where(col(OrderItemInventoryAllocation.order_item_id).in_(order_item_ids))
             .order_by(OrderItemInventoryAllocation.id)
         ).all()
 
         used_allocations = session.exec(
             select(OrderItemLpnAllocation)
-            .where(OrderItemLpnAllocation.order_item_id.in_(order_item_ids))
+            .where(col(OrderItemLpnAllocation.order_item_id).in_(order_item_ids))
             .order_by(OrderItemLpnAllocation.id)
         ).all()
 

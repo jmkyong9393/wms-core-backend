@@ -2,7 +2,7 @@ from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.api.dependencies.auth import require_admin_or_master
 from app.core.database import get_session
@@ -395,7 +395,7 @@ def get_weekly_insights(
     insights = session.exec(
         select(WeeklyInsight)
         .where(WeeklyInsight.tenant_id == current_admin.tenant_id)
-        .order_by(WeeklyInsight.report_week.desc())
+        .order_by(col(WeeklyInsight.report_week).desc())
     ).all()
     return insights
 
@@ -411,7 +411,9 @@ def get_fds_reports(
     session: Session = Depends(get_session),
 ) -> list[FdsReportResponse]:
     reports = session.exec(
-        select(FdsReport).where(FdsReport.tenant_id == current_admin.tenant_id).order_by(FdsReport.detected_at.desc())
+        select(FdsReport)
+        .where(FdsReport.tenant_id == current_admin.tenant_id)
+        .order_by(col(FdsReport.detected_at).desc())
     ).all()
 
     # customer_id 별 customer_name 매핑
@@ -420,7 +422,7 @@ def get_fds_reports(
     if customer_ids:
         # orders 테이블에서 고유한 B2B 고객사명 가져오기
         orders_data = session.exec(
-            select(Order.customer_id, Order.customer_name).where(Order.customer_id.in_(customer_ids))
+            select(Order.customer_id, Order.customer_name).where(col(Order.customer_id).in_(customer_ids))
         ).all()
         for cid, cname in orders_data:
             if cid and cname:

@@ -38,9 +38,9 @@ def test_returns_existing_book_without_calling_aladin():
 
 def test_registers_aladin_metadata_after_isbn_lock_and_recheck():
     session = MagicMock()
+    # advisory lock은 session.execute()로 나가므로 exec 목록에는 넣지 않는다.
     session.exec.side_effect = [
         _exec_result(),
-        MagicMock(),
         _exec_result(),
     ]
     metadata_lookup = MagicMock(
@@ -81,9 +81,9 @@ def test_returns_book_created_by_concurrent_request_after_lock():
         base_price=Decimal("17000"),
     )
     session = MagicMock()
+    # advisory lock은 session.execute()로 나가므로 exec 목록에는 넣지 않는다.
     session.exec.side_effect = [
         _exec_result(),
-        MagicMock(),
         _exec_result(concurrent_book),
     ]
     metadata_lookup = MagicMock(

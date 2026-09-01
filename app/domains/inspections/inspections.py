@@ -9,7 +9,7 @@ from fastapi import (
     status,
 )
 from pydantic import BaseModel, Field
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.api.dependencies.auth import (
     get_current_user,
@@ -215,7 +215,7 @@ def create_inspection(
         )
 
     existing_return_job = session.exec(
-        select(ReturnJob).where(ReturnJob.inbound_item_id == inbound_item.id).order_by(ReturnJob.created_at.desc())
+        select(ReturnJob).where(ReturnJob.inbound_item_id == inbound_item.id).order_by(col(ReturnJob.created_at).desc())
     ).first()
     if existing_return_job is not None and existing_return_job.status != ReturnJobStatus.FAILED:
         raise HTTPException(

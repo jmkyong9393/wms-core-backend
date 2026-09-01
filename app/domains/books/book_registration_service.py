@@ -33,7 +33,7 @@ def register_book_by_isbn(
     canonical_isbn = normalize_isbn(metadata.isbn)
 
     # 외부 API 호출 뒤 잠금을 획득하여 네트워크 대기 중 DB Lock 점유를 피한다.
-    session.exec(text("SELECT pg_advisory_xact_lock(hashtextextended(:isbn, 0))").bindparams(isbn=canonical_isbn))
+    session.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:isbn, 0))").bindparams(isbn=canonical_isbn))
 
     existing_book = _find_book_by_isbn(session, canonical_isbn)
     if existing_book is not None:

@@ -6,7 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.api.dependencies.auth import require_wms_operator
 from app.core.database import get_session
@@ -126,7 +126,9 @@ def list_outbound_orders(
     ).one()
 
     orders = session.exec(
-        base_statement.order_by(Order.created_at.desc(), Order.id.desc()).offset((page - 1) * size).limit(size)
+        base_statement.order_by(col(Order.created_at).desc(), col(Order.id).desc())
+        .offset((page - 1) * size)
+        .limit(size)
     ).all()
 
     return OrderListResponse(
@@ -187,7 +189,7 @@ def create_order(
             new_stock_quantities[item.book_id] = new_stock_quantities.get(item.book_id, 0) + item.quantity
 
     requested_book_ids = {item.book_id for item in request.items}
-    books = session.exec(select(Book).where(Book.id.in_(requested_book_ids))).all()
+    books = session.exec(select(Book).where(col(Book.id).in_(requested_book_ids))).all()
     books_by_id = {book.id: book for book in books}
     missing_book_ids = requested_book_ids - set(books_by_id)
 

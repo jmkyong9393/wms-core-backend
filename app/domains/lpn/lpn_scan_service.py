@@ -1,6 +1,6 @@
 from fastapi import HTTPException, status
 from sqlalchemy import or_
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.domains.lpn.schemas.lpn import (
     LpnBookDetail,
@@ -63,7 +63,7 @@ def get_lpn_scan_detail(
 
     # 동일 입고 품목으로 생성된 가장 최근 검수 작업을 조회한다.
     return_job = session.exec(
-        select(ReturnJob).where(ReturnJob.inbound_item_id == inbound_item.id).order_by(ReturnJob.created_at.desc())
+        select(ReturnJob).where(ReturnJob.inbound_item_id == inbound_item.id).order_by(col(ReturnJob.created_at).desc())
     ).first()
 
     used_inventory_item = session.exec(

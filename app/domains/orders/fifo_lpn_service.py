@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.models.wms import (
     InventoryUsedItem,
@@ -40,11 +40,11 @@ def select_fifo_lpn_candidate(
         InventoryUsedItem.book_id == order_item.book_id,
         InventoryUsedItem.condition_grade == condition_grade,
         InventoryUsedItem.status == UsedInventoryStatus.AVAILABLE,
-        InventoryUsedItem.discount_rate.is_not(None),
-        InventoryUsedItem.sale_price.is_not(None),
+        col(InventoryUsedItem.discount_rate).is_not(None),
+        col(InventoryUsedItem.sale_price).is_not(None),
     )
     if excluded_inventory_ids:
-        statement = statement.where(InventoryUsedItem.id.notin_(excluded_inventory_ids))
+        statement = statement.where(col(InventoryUsedItem.id).notin_(excluded_inventory_ids))
 
     inventory_item = session.exec(
         statement.order_by(InventoryUsedItem.stocked_at, InventoryUsedItem.id)

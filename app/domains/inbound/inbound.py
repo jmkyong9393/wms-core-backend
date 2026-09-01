@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, text
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.core.database import get_session
 from app.domains.inbound.inventory_admission_service import admit_new_stock
@@ -230,7 +230,7 @@ def get_inbound_history(
     ),
     session: Session = Depends(get_session),
 ):
-    inbound_jobs = session.exec(select(InboundJob).order_by(InboundJob.created_at.desc()).limit(limit)).all()
+    inbound_jobs = session.exec(select(InboundJob).order_by(col(InboundJob.created_at).desc()).limit(limit)).all()
     if not inbound_jobs:
         return []
 
@@ -240,7 +240,7 @@ def get_inbound_history(
             InboundItem.inbound_job_id,
             func.coalesce(func.sum(InboundItem.quantity), 0),
         )
-        .where(InboundItem.inbound_job_id.in_(inbound_job_ids))
+        .where(col(InboundItem.inbound_job_id).in_(inbound_job_ids))
         .group_by(InboundItem.inbound_job_id)
     ).all()
     quantity_by_job_id = {inbound_job_id: int(total_quantity) for inbound_job_id, total_quantity in quantity_rows}

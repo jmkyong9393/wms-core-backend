@@ -1,7 +1,7 @@
 from collections import defaultdict
 from datetime import datetime, time, timedelta
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.domains.admin.schemas.admin_dashboard import (
     InboundDashboardGradeItem,
@@ -54,7 +54,7 @@ def get_inbound_dashboard_summary(
     pending_inspection_count = len(
         session.exec(
             select(ReturnJob).where(
-                ReturnJob.status.in_(
+                col(ReturnJob.status).in_(
                     [
                         ReturnJobStatus.PENDING,
                         ReturnJobStatus.PROCESSING,
@@ -72,7 +72,7 @@ def get_inbound_dashboard_summary(
     completed_inspection_count = len(
         session.exec(
             select(ReturnJob).where(
-                ReturnJob.status.in_(
+                col(ReturnJob.status).in_(
                     [
                         ReturnJobStatus.APPROVED,
                         ReturnJobStatus.REJECTED,
@@ -107,13 +107,13 @@ def get_inbound_dashboard_summary(
 
     completed_return_jobs = session.exec(
         select(ReturnJob).where(
-            ReturnJob.status.in_(
+            col(ReturnJob.status).in_(
                 [
                     ReturnJobStatus.APPROVED,
                     ReturnJobStatus.REJECTED,
                 ]
             ),
-            ReturnJob.condition_grade.is_not(None),
+            col(ReturnJob.condition_grade).is_not(None),
             ReturnJob.updated_at >= trend_start_at,
         )
     ).all()
@@ -184,7 +184,7 @@ def get_inbound_dashboard_summary(
             Location,
             Location.id == InboundItem.location_id,
         )
-        .order_by(InboundItem.created_at.desc())
+        .order_by(col(InboundItem.created_at).desc())
         .limit(10)
     ).all()
 

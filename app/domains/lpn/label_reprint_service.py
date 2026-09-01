@@ -55,7 +55,7 @@ def build_label_reprint_zpl(
 
     if label_type == LabelType.LPN:
         return build_lpn_label_zpl(
-            lpn_barcode=inbound_item.lpn_barcode,
+            lpn_barcode=lpn_barcode,
             certificate_token=inbound_item.certificate_token,
         )
 

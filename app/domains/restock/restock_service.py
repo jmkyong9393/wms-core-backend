@@ -5,7 +5,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import func
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.ai.restock_agent import restock_agent
 from app.domains.restock.schemas.restock import (
@@ -482,7 +482,7 @@ def get_pending_auto_po_quantity(
         .where(
             OrderItem.book_id == book_id,
             Order.type == OrderType.AUTO_PO,
-            Order.status.in_(IN_PROGRESS_AUTO_PO_STATUSES),
+            col(Order.status).in_(IN_PROGRESS_AUTO_PO_STATUSES),
         )
     ).one()
 

@@ -4,7 +4,7 @@ from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, update
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.core.database import engine
 from app.domains.notifications.schemas.notification import (
@@ -118,7 +118,7 @@ def create_notification_for_tenant(
         select(User).where(
             User.tenant_id == tenant_id,
             User.status == UserStatus.ACTIVE,
-            User.role.in_(
+            col(User.role).in_(
                 [
                     UserRole.MASTER,
                     UserRole.ADMIN,
@@ -156,7 +156,7 @@ def get_notifications_for_user(
             NotificationRecipient.user_id == current_user.id,
             Notification.tenant_id == current_user.tenant_id,
         )
-        .order_by(Notification.created_at.desc())
+        .order_by(col(Notification.created_at).desc())
         .limit(limit)
     ).all()
 

@@ -3,7 +3,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 from sqlalchemy import func
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.domains.inbound.location_assignment_service import (
     assign_graded_inventory_location,
@@ -228,8 +228,8 @@ def _get_used_lpn_virtual_available_quantity(
             InventoryUsedItem.book_id == book_id,
             InventoryUsedItem.condition_grade == ConditionGrade.EXCELLENT,
             InventoryUsedItem.status == UsedInventoryStatus.AVAILABLE,
-            InventoryUsedItem.discount_rate.is_not(None),
-            InventoryUsedItem.sale_price.is_not(None),
+            col(InventoryUsedItem.discount_rate).is_not(None),
+            col(InventoryUsedItem.sale_price).is_not(None),
         )
     ).one()
 

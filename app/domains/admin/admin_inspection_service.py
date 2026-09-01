@@ -5,7 +5,7 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from pydantic import ValidationError
 from sqlalchemy import func
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.domains.admin.schemas.admin_inspection import (
     AgentLogStep,
@@ -244,7 +244,7 @@ def _apply_inspection_history_filters(
 
     if normalized_keyword:
         statement = statement.where(
-            Book.title.contains(normalized_keyword),
+            col(Book.title).contains(normalized_keyword),
         )
 
     if grade is not None:
@@ -338,8 +338,8 @@ def get_inspection_history(
 
     rows = session.exec(
         history_statement.order_by(
-            ReturnJob.created_at.desc(),
-            ReturnJob.id.desc(),
+            col(ReturnJob.created_at).desc(),
+            col(ReturnJob.id).desc(),
         )
         .offset(offset)
         .limit(size)
@@ -410,7 +410,7 @@ def _apply_hitl_queue_bucket_filter(
     if bucket == HITLQueueBucket.IN_REVIEW:
         return statement.where(
             ReturnJob.status == ReturnJobStatus.HITL_REQUIRED,
-            ReturnJob.hitl_reviewer_id.is_not(None),
+            col(ReturnJob.hitl_reviewer_id).is_not(None),
         )
 
     if bucket == HITLQueueBucket.RECHECK:
@@ -419,7 +419,7 @@ def _apply_hitl_queue_bucket_filter(
         )
 
     return statement.where(
-        ReturnJob.status.in_(
+        col(ReturnJob.status).in_(
             [
                 ReturnJobStatus.APPROVED,
                 ReturnJobStatus.REJECTED,
@@ -479,18 +479,18 @@ def get_hitl_queue(
 
     if bucket == HITLQueueBucket.COMPLETED:
         statement = statement.order_by(
-            ReturnJob.updated_at.desc(),
-            ReturnJob.id.desc(),
+            col(ReturnJob.updated_at).desc(),
+            col(ReturnJob.id).desc(),
         )
     elif bucket == HITLQueueBucket.IN_REVIEW:
         statement = statement.order_by(
-            ReturnJob.hitl_review_started_at.asc(),
-            ReturnJob.id.asc(),
+            col(ReturnJob.hitl_review_started_at).asc(),
+            col(ReturnJob.id).asc(),
         )
     else:
         statement = statement.order_by(
-            ReturnJob.created_at.asc(),
-            ReturnJob.id.asc(),
+            col(ReturnJob.created_at).asc(),
+            col(ReturnJob.id).asc(),
         )
 
     rows = session.exec(statement.offset((page - 1) * size).limit(size)).all()
@@ -571,7 +571,7 @@ def get_hitl_queue_metrics(
         .select_from(ReturnJob)
         .where(
             ReturnJob.tenant_id == tenant_id,
-            ReturnJob.status.in_(
+            col(ReturnJob.status).in_(
                 [
                     ReturnJobStatus.APPROVED,
                     ReturnJobStatus.REJECTED,

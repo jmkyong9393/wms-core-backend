@@ -99,10 +99,26 @@ ignore = [
 testpaths = ["tests"]
 
 [tool.mypy]
+# pydantic 모델·BaseSettings의 생성자 시그니처를 이해시키기 위한 공식 플러그인.
+# 없으면 `Settings()`가 "필수 인자 누락"으로 잘못 잡힌다(값은 환경변수에서 온다).
+plugins = ["pydantic.mypy"]
 # python_version은 고정하지 않는다. 고정하면 실행 인터프리터(로컬 3.14 / CI 3.11)와
 # 어긋나 설치된 서드파티 스텁(numpy 등)이 문법 오류로 잡힌다 — 실측 확인.
 # 서드파티 스텁이 없는 패키지(ultralytics, langgraph 등)가 많아 전역으로 켠다.
 ignore_missing_imports = true
+
+# ── mypy 베이스라인 ──
+# 아래 모듈은 현재 타입 오류가 남아 있어 검사에서 제외한다. 나머지 모듈에 대해서는
+# mypy가 하드 게이트로 동작하므로, 새 코드와 깨끗한 모듈은 계속 깨끗하게 유지된다.
+#
+# 오류의 대부분은 SQLModel 컬럼 표현식에 대한 오탐이다 — mypy가 `Order.shipped_at`을
+# 파이썬 필드 타입(datetime)으로 보고 `.desc()`/`.in_()`/비교 연산을 오류로 잡는다.
+# 실제 런타임에서는 InstrumentedAttribute라 정상 동작한다(E2E로 검증됨).
+#
+# 남은 오류는 대부분 join/order_by 인자와 State TypedDict 접근이며, sqlmodel의 col()로
+# 해결되는 컬럼 연산(desc/in_/is_not/label 등)은 이미 정리했다 (44개 모듈 -> 32개).
+# 이 목록은 줄여 나갈 부채다. 여기 있는 파일을 손볼 때 오류를 정리하고 항목을 지울 것.
+# 반대로 깨끗한 파일에 쿼리를 추가해 오탐이 나면, 사유를 적고 이 목록에 추가한다.
 
 # ── mypy 베이스라인 ──
 # 아래 모듈은 현재 타입 오류가 남아 있어 검사에서 제외한다. 나머지 모듈에 대해서는
@@ -121,12 +137,9 @@ module = [
     "app.ai.agents.policy",
     "app.ai.agents.report",
     "app.ai.agents.vision",
-    "app.ai.pricing_agent",
     "app.ai.rag.critic_cases",
     "app.ai.rag.policy_search",
-    "app.ai.restock_agent",
     "app.ai.supervisor",
-    "app.core.config",
     "app.domains.admin.admin",
     "app.domains.admin.admin_inspection_service",
     "app.domains.admin.dashboard_flow_trend_service",
@@ -134,30 +147,21 @@ module = [
     "app.domains.admin.outbound_dashboard_service",
     "app.domains.auth.auth",
     "app.domains.auth.auth_service",
-    "app.domains.auth.employee_bulk_excel_service",
-    "app.domains.books.book_registration_service",
-    "app.domains.books.certificate_service",
-    "app.domains.dev.db",
     "app.domains.dev.demo_inventory_service",
     "app.domains.dev.mock_order_generator_service",
     "app.domains.inbound.inbound",
-    "app.domains.inbound.inventory_admission_service",
     "app.domains.inbound.location_assignment_service",
     "app.domains.inbound.used_inbound",
     "app.domains.inspections.hitl_service",
     "app.domains.inspections.inspections",
     "app.domains.inspections.return_job_service",
-    "app.domains.inspections.stream",
     "app.domains.inventory.inventory",
     "app.domains.inventory.rejected_item_service",
-    "app.domains.lpn.label_reprint_service",
     "app.domains.lpn.lpn_scan_service",
     "app.domains.notifications.notification_service",
     "app.domains.orders.fifo_lpn_service",
-    "app.domains.orders.orders",
     "app.domains.orders.outbound",
     "app.domains.pricing.pricing_context_service",
-    "app.domains.restock.restock",
     "app.domains.restock.restock_proposal_service",
     "app.domains.restock.restock_service",
 ]

@@ -128,7 +128,7 @@ def _record_inbound_log(
     session: Session,
     inbound_item: InboundItem,
     location: Location,
-    grade: ConditionGrade,
+    grade: ConditionGrade | None,
 ) -> None:
     session.add(
         InventoryLog(

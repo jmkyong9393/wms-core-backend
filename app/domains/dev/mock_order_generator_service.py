@@ -5,7 +5,7 @@ from typing import Literal
 from uuid import UUID, uuid4
 
 from sqlalchemy import func
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.domains.dev.demo_inventory_service import (
     DEMO_OUTBOUND_BOOK_ISBN,
@@ -134,8 +134,8 @@ def _find_new_stock_candidate(
         .join(Book, Inventory.book_id == Book.id)
         .where(
             Book.base_price > 0,
-            Inventory.discount_rate.is_not(None),
-            Inventory.sale_price.is_not(None),
+            col(Inventory.discount_rate).is_not(None),
+            col(Inventory.sale_price).is_not(None),
         )
     )
 
@@ -198,8 +198,8 @@ def _find_used_lpn_candidate(
         .where(
             InventoryUsedItem.status == UsedInventoryStatus.AVAILABLE,
             InventoryUsedItem.condition_grade == ConditionGrade.EXCELLENT,
-            InventoryUsedItem.discount_rate.is_not(None),
-            InventoryUsedItem.sale_price.is_not(None),
+            col(InventoryUsedItem.discount_rate).is_not(None),
+            col(InventoryUsedItem.sale_price).is_not(None),
             Book.base_price > 0,
         )
     )
@@ -284,7 +284,7 @@ def _get_pending_used_lpn_order_counts(
         .where(
             Order.type == OrderType.B2B_ORDER,
             Order.status == OrderStatus.PENDING,
-            OrderItem.condition_grade.is_not(None),
+            col(OrderItem.condition_grade).is_not(None),
         )
         .group_by(
             OrderItem.book_id,

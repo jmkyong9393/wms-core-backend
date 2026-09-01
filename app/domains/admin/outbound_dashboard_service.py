@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from app.domains.admin.schemas.admin_dashboard import (
     OutboundDashboardOrderResponse,
@@ -42,13 +42,13 @@ def get_outbound_dashboard_summary(
     picked_quantity = 0
 
     if active_order_ids:
-        active_order_items = session.exec(select(OrderItem).where(OrderItem.order_id.in_(active_order_ids))).all()
+        active_order_items = session.exec(select(OrderItem).where(col(OrderItem.order_id).in_(active_order_ids))).all()
         active_order_item_ids = [order_item.id for order_item in active_order_items]
 
         if active_order_item_ids:
             new_allocations = session.exec(
                 select(OrderItemInventoryAllocation).where(
-                    OrderItemInventoryAllocation.order_item_id.in_(active_order_item_ids)
+                    col(OrderItemInventoryAllocation.order_item_id).in_(active_order_item_ids)
                 )
             ).all()
 
@@ -56,7 +56,9 @@ def get_outbound_dashboard_summary(
             picked_quantity += sum(allocation.picked_quantity for allocation in new_allocations)
 
             used_allocations = session.exec(
-                select(OrderItemLpnAllocation).where(OrderItemLpnAllocation.order_item_id.in_(active_order_item_ids))
+                select(OrderItemLpnAllocation).where(
+                    col(OrderItemLpnAllocation.order_item_id).in_(active_order_item_ids)
+                )
             ).all()
 
             expected_quantity += len(used_allocations)
@@ -69,7 +71,7 @@ def get_outbound_dashboard_summary(
             Order.type == OrderType.B2B_ORDER,
             Order.status == OrderStatus.SHIPPED,
             Order.shipped_at >= today_start,
-            Order.waybill_number.is_not(None),
+            col(Order.waybill_number).is_not(None),
         )
     ).all()
 
@@ -77,8 +79,8 @@ def get_outbound_dashboard_summary(
         select(Order)
         .where(Order.type == OrderType.B2B_ORDER)
         .order_by(
-            Order.created_at.desc(),
-            Order.id.desc(),
+            col(Order.created_at).desc(),
+            col(Order.id).desc(),
         )
         .limit(RECENT_OUTBOUND_ORDER_LIMIT)
     ).all()
