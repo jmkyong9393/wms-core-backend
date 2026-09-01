@@ -12,6 +12,7 @@ CHROMA_HOST = os.getenv("CHROMA_SERVER_HOST", "localhost")
 CHROMA_PORT = int(os.getenv("CHROMA_SERVER_PORT", 8000))
 COLLECTION_NAME = "wms_return_policies"
 
+
 def test_search(query: str):
     print(f"\n🔍 검색어: '{query}'")
 
@@ -20,11 +21,7 @@ def test_search(query: str):
     embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
 
     # 3. 기존에 적재된 컬렉션에 연결
-    vectorstore = Chroma(
-        client=chroma_client,
-        collection_name=COLLECTION_NAME,
-        embedding_function=embeddings
-    )
+    vectorstore = Chroma(client=chroma_client, collection_name=COLLECTION_NAME, embedding_function=embeddings)
 
     # 4. 유사도 검색 (Similarity Search) 수행
     # 후보군을 10개 넉넉하게 추출하여 점수(Score)와 함께 반환 (ChromaDB의 기본 점수는 L2 거리이므로 작을수록 유사함)
@@ -41,11 +38,11 @@ def test_search(query: str):
 
         # 권위 등급에 따른 거리(Distance) 조정 가중치 (값이 작아져야 상위 노출)
         if level == "Statute":
-            weight = 0.7   # 법령: 매우 강력한 가산점 (-30% 거리 축소)
+            weight = 0.7  # 법령: 매우 강력한 가산점 (-30% 거리 축소)
         elif level == "Contract":
             weight = 0.85  # 약관: 강력한 가산점 (-15% 거리 축소)
         elif level == "Policy":
-            weight = 1.0   # 운영정책: 기본값
+            weight = 1.0  # 운영정책: 기본값
         elif level == "Guideline":
             weight = 1.15  # 가이드라인: 감점 (+15% 거리 증가)
         else:
@@ -69,6 +66,7 @@ def test_search(query: str):
         print(f"📖 문서 조항: {doc.metadata.get('doc_title', 'N/A')} - {doc.metadata.get('clause_ref', '')}")
         print(f"\n📝 내용:\n{doc.page_content}")
         print("============================================")
+
 
 if __name__ == "__main__":
     print("🚀 ChromaDB RAG 검색 테스트 시작")

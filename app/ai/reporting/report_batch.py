@@ -20,6 +20,7 @@ from app.models.wms import (
 
 logger = logging.getLogger(__name__)
 
+
 def fetch_recent_returns(
     session: Session,
 ) -> List[Dict[str, Any]]:
@@ -73,21 +74,14 @@ def fetch_recent_returns(
                 "returns_last_30d": row[3] or 0,
                 "returns_last_90d": row[4] or 0,
                 "weekly_return_count": row[5] or 0,
-                "avg_ubci_score": (
-                    float(row[6])
-                    if row[6] is not None
-                    else 100.0
-                ),
-                "total_refund_amount": (
-                    float(row[7])
-                    if row[7] is not None
-                    else 0.0
-                ),
+                "avg_ubci_score": (float(row[6]) if row[6] is not None else 100.0),
+                "total_refund_amount": (float(row[7]) if row[7] is not None else 0.0),
                 "final_report": row[8] or "",
             }
         )
 
     return data
+
 
 def fetch_inventory_stats(session: Session) -> Dict[str, Any]:
     logger.info("DB에서 현재 센터 총 재고 현황을 조회합니다...")
@@ -106,23 +100,27 @@ def fetch_inventory_stats(session: Session) -> Dict[str, Any]:
     """)
     scrap = session.execute(query_scrap).scalar()
 
-    return {
-        "total_books_in_stock": total_books,
-        "low_stock_items_count": low_stock,
-        "scrap_books_count": scrap
-    }
+    return {"total_books_in_stock": total_books, "low_stock_items_count": low_stock, "scrap_books_count": scrap}
+
 
 def fetch_order_stats(session: Session) -> Dict[str, Any]:
     logger.info("DB에서 이번 주 발주 및 출고 내역을 조회합니다...")
-    outbound = session.execute(text("SELECT COUNT(*) FROM orders WHERE created_at >= NOW() - INTERVAL '7 days' AND type = 'B2B_ORDER'")).scalar()
-    inbound_po = session.execute(text("SELECT COUNT(*) FROM orders WHERE created_at >= NOW() - INTERVAL '7 days' AND type = 'AUTO_PO'")).scalar()
-    inbound_received = session.execute(text("SELECT COUNT(*) FROM inbound_jobs WHERE created_at >= NOW() - INTERVAL '7 days' AND status = 'RECEIVED'")).scalar()
+    outbound = session.execute(
+        text("SELECT COUNT(*) FROM orders WHERE created_at >= NOW() - INTERVAL '7 days' AND type = 'B2B_ORDER'")
+    ).scalar()
+    inbound_po = session.execute(
+        text("SELECT COUNT(*) FROM orders WHERE created_at >= NOW() - INTERVAL '7 days' AND type = 'AUTO_PO'")
+    ).scalar()
+    inbound_received = session.execute(
+        text("SELECT COUNT(*) FROM inbound_jobs WHERE created_at >= NOW() - INTERVAL '7 days' AND status = 'RECEIVED'")
+    ).scalar()
 
     return {
         "weekly_outbound_orders": outbound,
         "weekly_inbound_po": inbound_po,
-        "total_inbound_books_received": inbound_received
+        "total_inbound_books_received": inbound_received,
     }
+
 
 def fetch_location_hotspots(session: Session) -> Dict[str, int]:
     query = text("""
@@ -137,6 +135,7 @@ def fetch_location_hotspots(session: Session) -> Dict[str, int]:
     result = session.execute(query)
     return {row[0]: row[1] for row in result}
 
+
 def fetch_logistics_hotspots(session: Session) -> Dict[str, int]:
     query = text("""
     SELECT o.logistics_center, COUNT(*) AS count
@@ -148,6 +147,7 @@ def fetch_logistics_hotspots(session: Session) -> Dict[str, int]:
     """)
     result = session.execute(query)
     return {row[0]: row[1] for row in result}
+
 
 def fetch_defective_publishers(session: Session) -> Dict[str, int]:
     query = text("""
@@ -162,13 +162,12 @@ def fetch_defective_publishers(session: Session) -> Dict[str, int]:
     result = session.execute(query)
     return {row[0]: row[1] for row in result}
 
+
 def save_fds_report(
     session: Session,
     results: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
-    logger.info(
-        f"총 {len(results)}건의 이상거래 의심 내역을 보고합니다."
-    )
+    logger.info(f"총 {len(results)}건의 이상거래 의심 내역을 보고합니다.")
 
     # SSE 알림 발행 대상을 구분하기 위한 반환값.
     # 기존 FDS 보고서 저장·갱신 정책은 변경하지 않는다.
@@ -196,9 +195,7 @@ def save_fds_report(
 
         if not existing:
             # 최초 적발: 신규 INSERT
-            logger.warning(
-                f"신규 이상거래 의심 유저: {res}"
-            )
+            logger.warning(f"신규 이상거래 의심 유저: {res}")
             report = FdsReport(
                 id=uuid.uuid4(),
                 tenant_id=tenant_id,
@@ -218,10 +215,7 @@ def save_fds_report(
             if new_score > old_score:
                 # 2. 이미 적발되었으나 위험도가 더 상승한 경우:
                 # UPDATE 및 detected_at 갱신
-                logger.warning(
-                    "이상거래 위험도 상향 갱신 "
-                    f"(점수: {old_score} -> {new_score}): {res}"
-                )
+                logger.warning(f"이상거래 위험도 상향 갱신 (점수: {old_score} -> {new_score}): {res}")
                 session.execute(
                     text("""
                         UPDATE fds_reports
@@ -244,18 +238,16 @@ def save_fds_report(
             else:
                 # 3. 동일 점수거나 점수가 더 낮아진 경우 무시
                 # (최초 적발의 detected_at 보존)
-                logger.info(
-                    "기존 의심 유저 유지 "
-                    f"(점수 악화 없음) - {cid}"
-                )
+                logger.info(f"기존 의심 유저 유지 (점수 악화 없음) - {cid}")
 
     return alert_candidates
+
 
 def generate_weekly_insights(
     session: Session,
     raw_return_data: List[Dict[str, Any]],
     inventory_stats: Dict[str, Any],
-    order_stats: Dict[str, Any]
+    order_stats: Dict[str, Any],
 ) -> Dict[str, Any]:
     logger.info("대시보드용 주간 인사이트 통합 분석을 시작합니다 (SQL Push-down)...")
 
@@ -264,9 +256,14 @@ def generate_weekly_insights(
         logger.info("최근 반품 데이터(raw_return_data)가 없지만 전체 검수 건수 집계는 계속 진행합니다.")
 
     # 반품 성공/실패, 중고 입고 성공/실패 여부와 관계없이(단, 사람이 개입한 HITL 제외) 최근 7일 내 AI가 온전히 검수를 마친 건만 조회
-    total_ai_inspections = session.execute(
-        text("SELECT COUNT(*) FROM return_jobs WHERE created_at >= NOW() - INTERVAL '7 days' AND status IN ('APPROVED', 'REJECTED')")
-    ).scalar() or 0
+    total_ai_inspections = (
+        session.execute(
+            text(
+                "SELECT COUNT(*) FROM return_jobs WHERE created_at >= NOW() - INTERVAL '7 days' AND status IN ('APPROVED', 'REJECTED')"
+            )
+        ).scalar()
+        or 0
+    )
 
     saved_labor_cost_krw = int(total_ai_inspections * 90 * 9860 / 3600)
 
@@ -278,6 +275,7 @@ def generate_weekly_insights(
     predicted_returns = int(weekly_outbound * 0.03)
 
     from datetime import datetime
+
     current_week = f"{datetime.now().year}-W{datetime.now().isocalendar()[1]}"
 
     insights = {
@@ -286,10 +284,11 @@ def generate_weekly_insights(
         "top_defective_publishers": top_defective_publishers,
         "location_hotspots": location_hotspots,
         "logistics_hotspots": logistics_hotspots,
-        "predicted_returns": predicted_returns
+        "predicted_returns": predicted_returns,
     }
 
     return insights
+
 
 def save_insight_report(session: Session, insights: Dict[str, Any]):
     """주간 인사이트를 테넌트별로 저장한다.
@@ -303,10 +302,7 @@ def save_insight_report(session: Session, insights: Dict[str, Any]):
     for key, value in insights.items():
         logger.info(f" - {key}: {value}")
 
-    tenant_ids = [
-        row[0]
-        for row in session.execute(text("SELECT id FROM tenants")).all()
-    ]
+    tenant_ids = [row[0] for row in session.execute(text("SELECT id FROM tenants")).all()]
     if not tenant_ids:
         logger.warning("테넌트가 없어 주간 인사이트를 저장하지 않습니다.")
         return
@@ -330,6 +326,7 @@ def save_insight_report(session: Session, insights: Dict[str, Any]):
                 predicted_returns=insights["predicted_returns"],
             )
         )
+
 
 def main():
     import sys
@@ -359,11 +356,7 @@ def main():
 
             for record in alert_candidates:
                 fraud_score = record["fraud_score"]
-                severity = (
-                    NotificationSeverity.HIGH
-                    if fraud_score >= 90
-                    else NotificationSeverity.MEDIUM
-                )
+                severity = NotificationSeverity.HIGH if fraud_score >= 90 else NotificationSeverity.MEDIUM
 
                 notification = create_notification_for_tenant(
                     session=session,
@@ -371,10 +364,7 @@ def main():
                     category=NotificationCategory.FDS_ALERT,
                     severity=severity,
                     title="반품·환불 이상거래 탐지",
-                    message=(
-                        f"{record['customer_name']} 고객의 이상거래가 탐지되었습니다. "
-                        f"{record['fraud_reason']}"
-                    ),
+                    message=(f"{record['customer_name']} 고객의 이상거래가 탐지되었습니다. {record['fraud_reason']}"),
                     payload={
                         "customer_id": record["customer_id"],
                         "fraud_score": fraud_score,
@@ -409,8 +399,7 @@ def main():
                     )
                 except Exception:
                     logger.exception(
-                        "FDS 알림 Redis 발행에 실패했습니다. "
-                        "notification_id=%s",
+                        "FDS 알림 Redis 발행에 실패했습니다. notification_id=%s",
                         notification_event["event"]["id"],
                     )
             logger.info("모든 데이터가 멱등성을 보장하며 성공적으로 적재되었습니다 (COMMIT).")
@@ -421,6 +410,7 @@ def main():
 
     logger.info("✅ FDS Report Batch가 성공적으로 종료되었습니다.")
     sys.exit(0)
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")

@@ -9,7 +9,6 @@ APPROVAL_SCORE_THRESHOLD = 70
 
 # LangGraph Supervisor 파이프라인 호출 Wrapper
 class LangGraphInspectionWrapper:
-
     # Supervisor에 전달할 초기 검수 State 생성
     def build_initial_inspection_state(
         self,
@@ -18,10 +17,7 @@ class LangGraphInspectionWrapper:
         mode: str,
         image_paths: list[str],
     ) -> dict[str, Any]:
-        image_path_text = "\n".join(
-            f"- {path}"
-            for path in image_paths
-        )
+        image_path_text = "\n".join(f"- {path}" for path in image_paths)
 
         return {
             "messages": [
@@ -40,7 +36,6 @@ class LangGraphInspectionWrapper:
             "book_id": str(book_id),
             "mode": mode,
             "image_paths": image_paths,
-
             "is_mint": None,
             "defects": None,
             "ubci_score": None,
@@ -64,11 +59,7 @@ class LangGraphInspectionWrapper:
         if is_mint is True:
             return "APPROVE"
 
-        if (
-            reason_code == "OK"
-            and ubci_score is not None
-            and ubci_score >= APPROVAL_SCORE_THRESHOLD
-        ):
+        if reason_code == "OK" and ubci_score is not None and ubci_score >= APPROVAL_SCORE_THRESHOLD:
             return "APPROVE"
 
         return "REJECT"
@@ -82,21 +73,14 @@ class LangGraphInspectionWrapper:
 
         # 경로 단일화 이후 Fast-track 여부는 Supervisor가 남긴 자격 플래그로 판정한다.
         # (구 체크포인트 호환을 위해 AutoRefund 스텝 검사도 유지)
-        is_fast_track = bool(
-            final_state.get("auto_refund_eligible")
-        ) or any(
-            step.get("agent_name") == "AutoRefund"
-            for step in steps
+        is_fast_track = bool(final_state.get("auto_refund_eligible")) or any(
+            step.get("agent_name") == "AutoRefund" for step in steps
         )
 
         return {
-            "decision": self.convert_state_to_decision(
-                final_state
-            ),
+            "decision": self.convert_state_to_decision(final_state),
             "ubci_score": final_state.get("ubci_score"),
-            "final_report": final_state.get(
-                "final_report"
-            ),
+            "final_report": final_state.get("final_report"),
             "agent_logs": {
                 "is_mint": final_state.get("is_mint"),
                 "is_fast_track": is_fast_track,
@@ -109,32 +93,24 @@ class LangGraphInspectionWrapper:
                 "rule_reference": final_state.get("rule_reference"),
                 "node_timings": final_state.get("node_timings") or [],
                 "node_tokens": final_state.get("node_tokens") or [],
-                "reason_code": final_state.get(
-                    "reason_code"
-                ),
-                "repair_directive": final_state.get(
-                    "repair_directive"
-                ),
-                "revision_count": final_state.get(
-                    "revision_count"
-                ),
-                "human_feedback": final_state.get(
-                    "human_feedback"
-                ),
+                "reason_code": final_state.get("reason_code"),
+                "repair_directive": final_state.get("repair_directive"),
+                "revision_count": final_state.get("revision_count"),
+                "human_feedback": final_state.get("human_feedback"),
                 "steps": steps,
             },
         }
 
     # Supervisor 실행 후 최종 결과를 dict로 반환
     def run_inspection(
-            self,
-            job_id: UUID,
-            inspection_task_id: str,
-            tenant_id: UUID,
-            book_id: UUID,
-            mode: str,
-            image_paths: list[str],
-        ) -> dict[str, Any]:
+        self,
+        job_id: UUID,
+        inspection_task_id: str,
+        tenant_id: UUID,
+        book_id: UUID,
+        mode: str,
+        image_paths: list[str],
+    ) -> dict[str, Any]:
         # supervisor가 wrapper를 참조할 수 있어 순환 import를 방지한다.
         from app.ai.supervisor import (
             app_graph,
@@ -152,11 +128,7 @@ class LangGraphInspectionWrapper:
 
         # 최초 검수와 관리자 재검수가 서로 다른 체크포인트를 사용하도록
         # Celery Task ID를 LangGraph thread_id에 포함한다.
-        thread_id = (
-            f"tenant-{tenant_id}"
-            f"-inspection-{job_id}"
-            f"-task-{inspection_task_id}"
-        )
+        thread_id = f"tenant-{tenant_id}-inspection-{job_id}-task-{inspection_task_id}"
 
         config = {
             "configurable": {
@@ -174,48 +146,34 @@ class LangGraphInspectionWrapper:
 
         # human_node 실행 직전에 멈췄다면 관리자 검토가 필요한 상태
         if "human_node" in snapshot.next:
-            steps = self.extract_agent_steps(
-                current_state
-            )
+            steps = self.extract_agent_steps(current_state)
 
             return {
                 "decision": "HITL_REQUIRED",
-                "ubci_score": current_state.get(
-                    "ubci_score"
-                ),
+                "ubci_score": current_state.get("ubci_score"),
                 "final_report": None,
                 "agent_logs": {
                     "is_mint": current_state.get("is_mint"),
                     "is_fast_track": False,
                     "defects": current_state.get("defects"),
                     # HITL 판례(critic RAG) 저장에 필요한 판정 근거
-                        "vision_confidence": current_state.get("vision_confidence"),
+                    "vision_confidence": current_state.get("vision_confidence"),
                     "predicted_grade": current_state.get("predicted_grade"),
                     "score_breakdown": current_state.get("score_breakdown"),
                     "policy_confidence": current_state.get("policy_confidence"),
                     "rule_reference": current_state.get("rule_reference"),
                     "node_timings": current_state.get("node_timings") or [],
                     "node_tokens": current_state.get("node_tokens") or [],
-                    "reason_code": current_state.get(
-                        "reason_code"
-                    ),
-                    "repair_directive": current_state.get(
-                        "repair_directive"
-                    ),
-                    "revision_count": current_state.get(
-                        "revision_count"
-                    ),
-                    "human_feedback": current_state.get(
-                        "human_feedback"
-                    ),
+                    "reason_code": current_state.get("reason_code"),
+                    "repair_directive": current_state.get("repair_directive"),
+                    "revision_count": current_state.get("revision_count"),
+                    "human_feedback": current_state.get("human_feedback"),
                     "thread_id": thread_id,
                     "steps": steps,
                 },
             }
 
-        return self.convert_final_state_to_worker_result(
-            current_state
-        )
+        return self.convert_final_state_to_worker_result(current_state)
 
     # LangGraph messages에 기록된 Agent 실행 메시지를 관리자 상세 조회용 steps 형식으로 변환하는 함수.
     def extract_agent_steps(
@@ -257,9 +215,7 @@ class LangGraphInspectionWrapper:
             if matched_agent_name is None or matched_prefix is None:
                 continue
 
-            result_summary = content.removeprefix(
-                matched_prefix
-            ).strip()
+            result_summary = content.removeprefix(matched_prefix).strip()
 
             reason_code = None
 
@@ -274,10 +230,7 @@ class LangGraphInspectionWrapper:
                     "step_order": len(steps) + 1,
                     "agent_name": matched_agent_name,
                     "execution_status": "COMPLETED",
-                    "result_summary": (
-                        result_summary
-                        or f"{matched_agent_name} 실행 완료"
-                    ),
+                    "result_summary": (result_summary or f"{matched_agent_name} 실행 완료"),
                     "reasoning": None,
                     "reason_code": reason_code,
                 }

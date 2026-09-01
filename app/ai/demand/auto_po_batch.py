@@ -9,9 +9,7 @@ from app.core.database import engine
 
 logger = logging.getLogger(__name__)
 
-SAFETY_STOCK_RESTOCK_PROPOSAL_TASK_NAME = (
-    "app.worker.process_safety_stock_restock_proposal"
-)
+SAFETY_STOCK_RESTOCK_PROPOSAL_TASK_NAME = "app.worker.process_safety_stock_restock_proposal"
 
 
 def fetch_books_needing_restock(
@@ -114,12 +112,8 @@ def fetch_books_needing_restock(
             "title": row.title,
             "weekly_sales": int(row.weekly_sales),
             "current_stock": int(row.current_stock),
-            "pending_auto_po_quantity": int(
-                row.pending_auto_po_quantity
-            ),
-            "safety_stock_quantity": int(
-                row.safety_stock_quantity
-            ),
+            "pending_auto_po_quantity": int(row.pending_auto_po_quantity),
+            "safety_stock_quantity": int(row.safety_stock_quantity),
         }
         for row in rows
     ]
@@ -131,14 +125,9 @@ def run_auto_po_batch() -> None:
     등록한다. 주문과 재고는 관리자 승인 API에서만 변경된다.
     """
     if settings.AUTO_PO_TENANT_ID is None:
-        raise RuntimeError(
-            "AUTO_PO_TENANT_ID must be configured "
-            "before running the auto-PO batch."
-        )
+        raise RuntimeError("AUTO_PO_TENANT_ID must be configured before running the auto-PO batch.")
 
-    logger.info(
-        "=== Safety-stock Restock proposal batch started ==="
-    )
+    logger.info("=== Safety-stock Restock proposal batch started ===")
 
     with Session(engine) as session:
         books_to_restock = fetch_books_needing_restock(
@@ -146,9 +135,7 @@ def run_auto_po_batch() -> None:
         )
 
     if not books_to_restock:
-        logger.info(
-            "No books are below the safety-stock threshold."
-        )
+        logger.info("No books are below the safety-stock threshold.")
         return
 
     for book in books_to_restock:

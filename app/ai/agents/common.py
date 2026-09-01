@@ -1,7 +1,8 @@
 """공용 상수·트레이스 유틸 (agents.py 분할 이동, 로직 불변)"""
-import logging
+
 import base64
 import json
+import logging
 import os
 import re
 from dataclasses import dataclass
@@ -34,34 +35,20 @@ logger = logging.getLogger(__name__)
 POLICY_VERSION = UBCI_POLICY_VERSION
 
 
-
 load_dotenv()
 
 
-
 # 신뢰도가 이 값보다 낮으면 자동 처리하지 않고 재검토
-MIN_VISION_CONFIDENCE = float(
-    os.getenv("MIN_VISION_CONFIDENCE", "0.80")
-)
+MIN_VISION_CONFIDENCE = float(os.getenv("MIN_VISION_CONFIDENCE", "0.80"))
 
 
-
-MIN_POLICY_CONFIDENCE = float(
-    os.getenv("MIN_POLICY_CONFIDENCE", "0.75")
-)
+MIN_POLICY_CONFIDENCE = float(os.getenv("MIN_POLICY_CONFIDENCE", "0.75"))
 
 
-
-VLM_CROP_MIN_SIDE = int(
-    os.getenv("VLM_CROP_MIN_SIDE", "256")
-)
+VLM_CROP_MIN_SIDE = int(os.getenv("VLM_CROP_MIN_SIDE", "256"))
 
 
-
-VLM_CROP_CONTEXT_SCALE = float(
-    os.getenv("VLM_CROP_CONTEXT_SCALE", "1.8")
-)
-
+VLM_CROP_CONTEXT_SCALE = float(os.getenv("VLM_CROP_CONTEXT_SCALE", "1.8"))
 
 
 MAX_INSPECTION_IMAGE_PIXELS = int(
@@ -72,7 +59,6 @@ MAX_INSPECTION_IMAGE_PIXELS = int(
 )
 
 
-
 # 프론트 검수 이미지의 고정 순서
 IMAGE_VIEWS = (
     "FRONT",
@@ -81,14 +67,11 @@ IMAGE_VIEWS = (
 )
 
 
-
 # 라우팅 기준은 각 촬영 유형의 학습셋 보유 여부입니다.
 TRAINED_MODEL_VIEWS = frozenset({"FRONT", "BACK"})
 
 
 UNTRAINED_VLM_VIEWS = frozenset({"INNER"})
-
-
 
 
 def trace_event(
@@ -110,8 +93,6 @@ def trace_event(
     )
 
 
-
-
 def summarize_score_breakdown(
     score_breakdown: list[dict] | None,
 ) -> str:
@@ -128,13 +109,9 @@ def summarize_score_breakdown(
         else:
             penalty = f"-{item.get('applied_penalty')}점"
 
-        summaries.append(
-            f"{item.get('type', 'UNKNOWN')} {penalty}"
-        )
+        summaries.append(f"{item.get('type', 'UNKNOWN')} {penalty}")
 
     return ", ".join(summaries) or "감점 없음"
-
-
 
 
 def normalize_model_class(value: str) -> str:
@@ -144,8 +121,6 @@ def normalize_model_class(value: str) -> str:
         value.strip().lower(),
     )
     return normalized.strip("_")
-
-
 
 
 def resolve_model_path(

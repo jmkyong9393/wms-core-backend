@@ -12,6 +12,7 @@ from app.models.wms import RestockProposalSource
 
 logger = logging.getLogger(__name__)
 
+
 def restock_agent(
     request: RestockRecommendationRequest,
 ) -> RestockRecommendationResponse:
@@ -39,15 +40,10 @@ def restock_agent(
 
     """
 
-    logger.info(
-        "Restock Agent 실행"
-    )
+    logger.info("Restock Agent 실행")
 
     if not settings.OPENAI_API_KEY.strip():
-        raise RuntimeError(
-            "OPENAI_API_KEY가 설정되지 않아 "
-            "Restock Agent를 호출할 수 없습니다."
-        )
+        raise RuntimeError("OPENAI_API_KEY가 설정되지 않아 Restock Agent를 호출할 수 없습니다.")
 
     llm = ChatOpenAI(
         model=settings.RESTOCK_AGENT_MODEL,
@@ -64,10 +60,7 @@ def restock_agent(
         strict=True,
     )
 
-    if (
-        request.proposal_source
-        == RestockProposalSource.RETURN_REJECTION
-    ):
+    if request.proposal_source == RestockProposalSource.RETURN_REJECTION:
         trigger_context = (
             "추천 생성 사유: 반려 대체 발주\n"
             f"- 반려 수량: {request.rejected_quantity}권\n"
@@ -86,11 +79,9 @@ def restock_agent(
         SystemMessage(
             content=(
                 "당신은 B2B 도서 물류센터의 자동 발주 추천 Agent입니다.\n\n"
-
                 "[목표]\n"
                 "도서 판매량, 현재 창고 가용 재고, 입고 반려 수량을 "
                 "근거로 대체 발주 수량과 발주 사유를 작성합니다.\n\n"
-
                 "[현재 판단 기준]\n"
                 "1. recent_sales_quantity는 한 번의 발주 주기에 필요한 "
                 "예상 수요로 간주합니다.\n"
@@ -105,7 +96,6 @@ def restock_agent(
                 "6. 추천 발주 수량은 예상 수요, 실질 가용 수량, "
                 "반려 수량을 종합해 계산합니다.\n"
                 "7. 계산 결과가 음수라면 추천 발주 수량은 0입니다.\n\n"
-
                 "[응답 규칙]\n"
                 "1. 입력으로 제공된 값만 사용하세요.\n"
                 "2. 없는 안전재고, 리드타임, 공급처 정보는 추측하지 마세요.\n"
@@ -128,8 +118,6 @@ def restock_agent(
                 f"- 진행 중 AUTO_PO 입고 예정 수량: "
                 f"{request.pending_auto_po_quantity}권\n"
                 f"{trigger_context}\n\n"
-
-
                 "위 데이터를 근거로 최적의 대체 발주 수량을 계산하고, "
                 "관리자가 이해할 수 있는 발주 사유와 판단 근거를 작성하세요."
             )
@@ -142,10 +130,7 @@ def restock_agent(
         result,
         RestockRecommendationResponse,
     ):
-        raise TypeError(
-            "Restock Agent가 예상된 응답 스키마를 "
-            "반환하지 않았습니다."
-        )
+        raise TypeError("Restock Agent가 예상된 응답 스키마를 반환하지 않았습니다.")
 
     logger.info(
         "Restock Agent 발주 추천 완료. recommended_order_quantity=%s",

@@ -1,7 +1,8 @@
 """YOLO 로딩·책 영역 탐지·후보 융합 등 결정론적 탐지 계층"""
-import logging
+
 import base64
 import json
+import logging
 import os
 import re
 from dataclasses import dataclass
@@ -41,30 +42,16 @@ YOLO_BOOK_MODEL_PATH = os.getenv(
 )
 
 
-
-YOLO_BOOK_PROMPT = (
-    os.getenv("YOLO_BOOK_PROMPT", "book").strip()
-    or "book"
-)
+YOLO_BOOK_PROMPT = os.getenv("YOLO_BOOK_PROMPT", "book").strip() or "book"
 
 
-
-YOLO_BOOK_CONFIDENCE = float(
-    os.getenv("YOLO_BOOK_CONFIDENCE", "0.25")
-)
+YOLO_BOOK_CONFIDENCE = float(os.getenv("YOLO_BOOK_CONFIDENCE", "0.25"))
 
 
-
-YOLO_BOOK_IMAGE_SIZE = int(
-    os.getenv("YOLO_BOOK_IMAGE_SIZE", "640")
-)
+YOLO_BOOK_IMAGE_SIZE = int(os.getenv("YOLO_BOOK_IMAGE_SIZE", "640"))
 
 
-
-YOLO_BOOK_PADDING = float(
-    os.getenv("YOLO_BOOK_PADDING", "0.05")
-)
-
+YOLO_BOOK_PADDING = float(os.getenv("YOLO_BOOK_PADDING", "0.05"))
 
 
 # 전체 사진에서 책 영역이 차지해야 하는 최소 비율
@@ -76,7 +63,6 @@ YOLO_BOOK_MIN_AREA_RATIO = float(
 )
 
 
-
 # 결함 후보 BBox 중 책 영역과 겹쳐야 하는 최소 비율
 YOLO_BOOK_CANDIDATE_MIN_COVERAGE = float(
     os.getenv(
@@ -86,11 +72,7 @@ YOLO_BOOK_CANDIDATE_MIN_COVERAGE = float(
 )
 
 
-
-YOLO_IMAGE_SIZE = int(
-    os.getenv("YOLO_IMAGE_SIZE", "960")
-)
-
+YOLO_IMAGE_SIZE = int(os.getenv("YOLO_IMAGE_SIZE", "960"))
 
 
 YOLO_MAX_PER_MODEL = int(
@@ -101,7 +83,6 @@ YOLO_MAX_PER_MODEL = int(
 )
 
 
-
 YOLO_MAX_ENSEMBLE_CANDIDATES = int(
     os.getenv(
         "YOLO_MAX_ENSEMBLE_CANDIDATES",
@@ -110,19 +91,11 @@ YOLO_MAX_ENSEMBLE_CANDIDATES = int(
 )
 
 
-
-YOLO_ENSEMBLE_IOU = float(
-    os.getenv("YOLO_ENSEMBLE_IOU", "0.55")
-)
-
-
+YOLO_ENSEMBLE_IOU = float(os.getenv("YOLO_ENSEMBLE_IOU", "0.55"))
 
 
 # VLM 확정 결함의 중복 제거 기준
-FINAL_DEFECT_DEDUP_IOU = float(
-    os.getenv("FINAL_DEFECT_DEDUP_IOU", "0.40")
-)
-
+FINAL_DEFECT_DEDUP_IOU = float(os.getenv("FINAL_DEFECT_DEDUP_IOU", "0.40"))
 
 
 _NORMALIZED_SETTINGS = {
@@ -131,28 +104,19 @@ _NORMALIZED_SETTINGS = {
     "YOLO_BOOK_CONFIDENCE": YOLO_BOOK_CONFIDENCE,
     "YOLO_BOOK_PADDING": YOLO_BOOK_PADDING,
     "YOLO_BOOK_MIN_AREA_RATIO": YOLO_BOOK_MIN_AREA_RATIO,
-    "YOLO_BOOK_CANDIDATE_MIN_COVERAGE": (
-        YOLO_BOOK_CANDIDATE_MIN_COVERAGE
-    ),
+    "YOLO_BOOK_CANDIDATE_MIN_COVERAGE": (YOLO_BOOK_CANDIDATE_MIN_COVERAGE),
     "YOLO_ENSEMBLE_IOU": YOLO_ENSEMBLE_IOU,
     "FINAL_DEFECT_DEDUP_IOU": FINAL_DEFECT_DEDUP_IOU,
 }
 
 
-
 for setting_name, setting_value in _NORMALIZED_SETTINGS.items():
     if not 0.0 <= setting_value <= 1.0:
-        raise ValueError(
-            f"{setting_name}는 0과 1 사이여야 합니다."
-        )
-
+        raise ValueError(f"{setting_name}는 0과 1 사이여야 합니다.")
 
 
 if not 1.0 <= VLM_CROP_CONTEXT_SCALE <= 10.0:
-    raise ValueError(
-        "VLM_CROP_CONTEXT_SCALE은 1과 10 사이여야 합니다."
-    )
-
+    raise ValueError("VLM_CROP_CONTEXT_SCALE은 1과 10 사이여야 합니다.")
 
 
 _POSITIVE_BOUNDED_SETTINGS = {
@@ -171,15 +135,9 @@ _POSITIVE_BOUNDED_SETTINGS = {
 }
 
 
-
-for setting_name, (setting_value, upper_bound) in (
-    _POSITIVE_BOUNDED_SETTINGS.items()
-):
+for setting_name, (setting_value, upper_bound) in _POSITIVE_BOUNDED_SETTINGS.items():
     if not 1 <= setting_value <= upper_bound:
-        raise ValueError(
-            f"{setting_name}는 1과 {upper_bound} 사이여야 합니다."
-        )
-
+        raise ValueError(f"{setting_name}는 1과 {upper_bound} 사이여야 합니다.")
 
 
 # 일반 결함과 구체 결함이 같은 물리 파손을 가리킬 때 이중 감점 방지
@@ -189,8 +147,6 @@ FINAL_DEFECT_DEDUP_FAMILY = {
     "EDGE_WEAR": "PHYSICAL_EDGE_DAMAGE",
     "OTHER_VISIBLE_DAMAGE": "PHYSICAL_EDGE_DAMAGE",
 }
-
-
 
 
 @dataclass(frozen=True)
@@ -203,15 +159,11 @@ class YoloModelSpec:
     class_mapping: dict[str, str]
 
 
-
-
 YOLO_MODEL_SPECS = (
     YoloModelSpec(
         name="general_binary",
         env_name="YOLO_GENERAL_MODEL_PATH",
-        default_path=(
-            "models/general_binary_team_s3_v2_best.pt"
-        ),
+        default_path=("models/general_binary_team_s3_v2_best.pt"),
         role="GENERAL_RECALL",
         confidence=0.15,
         class_mapping={
@@ -239,15 +191,13 @@ YOLO_MODEL_SPECS = (
         role="DOODLE_SPECIALIST",
         confidence=0.20,
         class_mapping={
-        # 기존 Doodle 모델의 실제 클래스명
-        "item": "WRITING",
-        # 클래스명 변경 모델과의 호환
-        "doodle_scribble": "WRITING",
+            # 기존 Doodle 모델의 실제 클래스명
+            "item": "WRITING",
+            # 클래스명 변경 모델과의 호환
+            "doodle_scribble": "WRITING",
         },
     ),
 )
-
-
 
 
 @lru_cache(maxsize=1)
@@ -263,18 +213,12 @@ def get_yolo_models() -> dict[str, dict]:
         if item.strip()
     }
 
-    known_names = {
-        spec.name
-        for spec in YOLO_MODEL_SPECS
-    }
+    known_names = {spec.name for spec in YOLO_MODEL_SPECS}
 
     unknown_names = enabled_names - known_names
 
     if unknown_names:
-        raise ValueError(
-            "알 수 없는 YOLO 모델: "
-            + ", ".join(sorted(unknown_names))
-        )
+        raise ValueError("알 수 없는 YOLO 모델: " + ", ".join(sorted(unknown_names)))
 
     loaded: dict[str, dict] = {}
     missing: list[str] = []
@@ -291,17 +235,12 @@ def get_yolo_models() -> dict[str, dict]:
         )
 
         if not model_path.is_file():
-            missing.append(
-                f"{spec.name}={model_path}"
-            )
+            missing.append(f"{spec.name}={model_path}")
             continue
 
         model = YOLO(str(model_path))
 
-        names = {
-            int(key): str(value)
-            for key, value in model.names.items()
-        }
+        names = {int(key): str(value) for key, value in model.names.items()}
 
         loaded[spec.name] = {
             "spec": spec,
@@ -311,15 +250,10 @@ def get_yolo_models() -> dict[str, dict]:
         }
 
     if missing:
-        raise FileNotFoundError(
-            "YOLO 모델 파일이 없습니다: "
-            + " | ".join(missing)
-        )
+        raise FileNotFoundError("YOLO 모델 파일이 없습니다: " + " | ".join(missing))
 
     if not loaded:
-        raise RuntimeError(
-            "활성화된 YOLO 모델이 없습니다."
-        )
+        raise RuntimeError("활성화된 YOLO 모델이 없습니다.")
 
     trace_event(
         "YOLO_MODELS_LOADED",
@@ -339,33 +273,22 @@ def get_yolo_models() -> dict[str, dict]:
     return loaded
 
 
-
 @lru_cache(maxsize=1)
 def get_book_detector() -> YOLO:
     """YOLO-World 책 영역 탐지 모델의 최초 1회 로딩."""
 
-    model_path = resolve_model_path(
-        YOLO_BOOK_MODEL_PATH
-    )
+    model_path = resolve_model_path(YOLO_BOOK_MODEL_PATH)
 
     if not model_path.is_file():
-        raise FileNotFoundError(
-            "책 영역 탐지 모델 파일이 없습니다: "
-            f"{model_path}"
-        )
+        raise FileNotFoundError(f"책 영역 탐지 모델 파일이 없습니다: {model_path}")
 
     model = YOLO(str(model_path))
 
     if not hasattr(model, "set_classes"):
-        raise TypeError(
-            "책 영역 탐지 모델은 YOLO-World여야 합니다: "
-            f"{model_path}"
-        )
+        raise TypeError(f"책 영역 탐지 모델은 YOLO-World여야 합니다: {model_path}")
 
     model.set_classes([YOLO_BOOK_PROMPT])
     return model
-
-
 
 
 def detect_book_region(
@@ -388,10 +311,7 @@ def detect_book_region(
         verbose=False,
     )[0]
 
-    if (
-        result.boxes is None
-        or len(result.boxes) == 0
-    ):
+    if result.boxes is None or len(result.boxes) == 0:
         return {
             "image_index": image_index,
             "image_view": IMAGE_VIEWS[image_index],
@@ -406,43 +326,26 @@ def detect_book_region(
         }
 
     boxes = result.boxes.xyxy.cpu().tolist()
-    confidences = (
-        result.boxes.conf.cpu().tolist()
-    )
+    confidences = result.boxes.conf.cpu().tolist()
 
     # 여러 책이 잡히면 면적과 신뢰도가 가장 큰 책 선택
     box, confidence = max(
         zip(boxes, confidences),
-        key=lambda item: (
-            (item[0][2] - item[0][0])
-            * (item[0][3] - item[0][1])
-            * item[1]
-        ),
+        key=lambda item: (item[0][2] - item[0][0]) * (item[0][3] - item[0][1]) * item[1],
     )
 
     x1, y1, x2, y2 = box
 
-    padding_x = (
-        (x2 - x1) * YOLO_BOOK_PADDING
-    )
-    padding_y = (
-        (y2 - y1) * YOLO_BOOK_PADDING
-    )
+    padding_x = (x2 - x1) * YOLO_BOOK_PADDING
+    padding_y = (y2 - y1) * YOLO_BOOK_PADDING
 
     x1 = max(0, int(round(x1 - padding_x)))
     y1 = max(0, int(round(y1 - padding_y)))
     x2 = min(width, int(round(x2 + padding_x)))
     y2 = min(height, int(round(y2 + padding_y)))
-    area_ratio = (
-        (x2 - x1)
-        * (y2 - y1)
-        / (width * height)
-    )
+    area_ratio = (x2 - x1) * (y2 - y1) / (width * height)
 
-    usable = (
-        area_ratio
-        >= YOLO_BOOK_MIN_AREA_RATIO
-    )
+    usable = area_ratio >= YOLO_BOOK_MIN_AREA_RATIO
 
     return {
         "image_index": image_index,
@@ -469,8 +372,6 @@ def detect_book_region(
     }
 
 
-
-
 def make_full_image_region(
     image: Image.Image,
     image_index: int,
@@ -493,19 +394,13 @@ def make_full_image_region(
     }
 
 
-
-
 def evaluate_book_spatial_gate(
     candidate_bbox: list[float],
     book_region: dict,
 ) -> tuple[bool, float, bool]:
     """YOLO-World 책 영역을 이용한 배경 후보 차단."""
 
-    if (
-        book_region.get("image_view") == "INNER"
-        or book_region.get("fallback_used")
-        or not book_region.get("bbox")
-    ):
+    if book_region.get("image_view") == "INNER" or book_region.get("fallback_used") or not book_region.get("bbox"):
         return True, 1.0, True
 
     x1, y1, x2, y2 = candidate_bbox
@@ -523,26 +418,16 @@ def evaluate_book_spatial_gate(
         (x2 - x1) * (y2 - y1),
         1e-12,
     )
-    coverage = (
-        intersection_width
-        * intersection_height
-        / candidate_area
-    )
+    coverage = intersection_width * intersection_height / candidate_area
     center_x = (x1 + x2) / 2
     center_y = (y1 + y2) / 2
-    center_inside = (
-        bx1 <= center_x <= bx2
-        and by1 <= center_y <= by2
-    )
+    center_inside = bx1 <= center_x <= bx2 and by1 <= center_y <= by2
 
     return (
-        center_inside
-        or coverage >= YOLO_BOOK_CANDIDATE_MIN_COVERAGE,
+        center_inside or coverage >= YOLO_BOOK_CANDIDATE_MIN_COVERAGE,
         round(coverage, 6),
         center_inside,
     )
-
-
 
 
 def calculate_bbox_area_ratio(
@@ -556,26 +441,16 @@ def calculate_bbox_area_ratio(
     x2 = min(candidate_bbox[2], book_bbox[2])
     y2 = min(candidate_bbox[3], book_bbox[3])
 
-    defect_area = (
-        max(0.0, x2 - x1)
-        * max(0.0, y2 - y1)
-    )
-    book_area = (
-        max(0.0, book_bbox[2] - book_bbox[0])
-        * max(0.0, book_bbox[3] - book_bbox[1])
-    )
+    defect_area = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+    book_area = max(0.0, book_bbox[2] - book_bbox[0]) * max(0.0, book_bbox[3] - book_bbox[1])
 
     if book_area <= 0:
-        raise ValueError(
-            "책 영역 BBox 면적이 올바르지 않습니다."
-        )
+        raise ValueError("책 영역 BBox 면적이 올바르지 않습니다.")
 
     return round(
         min(100.0, defect_area / book_area * 100),
         2,
     )
-
-
 
 
 def get_yolo_model_manifest() -> list[dict]:
@@ -590,11 +465,8 @@ def get_yolo_model_manifest() -> list[dict]:
     ]
 
 
-
 # 검수 이미지 최대 허용 용량
 MAX_INSPECTION_IMAGE_BYTES = 15 * 1024 * 1024
-
-
 
 
 class _RejectRedirectHandler(HTTPRedirectHandler):
@@ -609,11 +481,7 @@ class _RejectRedirectHandler(HTTPRedirectHandler):
         headers,
         newurl,
     ):
-        raise ValueError(
-            "검수 이미지 URL 리다이렉트는 허용되지 않습니다."
-        )
-
-
+        raise ValueError("검수 이미지 URL 리다이렉트는 허용되지 않습니다.")
 
 
 def _load_inspection_image(
@@ -622,16 +490,12 @@ def _load_inspection_image(
     """CloudFront URL 또는 로컬 경로의 검수 이미지 로드."""
 
     if not isinstance(raw_path, str):
-        raise ValueError(
-            "검수 이미지 경로는 문자열이어야 합니다."
-        )
+        raise ValueError("검수 이미지 경로는 문자열이어야 합니다.")
 
     source = raw_path.strip()
 
     if not source:
-        raise ValueError(
-            "검수 이미지 경로가 비어 있습니다."
-        )
+        raise ValueError("검수 이미지 경로가 비어 있습니다.")
 
     parsed_url = urlsplit(source)
 
@@ -643,14 +507,10 @@ def _load_inspection_image(
         )
 
         if parsed_url.scheme != "https":
-            raise ValueError(
-                "검수 이미지 URL은 HTTPS만 허용됩니다."
-            )
+            raise ValueError("검수 이미지 URL은 HTTPS만 허용됩니다.")
 
         # 허용된 CloudFront 주소인지 기존 백엔드 정책으로 재검증
-        image_url = normalize_cloudfront_image_urls(
-            [source]
-        )[0]
+        image_url = normalize_cloudfront_image_urls([source])[0]
 
         request = Request(
             image_url,
@@ -659,24 +519,16 @@ def _load_inspection_image(
             },
         )
 
-        with build_opener(
-            _RejectRedirectHandler()
-        ).open(
+        with build_opener(_RejectRedirectHandler()).open(
             request,
             timeout=20,
         ) as response:
-            image_bytes = response.read(
-                MAX_INSPECTION_IMAGE_BYTES + 1
-            )
+            image_bytes = response.read(MAX_INSPECTION_IMAGE_BYTES + 1)
 
         if len(image_bytes) > MAX_INSPECTION_IMAGE_BYTES:
-            raise ValueError(
-                "검수 이미지가 15MB 제한을 초과했습니다."
-            )
+            raise ValueError("검수 이미지가 15MB 제한을 초과했습니다.")
 
-        image_source = BytesIO(
-            image_bytes
-        )
+        image_source = BytesIO(image_bytes)
 
     # PowerShell 테스트용 로컬 이미지는 명시된 루트 안에서만 허용
     else:
@@ -685,58 +537,37 @@ def _load_inspection_image(
             "",
         ).strip()
         if not configured_root:
-            raise ValueError(
-                "로컬 검수 이미지는 비활성화되어 있습니다."
-            )
+            raise ValueError("로컬 검수 이미지는 비활성화되어 있습니다.")
 
-        allowed_root = Path(configured_root).resolve(
-            strict=True
-        )
+        allowed_root = Path(configured_root).resolve(strict=True)
         if not allowed_root.is_dir():
-            raise ValueError(
-                "INSPECTION_LOCAL_IMAGE_ROOT는 디렉터리여야 합니다."
-            )
+            raise ValueError("INSPECTION_LOCAL_IMAGE_ROOT는 디렉터리여야 합니다.")
 
         requested_path = Path(source)
         if not requested_path.is_absolute():
             requested_path = allowed_root / requested_path
 
         try:
-            image_path = requested_path.resolve(
-                strict=True
-            )
+            image_path = requested_path.resolve(strict=True)
             image_path.relative_to(allowed_root)
         except (FileNotFoundError, ValueError) as error:
-            raise ValueError(
-                "허용된 로컬 검수 이미지 경로가 아닙니다."
-            ) from error
+            raise ValueError("허용된 로컬 검수 이미지 경로가 아닙니다.") from error
 
         if not image_path.is_file():
-            raise FileNotFoundError(
-                "검수 이미지 파일이 없습니다."
-            )
+            raise FileNotFoundError("검수 이미지 파일이 없습니다.")
 
         image_source = image_path
 
     try:
-        with Image.open(
-            image_source
-        ) as image:
+        with Image.open(image_source) as image:
             width, height = image.size
             if width * height > MAX_INSPECTION_IMAGE_PIXELS:
-                raise ValueError(
-                    "검수 이미지 픽셀 수가 허용 한도를 초과했습니다."
-                )
+                raise ValueError("검수 이미지 픽셀 수가 허용 한도를 초과했습니다.")
             image.load()
-            return ImageOps.exif_transpose(
-                image
-            ).convert("RGB")
+            return ImageOps.exif_transpose(image).convert("RGB")
 
     except OSError as error:
-        raise ValueError(
-            "검수 이미지 파일을 해석할 수 없습니다."
-        ) from error
-
+        raise ValueError("검수 이미지 파일을 해석할 수 없습니다.") from error
 
 
 def book_detector_node(
@@ -752,11 +583,7 @@ def book_detector_node(
         return {
             "book_regions": [],
             "repair_directive": message,
-            "messages": [
-                AIMessage(
-                    content=f"[Book Detector] 실패 - {message}"
-                )
-            ],
+            "messages": [AIMessage(content=f"[Book Detector] 실패 - {message}")],
         }
 
     book_regions: list[dict] = []
@@ -768,9 +595,7 @@ def book_detector_node(
 
             # 펼친 속지는 COCO book 탐지가 불안정하므로 전체 이미지 사용
             if image_view == "INNER":
-                book_regions.append(
-                    make_full_image_region(image, image_index)
-                )
+                book_regions.append(make_full_image_region(image, image_index))
                 continue
 
             detected_region = detect_book_region(
@@ -787,20 +612,18 @@ def book_detector_node(
                 image,
                 image_index,
             )
-            fallback_region.update({
-                "source_model": "full_image_fallback",
-                "detected": detected_region.get("detected"),
-                "confidence": detected_region.get("confidence"),
-                "fallback_used": True,
-                "fallback_reason": "BOOK_REGION_NOT_USABLE",
-                "detector_bbox": detected_region.get("bbox"),
-                "detector_pixel_bbox": detected_region.get(
-                    "pixel_bbox"
-                ),
-                "detector_area_ratio": detected_region.get(
-                    "area_ratio"
-                ),
-            })
+            fallback_region.update(
+                {
+                    "source_model": "full_image_fallback",
+                    "detected": detected_region.get("detected"),
+                    "confidence": detected_region.get("confidence"),
+                    "fallback_used": True,
+                    "fallback_reason": "BOOK_REGION_NOT_USABLE",
+                    "detector_bbox": detected_region.get("bbox"),
+                    "detector_pixel_bbox": detected_region.get("pixel_bbox"),
+                    "detector_area_ratio": detected_region.get("area_ratio"),
+                }
+            )
             book_regions.append(fallback_region)
 
     except Exception as error:
@@ -812,18 +635,10 @@ def book_detector_node(
         return {
             "book_regions": [],
             "repair_directive": message,
-            "messages": [
-                AIMessage(
-                    content=f"[Book Detector] 실패 - {message}"
-                )
-            ],
+            "messages": [AIMessage(content=f"[Book Detector] 실패 - {message}")],
         }
 
-    fallback_views = [
-        region["image_view"]
-        for region in book_regions
-        if region.get("fallback_used") is True
-    ]
+    fallback_views = [region["image_view"] for region in book_regions if region.get("fallback_used") is True]
     trace_event(
         "BOOK_DETECTOR_COMPLETED",
         {
@@ -835,16 +650,8 @@ def book_detector_node(
     return {
         "book_regions": book_regions,
         "repair_directive": None,
-        "messages": [
-            AIMessage(
-                content=(
-                    "[Book Detector] 완료 - "
-                    f"fallback={fallback_views}"
-                )
-            )
-        ],
+        "messages": [AIMessage(content=(f"[Book Detector] 완료 - fallback={fallback_views}"))],
     }
-
 
 
 def image_to_data_url(
@@ -871,13 +678,9 @@ def image_to_data_url(
         optimize=True,
     )
 
-    encoded = base64.b64encode(
-        buffer.getvalue()
-    ).decode("utf-8")
+    encoded = base64.b64encode(buffer.getvalue()).decode("utf-8")
 
     return f"data:image/jpeg;base64,{encoded}"
-
-
 
 
 def calculate_bbox_iou(
@@ -889,32 +692,18 @@ def calculate_bbox_iou(
     x2 = min(first[2], second[2])
     y2 = min(first[3], second[3])
 
-    intersection = (
-        max(0.0, x2 - x1)
-        * max(0.0, y2 - y1)
-    )
+    intersection = max(0.0, x2 - x1) * max(0.0, y2 - y1)
 
-    first_area = (
-        max(0.0, first[2] - first[0])
-        * max(0.0, first[3] - first[1])
-    )
+    first_area = max(0.0, first[2] - first[0]) * max(0.0, first[3] - first[1])
 
-    second_area = (
-        max(0.0, second[2] - second[0])
-        * max(0.0, second[3] - second[1])
-    )
+    second_area = max(0.0, second[2] - second[0]) * max(0.0, second[3] - second[1])
 
-    union = (
-        first_area
-        + second_area
-        - intersection
-    )
+    union = first_area + second_area - intersection
 
     if union <= 0:
         return 0.0
 
     return intersection / union
-
 
 
 def deduplicate_confirmed_defects(
@@ -925,10 +714,7 @@ def deduplicate_confirmed_defects(
     kept: list[dict] = []
 
     def defect_family(defect: dict) -> str | None:
-        defect_type = (
-            defect.get("defect_type")
-            or defect.get("type")
-        )
+        defect_type = defect.get("defect_type") or defect.get("type")
         return FINAL_DEFECT_DEDUP_FAMILY.get(
             defect_type,
             defect_type,
@@ -937,25 +723,12 @@ def deduplicate_confirmed_defects(
     def confidence_key(
         defect: dict,
     ) -> tuple[int, float, float, float]:
-        defect_type = (
-            defect.get("defect_type")
-            or defect.get("type")
-        )
+        defect_type = defect.get("defect_type") or defect.get("type")
         return (
             int(defect_type != "OTHER_VISIBLE_DAMAGE"),
-            float(
-                defect.get("vlm_confidence")
-                or defect.get("confidence")
-                or 0.0
-            ),
-            float(
-                defect.get("ensemble_confidence")
-                or 0.0
-            ),
-            float(
-                defect.get("yolo_confidence")
-                or 0.0
-            ),
+            float(defect.get("vlm_confidence") or defect.get("confidence") or 0.0),
+            float(defect.get("ensemble_confidence") or 0.0),
+            float(defect.get("yolo_confidence") or 0.0),
         )
 
     for defect in defects:
@@ -964,14 +737,13 @@ def deduplicate_confirmed_defects(
                 index
                 for index, existing in enumerate(kept)
                 if (
-                    defect.get("image_index")
-                    == existing.get("image_index")
-                    and defect_family(defect)
-                    == defect_family(existing)
+                    defect.get("image_index") == existing.get("image_index")
+                    and defect_family(defect) == defect_family(existing)
                     and calculate_bbox_iou(
                         defect["bbox"],
                         existing["bbox"],
-                    ) >= FINAL_DEFECT_DEDUP_IOU
+                    )
+                    >= FINAL_DEFECT_DEDUP_IOU
                 )
             ),
             None,
@@ -981,14 +753,10 @@ def deduplicate_confirmed_defects(
             kept.append(defect)
             continue
 
-        if confidence_key(defect) > confidence_key(
-            kept[duplicate_index]
-        ):
+        if confidence_key(defect) > confidence_key(kept[duplicate_index]):
             kept[duplicate_index] = defect
 
     return kept
-
-
 
 
 def merge_model_detections(
@@ -1027,15 +795,10 @@ def merge_model_detections(
     return clusters
 
 
-
-
 def weighted_bbox(
     detections: list[dict],
 ) -> list[float]:
-    weights = [
-        max(item["confidence"], 0.000001)
-        for item in detections
-    ]
+    weights = [max(item["confidence"], 0.000001) for item in detections]
 
     total = sum(weights)
 
@@ -1047,13 +810,12 @@ def weighted_bbox(
                     detections,
                     weights,
                 )
-            ) / total,
+            )
+            / total,
             6,
         )
         for index in range(4)
     ]
-
-
 
 
 def choose_proposed_type(
@@ -1061,24 +823,14 @@ def choose_proposed_type(
 ) -> str:
     """YOLO 후보 중 구체적인 최고 신뢰도 클래스 선택."""
 
-    specific_detections = [
-        item
-        for item in detections
-        if item["mapped_type"]
-        != "OTHER_VISIBLE_DAMAGE"
-    ]
+    specific_detections = [item for item in detections if item["mapped_type"] != "OTHER_VISIBLE_DAMAGE"]
 
-    selectable = (
-        specific_detections
-        or detections
-    )
+    selectable = specific_detections or detections
 
     return max(
         selectable,
         key=lambda item: item["confidence"],
     )["mapped_type"]
-
-
 
 
 def detect_yolo_candidates(
@@ -1101,13 +853,7 @@ def detect_yolo_candidates(
         is_inner = image_index == 2
 
         # 속지는 Doodle 전용, 외부 사진은 물리 결함 모델 전용
-        if (
-            is_inner
-            and spec.role != "DOODLE_SPECIALIST"
-        ) or (
-            not is_inner
-            and spec.role == "DOODLE_SPECIALIST"
-        ):
+        if (is_inner and spec.role != "DOODLE_SPECIALIST") or (not is_inner and spec.role == "DOODLE_SPECIALIST"):
             continue
 
         model_confidence = float(
@@ -1116,18 +862,11 @@ def detect_yolo_candidates(
                 str(spec.confidence),
             )
         )
-        model_nms_iou = float(
-            os.getenv("YOLO_MODEL_NMS_IOU", "0.50")
-        )
+        model_nms_iou = float(os.getenv("YOLO_MODEL_NMS_IOU", "0.50"))
         if not 0.0 <= model_confidence <= 1.0:
-            raise ValueError(
-                f"YOLO_{model_name.upper()}_CONFIDENCE는 "
-                "0과 1 사이여야 합니다."
-            )
+            raise ValueError(f"YOLO_{model_name.upper()}_CONFIDENCE는 0과 1 사이여야 합니다.")
         if not 0.0 <= model_nms_iou <= 1.0:
-            raise ValueError(
-                "YOLO_MODEL_NMS_IOU는 0과 1 사이여야 합니다."
-            )
+            raise ValueError("YOLO_MODEL_NMS_IOU는 0과 1 사이여야 합니다.")
 
         result = model.predict(
             source=image,
@@ -1146,12 +885,8 @@ def detect_yolo_candidates(
             continue
 
         boxes = result.boxes.xyxy.cpu().tolist()
-        confidences = (
-            result.boxes.conf.cpu().tolist()
-        )
-        class_ids = (
-            result.boxes.cls.cpu().tolist()
-        )
+        confidences = result.boxes.conf.cpu().tolist()
+        class_ids = result.boxes.cls.cpu().tolist()
 
         for (
             box,
@@ -1163,21 +898,13 @@ def detect_yolo_candidates(
             class_ids,
         ):
             class_id = int(raw_class_id)
-            source_class = str(
-                model.names[class_id]
-            )
+            source_class = str(model.names[class_id])
 
-            normalized_class = (
-                normalize_model_class(
-                    source_class
-                )
-            )
+            normalized_class = normalize_model_class(source_class)
 
-            mapped_type = (
-                spec.class_mapping.get(
-                    normalized_class,
-                    "OTHER_VISIBLE_DAMAGE",
-                )
+            mapped_type = spec.class_mapping.get(
+                normalized_class,
+                "OTHER_VISIBLE_DAMAGE",
             )
 
             x1, y1, x2, y2 = box
@@ -1214,48 +941,40 @@ def detect_yolo_candidates(
                 book_region,
             )
 
-            raw_detections.append({
-                "image_index": image_index,
-                "image_view": IMAGE_VIEWS[image_index],
-                "source_model": model_name,
-                "source_role": spec.role,
-                "source_class": source_class,
-                "source_class_id": class_id,
-                "mapped_type": mapped_type,
-                "confidence": round(
-                    float(confidence),
-                    6,
-                ),
-                "bbox": normalized_bbox,
-                "coordinate_space": (
-                    "ORIGINAL_IMAGE_NORMALIZED"
-                ),
-                "book_spatial_gate_passed": spatial_gate_passed,
-                "book_coverage": book_coverage,
-                "book_center_inside": book_center_inside,
-                "pixel_bbox": [
-                    x1,
-                    y1,
-                    x2,
-                    y2,
-                ],
-            })
+            raw_detections.append(
+                {
+                    "image_index": image_index,
+                    "image_view": IMAGE_VIEWS[image_index],
+                    "source_model": model_name,
+                    "source_role": spec.role,
+                    "source_class": source_class,
+                    "source_class_id": class_id,
+                    "mapped_type": mapped_type,
+                    "confidence": round(
+                        float(confidence),
+                        6,
+                    ),
+                    "bbox": normalized_bbox,
+                    "coordinate_space": ("ORIGINAL_IMAGE_NORMALIZED"),
+                    "book_spatial_gate_passed": spatial_gate_passed,
+                    "book_coverage": book_coverage,
+                    "book_center_inside": book_center_inside,
+                    "pixel_bbox": [
+                        x1,
+                        y1,
+                        x2,
+                        y2,
+                    ],
+                }
+            )
 
     candidates: list[dict] = []
 
-    eligible_detections = [
-        item
-        for item in raw_detections
-        if item["book_spatial_gate_passed"]
-    ]
+    eligible_detections = [item for item in raw_detections if item["book_spatial_gate_passed"]]
 
-    clusters = merge_model_detections(
-        eligible_detections
-    )
+    clusters = merge_model_detections(eligible_detections)
 
-    for candidate_id, cluster in enumerate(
-        clusters
-    ):
+    for candidate_id, cluster in enumerate(clusters):
         bbox = weighted_bbox(cluster)
 
         x1 = max(
@@ -1296,20 +1015,14 @@ def detect_yolo_candidates(
             width,
             max(
                 VLM_CROP_MIN_SIDE,
-                int(
-                    box_width
-                    * VLM_CROP_CONTEXT_SCALE
-                ),
+                int(box_width * VLM_CROP_CONTEXT_SCALE),
             ),
         )
         target_height = min(
             height,
             max(
                 VLM_CROP_MIN_SIDE,
-                int(
-                    box_height
-                    * VLM_CROP_CONTEXT_SCALE
-                ),
+                int(box_height * VLM_CROP_CONTEXT_SCALE),
             ),
         )
 
@@ -1326,66 +1039,46 @@ def detect_yolo_candidates(
             )
         )
 
-        crop = image.crop((
-            crop_x1,
-            crop_y1,
-            crop_x1 + target_width,
-            crop_y1 + target_height,
-        ))
+        crop = image.crop(
+            (
+                crop_x1,
+                crop_y1,
+                crop_x1 + target_width,
+                crop_y1 + target_height,
+            )
+        )
 
         specialist_types = {
-            detection["mapped_type"]
-            for detection in cluster
-            if detection["mapped_type"]
-            != "OTHER_VISIBLE_DAMAGE"
+            detection["mapped_type"] for detection in cluster if detection["mapped_type"] != "OTHER_VISIBLE_DAMAGE"
         }
 
-        candidates.append({
-            "candidate_id": candidate_id,
-            "image_view": IMAGE_VIEWS[image_index],
-            "image_index": image_index,
-            "bbox": bbox,
-            "coordinate_space": (
-                "ORIGINAL_IMAGE_NORMALIZED"
-            ),
-            "book_coverage": max(
-                detection["book_coverage"]
-                for detection in cluster
-            ),
-            "book_center_inside": any(
-                detection["book_center_inside"]
-                for detection in cluster
-            ),
-            "pixel_bbox": [
-                x1,
-                y1,
-                x2,
-                y2,
-            ],
-            "proposed_type": (
-                choose_proposed_type(cluster)
-            ),
-            "yolo_confidence": max(
-                detection["confidence"]
-                for detection in cluster
-            ),
-            "ensemble_confidence": round(
-                sum(
-                    detection["confidence"]
-                    for detection in cluster
-                ) / len(cluster),
-                6,
-            ),
-            "source_models": sorted({
-                detection["source_model"]
-                for detection in cluster
-            }),
-            "source_predictions": cluster,
-            "class_conflict": (
-                len(specialist_types) > 1
-            ),
-            "crop": crop,
-        })
+        candidates.append(
+            {
+                "candidate_id": candidate_id,
+                "image_view": IMAGE_VIEWS[image_index],
+                "image_index": image_index,
+                "bbox": bbox,
+                "coordinate_space": ("ORIGINAL_IMAGE_NORMALIZED"),
+                "book_coverage": max(detection["book_coverage"] for detection in cluster),
+                "book_center_inside": any(detection["book_center_inside"] for detection in cluster),
+                "pixel_bbox": [
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                ],
+                "proposed_type": (choose_proposed_type(cluster)),
+                "yolo_confidence": max(detection["confidence"] for detection in cluster),
+                "ensemble_confidence": round(
+                    sum(detection["confidence"] for detection in cluster) / len(cluster),
+                    6,
+                ),
+                "source_models": sorted({detection["source_model"] for detection in cluster}),
+                "source_predictions": cluster,
+                "class_conflict": (len(specialist_types) > 1),
+                "crop": crop,
+            }
+        )
 
     candidates.sort(
         key=lambda candidate: (
@@ -1395,18 +1088,11 @@ def detect_yolo_candidates(
         reverse=True,
     )
 
-    candidates = candidates[
-        :YOLO_MAX_ENSEMBLE_CANDIDATES
-    ]
+    candidates = candidates[:YOLO_MAX_ENSEMBLE_CANDIDATES]
 
-    for candidate_id, candidate in enumerate(
-        candidates
-    ):
-        candidate["candidate_id"] = (
-            candidate_id
-        )
+    for candidate_id, candidate in enumerate(candidates):
+        candidate["candidate_id"] = candidate_id
     return raw_detections, candidates
-
 
 
 # 전체 사진에 candidate_id를 표시
@@ -1435,8 +1121,6 @@ def draw_candidates(
             stroke_fill="white",
         )
     return annotated
-
-
 
 
 def draw_defects(
@@ -1475,7 +1159,6 @@ def draw_defects(
     return annotated
 
 
-
 def state_safe_candidate(
     candidate: dict,
 ) -> dict:
@@ -1487,7 +1170,8 @@ def state_safe_candidate(
     return {
         key: value
         for key, value in candidate.items()
-        if key not in {
+        if key
+        not in {
             "crop",
             "source_predictions",
         }

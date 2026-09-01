@@ -153,13 +153,11 @@ CI(`pr-check.yml`)가 아래를 **차단 게이트**로 검사합니다. 로컬�
 ### 백엔드
 ```bash
 uv run ruff check app/                          # 규칙 위반 0건이어야 통과
-uv run ruff format --check app/ --exclude "app/ai"
+uv run ruff format --check app/
 uv run pytest -q                                # 전체 통과 필요
 ```
 - 규칙셋과 ignore 사유는 `pyproject.toml`의 `[tool.ruff.lint]`에 적혀 있습니다.
   규칙을 되살리거나 새로 무시할 때는 **사유를 주석으로 남기세요.**
-- `app/ai`(프리즈 구역)는 포맷 검사에서 제외되어 있습니다. 포맷 부채 정리에는
-  조장 승인이 필요합니다(`.claude/rules/01-freeze-zones.md`).
 - mypy는 아직 비차단입니다. 타입 부채 정리 후 차단으로 승격할 예정입니다.
 
 ### 프론트엔드

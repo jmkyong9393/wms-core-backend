@@ -29,8 +29,8 @@ logger = logging.getLogger(__name__)
 
 MAX_REVISIONS = 2
 VISION_RETRY_CODES = {"VISION_RESULT_CONFLICT"}
-POLICY_RETRY_CODES = {"UBCI_POLICY_VIOLATION","POLICY_LOW_CONFIDENCE"}
-HITL_REASON_CODES = {"VISION_LOW_CONFIDENCE","VISION_UNCLASSIFIED_DEFECT","POLICY_REQUIRES_HITL"}
+POLICY_RETRY_CODES = {"UBCI_POLICY_VIOLATION", "POLICY_LOW_CONFIDENCE"}
+HITL_REASON_CODES = {"VISION_LOW_CONFIDENCE", "VISION_UNCLASSIFIED_DEFECT", "POLICY_REQUIRES_HITL"}
 SYSTEM_FAILURE_CODES = {"QUALITY_ERROR"}
 
 
@@ -49,9 +49,10 @@ def technical_failure_node(
 
 
 # LangSmith Tracing 활성화 (LLMOps)
-#os.environ["LANGSMITH_TRACING"] = "true"
-#os.environ["LANGSMITH_PROJECT"] = "WMS_AI_Project"
-#os.environ["LANGSMITH_ENDPOINT"] = "https://api.smith.langchain.com"
+# os.environ["LANGSMITH_TRACING"] = "true"
+# os.environ["LANGSMITH_PROJECT"] = "WMS_AI_Project"
+# os.environ["LANGSMITH_ENDPOINT"] = "https://api.smith.langchain.com"
+
 
 def _decide_next_node(
     state: WMSInspectionState,
@@ -75,44 +76,18 @@ def _decide_next_node(
     ) -> tuple[str, str]:
         log = {
             "event": "SUPERVISOR_ROUTED",
-            "book_id": state.get(
-                "book_id"
-            ),
+            "book_id": state.get("book_id"),
             "next_agent": node,
             "reason": reason,
-            "vision_status": state.get(
-                "vision_status"
-            ),
-            "vision_reason_code": (
-                state.get(
-                    "vision_reason_code"
-                )
-            ),
-            "is_mint": state.get(
-                "is_mint"
-            ),
-            "defect_count": (
-                len(state["defects"])
-                if type(
-                    state.get("defects")
-                ) is list
-                else None
-            ),
-            "ubci_score": state.get(
-                "ubci_score"
-            ),
-            "predicted_grade": state.get(
-                "predicted_grade"
-            ),
-            "reason_code": state.get(
-                "reason_code"
-            ),
-            "revision_count": state.get(
-                "revision_count"
-            ),
-            "human_feedback": state.get(
-                "human_feedback"
-            ),
+            "vision_status": state.get("vision_status"),
+            "vision_reason_code": (state.get("vision_reason_code")),
+            "is_mint": state.get("is_mint"),
+            "defect_count": (len(state["defects"]) if type(state.get("defects")) is list else None),
+            "ubci_score": state.get("ubci_score"),
+            "predicted_grade": state.get("predicted_grade"),
+            "reason_code": state.get("reason_code"),
+            "revision_count": state.get("revision_count"),
+            "human_feedback": state.get("human_feedback"),
         }
 
         logger.info(
@@ -131,29 +106,17 @@ def _decide_next_node(
         0,
     )
 
-    if (
-        type(raw_revision_count) is not int
-        or raw_revision_count < 0
-    ):
+    if type(raw_revision_count) is not int or raw_revision_count < 0:
         return route(
             "technical_failure_node",
             "잘못된 revision_count",
         )
 
     revision_count = raw_revision_count
-    reason_code = state.get(
-        "reason_code"
-    )
-    vision_status = state.get(
-        "vision_status"
-    )
-    vision_reason_code = state.get(
-        "vision_reason_code"
-    )
-    human_feedback = state.get(
-        "human_feedback"
-    )
-
+    reason_code = state.get("reason_code")
+    vision_status = state.get("vision_status")
+    vision_reason_code = state.get("vision_reason_code")
+    human_feedback = state.get("human_feedback")
 
     # 관리자 입력을 가장 먼저 처리
     if human_feedback is not None:
@@ -164,10 +127,7 @@ def _decide_next_node(
                     "book_detector",
                     "관리자 재검수·재촬영 요청",
                 )
-            if (
-                type(book_regions) is list
-                and len(book_regions) == len(IMAGE_VIEWS)
-            ):
+            if type(book_regions) is list and len(book_regions) == len(IMAGE_VIEWS):
                 return route(
                     "vision_agent",
                     "재촬영 이미지의 책 영역 탐지 완료",
@@ -177,43 +137,25 @@ def _decide_next_node(
                 "재촬영 이미지의 책 영역 탐지 실패",
             )
 
-        if (
-            human_feedback
-            == "APPROVE_NORMAL"
-        ):
+        if human_feedback == "APPROVE_NORMAL":
             return route(
                 "report_agent",
                 "관리자 정상 승인",
             )
 
-        if (
-            human_feedback
-            == "APPROVE_DOWNGRADE"
-        ):
-            if state.get(
-                "target_grade"
-            ) not in {"A", "B"}:
+        if human_feedback == "APPROVE_DOWNGRADE":
+            if state.get("target_grade") not in {"A", "B"}:
                 return route(
                     "human_node",
-                    "하향 승인에는 A/B "
-                    "target_grade가 필요함",
+                    "하향 승인에는 A/B target_grade가 필요함",
                 )
 
-            primary_reason_code = (
-                state.get(
-                    "primary_reason_code"
-                )
-            )
+            primary_reason_code = state.get("primary_reason_code")
 
-            if (
-                type(primary_reason_code)
-                is not str
-                or not primary_reason_code.strip()
-            ):
+            if type(primary_reason_code) is not str or not primary_reason_code.strip():
                 return route(
                     "human_node",
-                    "하향 승인에는 "
-                    "primary_reason_code가 필요함",
+                    "하향 승인에는 primary_reason_code가 필요함",
                 )
 
             return route(
@@ -225,27 +167,17 @@ def _decide_next_node(
             "REJECT_RETURN",
             "REJECT_DISCARD",
         }:
-            primary_reason_code = (
-                state.get(
-                    "primary_reason_code"
-                )
-            )
+            primary_reason_code = state.get("primary_reason_code")
 
-            if (
-                type(primary_reason_code)
-                is not str
-                or not primary_reason_code.strip()
-            ):
+            if type(primary_reason_code) is not str or not primary_reason_code.strip():
                 return route(
                     "human_node",
-                    "반려에는 "
-                    "primary_reason_code가 필요함",
+                    "반려에는 primary_reason_code가 필요함",
                 )
 
             return route(
                 "report_agent",
-                f"관리자 반려: "
-                f"{human_feedback}",
+                f"관리자 반려: {human_feedback}",
             )
 
         return route(
@@ -261,11 +193,7 @@ def _decide_next_node(
     if (
         type(book_regions) is list
         and len(book_regions) > 0
-        and all(
-            type(region) is dict
-            and region.get("detected") is not True
-            for region in book_regions
-        )
+        and all(type(region) is dict and region.get("detected") is not True for region in book_regions)
         and state.get("is_mint") is True
     ):
         return route(
@@ -298,8 +226,7 @@ def _decide_next_node(
     }:
         return route(
             "technical_failure_node",
-            "허용되지 않은 vision_status: "
-            f"{vision_status}",
+            f"허용되지 않은 vision_status: {vision_status}",
         )
 
     # Vision 외 에이전트의 무한 재처리 방지. 운영 정책에 따라
@@ -337,14 +264,10 @@ def _decide_next_node(
                 "책 영역 탐지 결과 없음",
             )
 
-        if (
-            type(book_regions) is not list
-            or len(book_regions) != len(IMAGE_VIEWS)
-        ):
+        if type(book_regions) is not list or len(book_regions) != len(IMAGE_VIEWS):
             return route(
                 "technical_failure_node",
-                state.get("repair_directive")
-                or "Book Detector 출력이 불완전함",
+                state.get("repair_directive") or "Book Detector 출력이 불완전함",
             )
 
         return route(
@@ -376,11 +299,7 @@ def _decide_next_node(
         )
 
     # 재촬영 결과의 관리자 재확인
-    if (
-        reason_code == "OK"
-        and state.get("primary_reason_code")
-        is not None
-    ):
+    if reason_code == "OK" and state.get("primary_reason_code") is not None:
         return route(
             "human_node",
             "재촬영 결과 관리자 재확인 필요",
@@ -388,54 +307,18 @@ def _decide_next_node(
 
     # Policy의 필수 출력 검사
     policy_output_complete = (
-        type(state.get("is_mint"))
-        is bool
-
-        and type(state.get("ubci_score"))
-        in (int, float)
-
-        and 0
-        <= state["ubci_score"]
-        <= 100
-
-        and state.get("predicted_grade")
-        in {"S", "A", "B", "REJECT"}
-
-        and type(
-            state.get("score_breakdown")
-        ) is list
-
-        and type(
-            state.get("fatal_defect_detected")
-        ) is bool
-
-        and type(
-            state.get("grade_reason_code")
-        ) is str
-
-        and bool(
-            state["grade_reason_code"].strip()
-        )
-
-        and type(
-            state.get("rule_reference")
-        ) is str
-
-        and bool(
-            state[
-                "rule_reference"
-            ].strip()
-        )
-
-        and type(
-            state.get(
-                "policy_confidence"
-            )
-        ) in (int, float)
-
-        and 0
-        <= state["policy_confidence"]
-        <= 1
+        type(state.get("is_mint")) is bool
+        and type(state.get("ubci_score")) in (int, float)
+        and 0 <= state["ubci_score"] <= 100
+        and state.get("predicted_grade") in {"S", "A", "B", "REJECT"}
+        and type(state.get("score_breakdown")) is list
+        and type(state.get("fatal_defect_detected")) is bool
+        and type(state.get("grade_reason_code")) is str
+        and bool(state["grade_reason_code"].strip())
+        and type(state.get("rule_reference")) is str
+        and bool(state["rule_reference"].strip())
+        and type(state.get("policy_confidence")) in (int, float)
+        and 0 <= state["policy_confidence"] <= 1
     )
 
     # Vision 뒤에는 반드시 Policy
@@ -454,10 +337,7 @@ def _decide_next_node(
             "MINT인데 결함이 존재함",
         )
 
-    if (
-        is_mint is False
-        and not defects
-    ):
+    if is_mint is False and not defects:
         return route(
             "technical_failure_node",
             "비정상인데 결함이 없음",
@@ -479,15 +359,13 @@ def _decide_next_node(
     if reason_code is not None:
         return route(
             "technical_failure_node",
-            "처리할 수 없는 Reason Code: "
-            f"{reason_code}",
+            f"처리할 수 없는 Reason Code: {reason_code}",
         )
 
     return route(
         "critic_agent",
         "Policy 계산 후 교차 검증 필요",
     )
-
 
 
 def supervisor_node(state: WMSInspectionState) -> WMSInspectionState:
@@ -510,15 +388,8 @@ def supervisor_node(state: WMSInspectionState) -> WMSInspectionState:
     return {
         "supervisor_decision": node,
         "supervisor_rationale": reason,
-        "auto_refund_eligible": (
-            True if auto_refund_eligible
-            else state.get("auto_refund_eligible")
-        ),
-        "messages": [
-            AIMessage(
-                content=f"[Supervisor] {node} 지휘 - {reason}"
-            )
-        ],
+        "auto_refund_eligible": (True if auto_refund_eligible else state.get("auto_refund_eligible")),
+        "messages": [AIMessage(content=f"[Supervisor] {node} 지휘 - {reason}")],
     }
 
 
@@ -544,6 +415,7 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
     if decision is None:
         decision, _ = _decide_next_node(state)
     return _DECISION_TO_NODE.get(decision, "technical_failure_node")
+
 
 def build_supervisor_graph():
     """
@@ -579,21 +451,21 @@ def build_supervisor_graph():
     builder.add_conditional_edges(
         "supervisor",
         route_from_supervisor,
-         {
-        "book_detector": "book_detector",
-        "vision_agent": "vision_agent",
-        "policy_agent": "policy_agent",
-        "critic_agent": "critic_agent",
-        "human_node": "human_node",
-        "technical_failure_node": "technical_failure_node",
-        "report_agent": "report_agent",
+        {
+            "book_detector": "book_detector",
+            "vision_agent": "vision_agent",
+            "policy_agent": "policy_agent",
+            "critic_agent": "critic_agent",
+            "human_node": "human_node",
+            "technical_failure_node": "technical_failure_node",
+            "report_agent": "report_agent",
         },
     )
 
     # 4. Star Topology: 워커 에이전트 작업 후 다시 supervisor로 반환
     # TODO: 모든 일반 노드의 종료 엣지를 supervisor로 연결
     builder.add_edge("book_detector", "supervisor")
-    builder.add_edge("vision_agent","supervisor")
+    builder.add_edge("vision_agent", "supervisor")
     builder.add_edge("policy_agent", "supervisor")
     builder.add_edge("critic_agent", "supervisor")
     builder.add_edge("human_node", "supervisor")
@@ -606,6 +478,7 @@ def build_supervisor_graph():
     memory = MemorySaver()
     graph = builder.compile(checkpointer=memory, interrupt_before=["human_node"])
     return graph
+
 
 # 전역 그래프 인스턴스
 try:
@@ -621,6 +494,7 @@ TARGET_GRADE_ALIASES = {
     "NORMAL": "B",
 }
 
+
 def resume_hitl(
     thread_id: str,
     human_feedback: str,
@@ -630,18 +504,10 @@ def resume_hitl(
     """중단된 체크포인트에 관리자 결정을 반영."""
 
     if app_graph is None:
-        raise RuntimeError(
-            "Supervisor 그래프가 생성되지 않았습니다."
-        )
+        raise RuntimeError("Supervisor 그래프가 생성되지 않았습니다.")
 
-    if (
-        not isinstance(thread_id, str)
-        or not thread_id.strip()
-        or len(thread_id) > 500
-    ):
-        raise ValueError(
-            "thread_id는 1~500자의 문자열이어야 합니다."
-        )
+    if not isinstance(thread_id, str) or not thread_id.strip() or len(thread_id) > 500:
+        raise ValueError("thread_id는 1~500자의 문자열이어야 합니다.")
 
     raw_decision = getattr(
         human_feedback,
@@ -662,39 +528,20 @@ def resume_hitl(
     try:
         decision = HITLAction(raw_decision).value
     except (TypeError, ValueError):
-        raise ValueError(
-            f"허용되지 않은 관리자 결정: {raw_decision!r}"
-        ) from None
+        raise ValueError(f"허용되지 않은 관리자 결정: {raw_decision!r}") from None
 
     try:
         reason = HITLReasonCode(raw_reason).value
     except (TypeError, ValueError):
-        raise ValueError(
-            f"허용되지 않은 관리자 사유: {raw_reason!r}"
-        ) from None
+        raise ValueError(f"허용되지 않은 관리자 사유: {raw_reason!r}") from None
 
-    normalized_target_grade = (
-        TARGET_GRADE_ALIASES.get(raw_target_grade)
-        if raw_target_grade is not None
-        else None
-    )
+    normalized_target_grade = TARGET_GRADE_ALIASES.get(raw_target_grade) if raw_target_grade is not None else None
 
-    if (
-        decision == "APPROVE_DOWNGRADE"
-        and normalized_target_grade is None
-    ):
-        raise ValueError(
-            "APPROVE_DOWNGRADE에는 A/B 또는 "
-            "EXCELLENT/NORMAL target_grade가 필요합니다."
-        )
+    if decision == "APPROVE_DOWNGRADE" and normalized_target_grade is None:
+        raise ValueError("APPROVE_DOWNGRADE에는 A/B 또는 EXCELLENT/NORMAL target_grade가 필요합니다.")
 
-    if (
-        decision != "APPROVE_DOWNGRADE"
-        and raw_target_grade is not None
-    ):
-        raise ValueError(
-            "target_grade는 APPROVE_DOWNGRADE에서만 사용합니다."
-        )
+    if decision != "APPROVE_DOWNGRADE" and raw_target_grade is not None:
+        raise ValueError("target_grade는 APPROVE_DOWNGRADE에서만 사용합니다.")
 
     config = {
         "configurable": {
@@ -704,9 +551,7 @@ def resume_hitl(
     snapshot = app_graph.get_state(config)
 
     if "human_node" not in snapshot.next:
-        raise ValueError(
-            "HITL Pause 상태가 아니거나 체크포인트가 없습니다."
-        )
+        raise ValueError("HITL Pause 상태가 아니거나 체크포인트가 없습니다.")
 
     update = {
         "human_feedback": decision,
@@ -718,49 +563,51 @@ def resume_hitl(
     }
 
     if decision == "RE_CHECK":
-        update.update({
-            "book_regions": None,
-            "yolo_model_manifest": None,
-            "raw_yolo_detections": None,
-            "ensemble_candidates": None,
-            "reviewed_candidates": None,
-            "rejected_candidates": None,
-            "uncertain_candidates": None,
-            "image_quality_ok": None,
-            "vision_status": None,
-            "vision_reason_code": None,
-            "missed_defect_suspected": None,
-            "vision_observations": None,
-            "is_mint": None,
-            "defects": None,
-            "vision_confidence": None,
-            "ubci_score": None,
-            "provisional_ubci_score": None,
-            "predicted_grade": None,
-            "score_breakdown": None,
-            "provisional_score_breakdown": None,
-            "fatal_defect_detected": None,
-            "grade_reason_code": None,
-            "rule_reference": None,
-            "policy_confidence": None,
-            "policy_evidence": None,
-            "policy_rag_status": None,
-            "policy_rag_domains": None,
-            "critic_rag_used": None,
-            "critic_retrieved_case_ids": None,
-            "critic_retrieval_scores": None,
-            "critic_retrieval_count": None,
-            "critic_decision_source": None,
-            "critic_explanation": None,
-            "critic_rag_confidence": None,
-            "critic_prompt_version": None,
-            "reason_code": None,
-            "repair_directive": "관리자 재촬영 요청",
-            "overall_confidence": None,
-            "supervisor_decision": None,
-            "supervisor_rationale": None,
-            "auto_refund_eligible": None,
-        })
+        update.update(
+            {
+                "book_regions": None,
+                "yolo_model_manifest": None,
+                "raw_yolo_detections": None,
+                "ensemble_candidates": None,
+                "reviewed_candidates": None,
+                "rejected_candidates": None,
+                "uncertain_candidates": None,
+                "image_quality_ok": None,
+                "vision_status": None,
+                "vision_reason_code": None,
+                "missed_defect_suspected": None,
+                "vision_observations": None,
+                "is_mint": None,
+                "defects": None,
+                "vision_confidence": None,
+                "ubci_score": None,
+                "provisional_ubci_score": None,
+                "predicted_grade": None,
+                "score_breakdown": None,
+                "provisional_score_breakdown": None,
+                "fatal_defect_detected": None,
+                "grade_reason_code": None,
+                "rule_reference": None,
+                "policy_confidence": None,
+                "policy_evidence": None,
+                "policy_rag_status": None,
+                "policy_rag_domains": None,
+                "critic_rag_used": None,
+                "critic_retrieved_case_ids": None,
+                "critic_retrieval_scores": None,
+                "critic_retrieval_count": None,
+                "critic_decision_source": None,
+                "critic_explanation": None,
+                "critic_rag_confidence": None,
+                "critic_prompt_version": None,
+                "reason_code": None,
+                "repair_directive": "관리자 재촬영 요청",
+                "overall_confidence": None,
+                "supervisor_decision": None,
+                "supervisor_rationale": None,
+                "auto_refund_eligible": None,
+            }
+        )
 
     app_graph.update_state(
         config,
@@ -779,14 +626,12 @@ def resume_hitl(
                 upsert_authoritative_hitl_case,
             )
 
-            stored_case_id = (
-                upsert_authoritative_hitl_case(
-                    final_state,
-                    case_id=f"hitl-{thread_id}",
-                    final_decision=decision,
-                    primary_reason_code=reason,
-                    target_grade=normalized_target_grade,
-                )
+            stored_case_id = upsert_authoritative_hitl_case(
+                final_state,
+                case_id=f"hitl-{thread_id}",
+                final_decision=decision,
+                primary_reason_code=reason,
+                target_grade=normalized_target_grade,
             )
             if stored_case_id:
                 logger.info(

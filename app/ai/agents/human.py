@@ -1,7 +1,8 @@
 """HITL 중단점 노드"""
-import logging
+
 import base64
 import json
+import logging
 import os
 import re
 from dataclasses import dataclass

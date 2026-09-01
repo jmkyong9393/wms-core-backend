@@ -18,11 +18,14 @@ load_dotenv()
 # 상수 정의
 YAML_FILE_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-    "docs", "ai_knowledge_base", "policy_data_master.yaml"
+    "docs",
+    "ai_knowledge_base",
+    "policy_data_master.yaml",
 )
 CHROMA_HOST = os.getenv("CHROMA_SERVER_HOST", "localhost")
 CHROMA_PORT = int(os.getenv("CHROMA_SERVER_PORT", 8000))
 COLLECTION_NAME = "wms_return_policies"
+
 
 def load_yaml_data(file_path: str) -> List[Dict[str, Any]]:
     """YAML 파일을 읽어서 리스트 형태로 반환합니다."""
@@ -32,6 +35,7 @@ def load_yaml_data(file_path: str) -> List[Dict[str, Any]]:
     with open(file_path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
     return data
+
 
 def process_documents(raw_data: List[Dict[str, Any]]) -> List[Document]:
     """원시 데이터를 LangChain Document 객체로 변환하고 메타데이터를 분리합니다."""
@@ -51,21 +55,18 @@ def process_documents(raw_data: List[Dict[str, Any]]) -> List[Document]:
             "authority_level": item.get("authority_level", ""),
             "doc_title": item.get("doc_title", ""),
             "clause_ref": item.get("clause_ref", ""),
-            "category": category_str
+            "category": category_str,
         }
 
         doc = Document(page_content=text_content, metadata=metadata)
         documents.append(doc)
 
     # 만약 본문이 너무 길 경우를 대비해 스플리터 적용
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,
-        chunk_overlap=100,
-        length_function=len
-    )
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100, length_function=len)
 
     split_docs = text_splitter.split_documents(documents)
     return split_docs
+
 
 def ingest_to_chroma(documents: List[Document]):
     """Document 객체들을 ChromaDB에 적재(Upsert)합니다."""
@@ -79,13 +80,11 @@ def ingest_to_chroma(documents: List[Document]):
 
     # 3. LangChain Chroma 래퍼를 사용하여 적재
     Chroma.from_documents(
-        documents=documents,
-        embedding=embeddings,
-        client=chroma_client,
-        collection_name=COLLECTION_NAME
+        documents=documents, embedding=embeddings, client=chroma_client, collection_name=COLLECTION_NAME
     )
 
     print(f"✅ ChromaDB 적재 완료! (Collection: {COLLECTION_NAME})")
+
 
 def main():
     print("🚀 정책 데이터 파싱 및 임베딩 파이프라인 시작")
@@ -106,8 +105,10 @@ def main():
         BATCH_SIZE = 30  # 한 번에 처리할 조항 수
 
         for i in range(0, len(raw_data), BATCH_SIZE):
-            batch = raw_data[i:i + BATCH_SIZE]
-            print(f"\n📦 [Batch {i//BATCH_SIZE + 1}] {i+1} ~ {min(i+BATCH_SIZE, len(raw_data))} 번째 조항 처리 중...")
+            batch = raw_data[i : i + BATCH_SIZE]
+            batch_no = i // BATCH_SIZE + 1
+            batch_end = min(i + BATCH_SIZE, len(raw_data))
+            print(f"\n📦 [Batch {batch_no}] {i + 1} ~ {batch_end} 번째 조항 처리 중...")
 
             documents = process_documents(batch)
             print(f"텍스트 분할 완료: {len(documents)} 개의 청크 생성")
@@ -117,6 +118,7 @@ def main():
 
     except Exception as e:
         print(f"❌ 에러 발생: {e}")
+
 
 if __name__ == "__main__":
     main()

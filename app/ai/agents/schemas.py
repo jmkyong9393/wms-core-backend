@@ -1,4 +1,5 @@
 """Vision 구조화 출력 Pydantic 스키마"""
+
 import base64
 import json
 import os
@@ -33,7 +34,6 @@ from ..state import Grade, WMSInspectionState
 NormalizedValue = Annotated[float, Field(ge=0, le=1)]
 
 
-
 DefectCode = Literal[
     "COVER_SCRATCH",
     "COVER_TEAR",
@@ -56,7 +56,6 @@ DefectCode = Literal[
 ]
 
 
-
 DefectLocation = Literal[
     "FRONT_COVER",
     "BACK_COVER",
@@ -67,8 +66,6 @@ DefectLocation = Literal[
     "IDENTIFIER_AREA",
     "OTHER",
 ]
-
-
 
 
 class DefectOutput(BaseModel):
@@ -92,13 +89,9 @@ class DefectOutput(BaseModel):
         x_min, y_min, x_max, y_max = self.bbox
 
         if x_min >= x_max or y_min >= y_max:
-            raise ValueError(
-                "BBOX 좌표 순서가 올바르지 않습니다."
-            )
+            raise ValueError("BBOX 좌표 순서가 올바르지 않습니다.")
 
         return self
-
-
 
 
 RejectReason = Literal[
@@ -110,14 +103,11 @@ RejectReason = Literal[
 ]
 
 
-
 ReviewDecision = Literal[
     "CONFIRMED",
     "REJECTED",
     "UNCERTAIN",
 ]
-
-
 
 
 class CandidateReview(BaseModel):
@@ -141,25 +131,15 @@ class CandidateReview(BaseModel):
     @model_validator(mode="after")
     def normalize_review(self):
         # 낮은 신뢰도의 자동 확정·자동 거절 차단
-        if (
-            self.review_confidence
-            < MIN_VISION_CONFIDENCE
-        ):
+        if self.review_confidence < MIN_VISION_CONFIDENCE:
             self.decision = "UNCERTAIN"
-            self.reject_reason = (
-                "INSUFFICIENT_EVIDENCE"
-            )
+            self.reject_reason = "INSUFFICIENT_EVIDENCE"
 
         confirmed_is_valid = (
-            self.confirmed_type is not None
-            and self.location is not None
-            and self.reject_reason is None
+            self.confirmed_type is not None and self.location is not None and self.reject_reason is None
         )
 
-        if (
-            self.decision == "CONFIRMED"
-            and confirmed_is_valid
-        ):
+        if self.decision == "CONFIRMED" and confirmed_is_valid:
             return self
 
         if self.decision == "CONFIRMED":
@@ -167,14 +147,9 @@ class CandidateReview(BaseModel):
 
         self.confirmed_type = None
         self.location = None
-        self.reject_reason = (
-            self.reject_reason
-            or "INSUFFICIENT_EVIDENCE"
-        )
+        self.reject_reason = self.reject_reason or "INSUFFICIENT_EVIDENCE"
 
         return self
-
-
 
 
 class HybridVisionReview(BaseModel):
@@ -186,8 +161,6 @@ class HybridVisionReview(BaseModel):
     review_confidence: float = Field(ge=0, le=1)
 
 
-
-
 class FullImageVisionReview(BaseModel):
     """학습셋이 없는 사진을 전체 판독한 결과."""
 
@@ -195,12 +168,8 @@ class FullImageVisionReview(BaseModel):
 
     image_quality_ok: bool
     defects: list[DefectOutput] = Field(max_length=20)
-    observations: list[
-        Annotated[str, Field(max_length=500)]
-    ] = Field(default_factory=list, max_length=20)
+    observations: list[Annotated[str, Field(max_length=500)]] = Field(default_factory=list, max_length=20)
     review_confidence: float = Field(ge=0, le=1)
-
-
 
 
 class CombinedDefectReview(BaseModel):
@@ -211,8 +180,6 @@ class CombinedDefectReview(BaseModel):
     review_confidence: float = Field(ge=0, le=1)
     explanation: str = Field(min_length=1, max_length=500)
     printed_content_only: bool = False
-
-
 
 
 class CombinedVisionReview(BaseModel):

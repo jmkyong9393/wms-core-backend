@@ -48,13 +48,13 @@ PrimaryReasonCode = Literal[
     "DMG_EXT_TEAR",
     "DMG_EXT_BOX",
     "DMG_EXT_OTHER",
-    #내부 결함
+    # 내부 결함
     "DMG_INT_BINDING",
     "DMG_INT_STAIN",
     "DMG_INT_DISCOLOR",
     "DMG_INT_BARCODE",
     "DMG_INT_OTHER",
-    #재촬영 및 시스템 예외
+    # 재촬영 및 시스템 예외
     "SYS_BLURRY",
     "SYS_WRONG_ITEM",
     "SYS_MISSING_PARTS",
@@ -70,7 +70,7 @@ HumanFeedback = Literal[
     "RE_CHECK",
 ]
 
-#등급 코드
+# 등급 코드
 Grade = Literal["S", "A", "B", "REJECT"]
 TargetGrade = Literal["A", "B"]
 
@@ -83,29 +83,30 @@ class WMSInspectionState(TypedDict, total=False):
     있습니다. messages에는 ``add_messages`` reducer가 적용되어 Agent의
     실행 이력이 기존 메시지 뒤에 누적됩니다.
     """
+
     messages: Annotated[List[BaseMessage], add_messages]
 
     # 요청 추적 정보
-    tenant_id: str # 고객사 또는 물류센터 식별 값
-    book_id: str # 검수 중인 단품 도서 또는 LPN 식별값
-    mode: str # 실행모드 예: INSPECTION< RE_CHECK
-    image_paths: list[str] # Vision Agent가 검사할 실제 이미지 경로 목록
+    tenant_id: str  # 고객사 또는 물류센터 식별 값
+    book_id: str  # 검수 중인 단품 도서 또는 LPN 식별값
+    mode: str  # 실행모드 예: INSPECTION< RE_CHECK
+    image_paths: list[str]  # Vision Agent가 검사할 실제 이미지 경로 목록
 
     # YOLO 앙상블 원본 결과
-    yolo_model_manifest: Optional[list[dict]] # YOLO 모델 이름, 경로, 역할, 클래스 목록
+    yolo_model_manifest: Optional[list[dict]]  # YOLO 모델 이름, 경로, 역할, 클래스 목록
     book_regions: Optional[list[dict]]  # 사진별 책 영역 탐지 결과
-    raw_yolo_detections: Optional[list[dict]] # 각 YOLO 모델이 출력한 가공 전 탐지 결과
+    raw_yolo_detections: Optional[list[dict]]  # 각 YOLO 모델이 출력한 가공 전 탐지 결과
     # 여러 YOLO 모델의 겹치는 BBOX를 병합한 후보 목록. 이 후보가 VLM 2차 검토 입력이 된다
     ensemble_candidates: Optional[list[dict]]
 
     # 1. Vision Agent (2차 검토)
-    reviewed_candidates: Optional[list[dict]] # CONFIRMED ,REJECTED, UNCERTAIN 결과를 모두 포함
-    rejected_candidates: Optional[list[dict]] # 오탐으로 판단한 후보
-    uncertain_candidates: Optional[list[dict]] # VLM도 확정하지 못해 HITL로 넘겨야하는 후보
-    defects: Optional[list[dict]] # VLM이 최종 승인한 실제 결함 목록
-    image_quality_ok: Optional[bool] # 입력 사진 전체가 판독 가능한 품질인지 표시
+    reviewed_candidates: Optional[list[dict]]  # CONFIRMED ,REJECTED, UNCERTAIN 결과를 모두 포함
+    rejected_candidates: Optional[list[dict]]  # 오탐으로 판단한 후보
+    uncertain_candidates: Optional[list[dict]]  # VLM도 확정하지 못해 HITL로 넘겨야하는 후보
+    defects: Optional[list[dict]]  # VLM이 최종 승인한 실제 결함 목록
+    image_quality_ok: Optional[bool]  # 입력 사진 전체가 판독 가능한 품질인지 표시
     vision_confidence: Optional[float]  # 전체 Vision 판독 신뢰도, 0~1
-    vision_status: Optional[VisionStatus] # Vision 실행 상태
+    vision_status: Optional[VisionStatus]  # Vision 실행 상태
     vision_reason_code: Optional[VisionReasonCode]  # Vision이 REVIEW_REQUIRED 또는 FAILED가 된 사유
     missed_defect_suspected: Optional[bool]  # YOLO 후보 밖의 명확한 결함 의심 여부
     vision_observations: Optional[list[dict]]  # 학습셋 없는 사진의 GPT-4o 전체 판독 소견

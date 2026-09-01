@@ -81,16 +81,13 @@ def round_to_hundred(
 ) -> int:
     """가격의 100원 단위 반올림."""
 
-    rounded = (
-        price / Decimal("100")
-    ).quantize(
+    rounded = (price / Decimal("100")).quantize(
         Decimal("1"),
         rounding=ROUND_HALF_UP,
     )
 
-    return int(
-        rounded * Decimal("100")
-    )
+    return int(rounded * Decimal("100"))
+
 
 def calculate_discount_rate(
     base_price: Decimal,
@@ -98,29 +95,13 @@ def calculate_discount_rate(
 ) -> int:
     """정가 대비 정수 할인율 계산."""
 
-    final_price_decimal = Decimal(
-        final_price
-    )
+    final_price_decimal = Decimal(final_price)
 
     # 잘못된 가격 관계 차단
-    if (
-        base_price <= 0
-        or final_price < 0
-        or final_price_decimal > base_price
-    ):
-        raise ValueError(
-            "최종 가격은 0 이상이며 "
-            "정가 이하여야 합니다."
-        )
+    if base_price <= 0 or final_price < 0 or final_price_decimal > base_price:
+        raise ValueError("최종 가격은 0 이상이며 정가 이하여야 합니다.")
 
-    discount_rate = (
-        (
-            base_price
-            - final_price_decimal
-        )
-        / base_price
-        * Decimal("100")
-    )
+    discount_rate = (base_price - final_price_decimal) / base_price * Decimal("100")
 
     # 백엔드 요구에 따른 정수 할인율 올림
     return int(
@@ -130,53 +111,29 @@ def calculate_discount_rate(
         )
     )
 
+
 def calculate_condition_retention(
     ubci_score: float,
 ) -> Decimal:
     """UBCI 등급 구간 기반 상태 보존계수 계산."""
 
-    score = Decimal(
-        str(ubci_score)
-    )
+    score = Decimal(str(ubci_score))
 
     # 가격 정책의 UBCI 허용 범위 검증
-    if (
-        score < Decimal("65")
-        or score > Decimal("100")
-    ):
-        raise ValueError(
-            "UBCI 점수는 65 이상 "
-            "100 이하이어야 합니다."
-        )
+    if score < Decimal("65") or score > Decimal("100"):
+        raise ValueError("UBCI 점수는 65 이상 100 이하이어야 합니다.")
 
     # S등급 상태 보존계수
     if score >= Decimal("95"):
-        return (
-            Decimal("0.95")
-            + (
-                score - Decimal("95")
-            )
-            * Decimal("0.01")
-        )
+        return Decimal("0.95") + (score - Decimal("95")) * Decimal("0.01")
 
     # A등급 상태 보존계수
     if score >= Decimal("85"):
-        return (
-            Decimal("0.75")
-            + (
-                score - Decimal("85")
-            )
-            * Decimal("0.02")
-        )
+        return Decimal("0.75") + (score - Decimal("85")) * Decimal("0.02")
 
     # B등급 상태 보존계수
-    return (
-        Decimal("0.45")
-        + (
-            score - Decimal("65")
-        )
-        * Decimal("0.015")
-    )
+    return Decimal("0.45") + (score - Decimal("65")) * Decimal("0.015")
+
 
 def calculate_final_price(
     request: PricingRecommendationRequest,
@@ -185,23 +142,13 @@ def calculate_final_price(
 
     category_key = request.category
 
-    category_label, category_retention = (
-        CATEGORY_POLICY[category_key]
-    )
+    category_label, category_retention = CATEGORY_POLICY[category_key]
 
     # UBCI 등급 구간 기반 상태 보존계수 계산
-    condition_retention = (
-        calculate_condition_retention(
-            request.ubci_score
-        )
-    )
+    condition_retention = calculate_condition_retention(request.ubci_score)
 
     # 카테고리와 도서 상태를 반영한 반올림 전 가격 계산
-    raw_price = (
-        request.base_price
-        * category_retention
-        * condition_retention
-    )
+    raw_price = request.base_price * category_retention * condition_retention
 
     # 무료 가격 방지를 위한 최소 판매가격 보장
     final_price = max(
@@ -269,10 +216,7 @@ def generate_pricing_reason(
 
     # API 키 누락 시 가격 응답 유지를 위한 기본 사유 반환
     if not api_key:
-        logger.warning(
-            "Pricing 사유 생성 생략 "
-            "- OPENAI_API_KEY 누락"
-        )
+        logger.warning("Pricing 사유 생성 생략 - OPENAI_API_KEY 누락")
         return fallback_reason
 
     llm = ChatOpenAI(
@@ -339,26 +283,19 @@ def generate_pricing_reason(
     ]
 
     try:
-        result = structured_llm.invoke(
-            messages
-        )
+        result = structured_llm.invoke(messages)
 
         if not isinstance(
             result,
             PricingReason,
         ):
-            raise TypeError(
-                "Pricing Agent 응답 스키마 오류"
-            )
+            raise TypeError("Pricing Agent 응답 스키마 오류")
 
         return result.pricing_reason
 
     # LLM 장애가 가격 계산 실패로 전파되는 상황 방지
     except Exception:
-        logger.exception(
-            "Pricing 사유 생성 실패 "
-            "- 기본 사유 반환"
-        )
+        logger.exception("Pricing 사유 생성 실패 - 기본 사유 반환")
         return fallback_reason
 
 
@@ -367,9 +304,7 @@ def pricing_agent(
 ) -> PricingRecommendationResponse:
     """최종 가격 계산과 LLM 선정 사유 생성."""
 
-    final_price, _, category_label = (
-        calculate_final_price(request)
-    )
+    final_price, _, category_label = calculate_final_price(request)
 
     discount_rate = calculate_discount_rate(
         request.base_price,
@@ -389,8 +324,7 @@ def pricing_agent(
     )
 
     logger.info(
-        "Pricing Agent 실행 완료 "
-        "- final_price=%s, discount_rate=%s",
+        "Pricing Agent 실행 완료 - final_price=%s, discount_rate=%s",
         response.final_price,
         response.discount_rate,
     )

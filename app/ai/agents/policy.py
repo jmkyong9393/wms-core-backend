@@ -1,7 +1,8 @@
 """Policy Agent (UBCI 감점 매트릭스 + RAG 근거)"""
-import logging
+
 import base64
 import json
+import logging
 import os
 import re
 from dataclasses import dataclass
@@ -53,7 +54,6 @@ PENALTY_MATRIX: dict[
 }
 
 
-
 # 면적과 무관하게 즉시 반려되는 결함
 FATAL_DEFECTS = {
     "WATER_DAMAGE",
@@ -61,26 +61,24 @@ FATAL_DEFECTS = {
 }
 
 
-
 # 현재 검수는 속지 한 장(펼침면)을 촬영하므로, 확정된 내지 훼손은
 # UBCI v2의 "5장 이하 훼손" 구간으로 한 번만 감점합니다.
-INNER_PAGE_DAMAGE_TYPES = frozenset({
-    "WRITING",
-    "HIGHLIGHTING",
-    "PAGE_FOLD",
-})
+INNER_PAGE_DAMAGE_TYPES = frozenset(
+    {
+        "WRITING",
+        "HIGHLIGHTING",
+        "PAGE_FOLD",
+    }
+)
 
 
 INNER_PAGE_DAMAGE_PENALTY = 10.0
-
 
 
 HITL_REQUIRED_DEFECTS = {
     "BARCODE_DAMAGE",
     "OTHER_VISIBLE_DAMAGE",
 }
-
-
 
 
 def get_severity(ratio: float) -> tuple[int, str]:
@@ -92,9 +90,6 @@ def get_severity(ratio: float) -> tuple[int, str]:
         return 1, "MODERATE"
 
     return 2, "SEVERE"
-
-
-
 
 
 def calculate_ubci_score(
@@ -112,9 +107,7 @@ def calculate_ubci_score(
 
     for defect in defects:
         if type(defect) is not dict:
-            raise ValueError(
-                "defects의 각 항목은 dict여야 합니다."
-            )
+            raise ValueError("defects의 각 항목은 dict여야 합니다.")
 
         defect_type = defect.get("type")
         ratio = defect.get("ratio")
@@ -125,42 +118,25 @@ def calculate_ubci_score(
         )
 
         if defect_type in HITL_REQUIRED_DEFECTS:
-            raise ValueError(
-                f"관리자 확인이 필요한 결함입니다: {defect_type}"
-            )
+            raise ValueError(f"관리자 확인이 필요한 결함입니다: {defect_type}")
 
         if (
             defect_type not in PENALTY_MATRIX
             and defect_type not in FATAL_DEFECTS
             and defect_type not in INNER_PAGE_DAMAGE_TYPES
         ):
-            raise ValueError(
-                f"UBCI v2에 정의되지 않은 결함입니다: {defect_type}"
-            )
+            raise ValueError(f"UBCI v2에 정의되지 않은 결함입니다: {defect_type}")
 
-        if (
-            type(ratio) not in (int, float)
-            or not 0 <= ratio <= 100
-        ):
-            raise ValueError(
-                "결함 ratio는 0~100 범위의 숫자여야 합니다."
-            )
+        if type(ratio) not in (int, float) or not 0 <= ratio <= 100:
+            raise ValueError("결함 ratio는 0~100 범위의 숫자여야 합니다.")
 
         if type(text_overlap) is not bool:
-            raise ValueError(
-                "text_overlap은 bool이어야 합니다."
-            )
+            raise ValueError("text_overlap은 bool이어야 합니다.")
 
         if type(morphology_severe) is not bool:
-            raise ValueError(
-                "morphology_severe는 bool이어야 합니다."
-            )
+            raise ValueError("morphology_severe는 bool이어야 합니다.")
 
-        penalty_group = (
-            "INNER_PAGE_DAMAGE"
-            if defect_type in INNER_PAGE_DAMAGE_TYPES
-            else defect_type
-        )
+        penalty_group = "INNER_PAGE_DAMAGE" if defect_type in INNER_PAGE_DAMAGE_TYPES else defect_type
 
         grouped = grouped_defects.setdefault(
             penalty_group,
@@ -190,73 +166,60 @@ def calculate_ubci_score(
 
         # 심각한 제본 벌어짐도 즉시 반려
         if defect_type == "LOOSE_BINDING":
-            is_fatal = (
-                severity == "SEVERE"
-                or defect["morphology_severe"]
-            )
+            is_fatal = severity == "SEVERE" or defect["morphology_severe"]
 
         if is_fatal:
             fatal_defect_detected = True
 
-            score_breakdown.append({
-                "type": defect_type,
-                "total_ratio": total_ratio,
-                "severity": severity,
-                "text_overlap": defect["text_overlap"],
-                "applied_penalty": None,
-                "fatal": True,
-            })
+            score_breakdown.append(
+                {
+                    "type": defect_type,
+                    "total_ratio": total_ratio,
+                    "severity": severity,
+                    "text_overlap": defect["text_overlap"],
+                    "applied_penalty": None,
+                    "fatal": True,
+                }
+            )
             continue
 
         if defect_type == "INNER_PAGE_DAMAGE":
             total_penalty += INNER_PAGE_DAMAGE_PENALTY
-            score_breakdown.append({
-                "type": defect_type,
-                "detected_types": sorted(
-                    defect["detected_types"]
-                ),
-                "total_ratio": total_ratio,
-                "severity": "OBSERVED_LE_5_PAGES",
-                "text_overlap": defect["text_overlap"],
-                "applied_penalty": (
-                    INNER_PAGE_DAMAGE_PENALTY
-                ),
-                "fatal": False,
-            })
+            score_breakdown.append(
+                {
+                    "type": defect_type,
+                    "detected_types": sorted(defect["detected_types"]),
+                    "total_ratio": total_ratio,
+                    "severity": "OBSERVED_LE_5_PAGES",
+                    "text_overlap": defect["text_overlap"],
+                    "applied_penalty": (INNER_PAGE_DAMAGE_PENALTY),
+                    "fatal": False,
+                }
+            )
             continue
 
-        base_penalty = PENALTY_MATRIX[
-            defect_type
-        ][severity_index]
+        base_penalty = PENALTY_MATRIX[defect_type][severity_index]
 
         # 텍스트를 침범한 결함에는 1.5배를 적용
-        multiplier = (
-            1.5
-            if defect["text_overlap"]
-            else 1.0
-        )
+        multiplier = 1.5 if defect["text_overlap"] else 1.0
 
         # 감점 결과는 소수점 첫째 자리까지 기록
-        applied_penalty = round(
-            base_penalty * multiplier,1
-        )
+        applied_penalty = round(base_penalty * multiplier, 1)
 
         total_penalty += applied_penalty
 
-        score_breakdown.append({
-            "type": defect_type,
-            "total_ratio": total_ratio,
-            "severity": severity,
-            "text_overlap": defect["text_overlap"],
-            "applied_penalty": applied_penalty,
-            "fatal": False,
-        })
+        score_breakdown.append(
+            {
+                "type": defect_type,
+                "total_ratio": total_ratio,
+                "severity": severity,
+                "text_overlap": defect["text_overlap"],
+                "applied_penalty": applied_penalty,
+                "fatal": False,
+            }
+        )
 
-    ubci_score = (
-        0.0
-        if fatal_defect_detected
-        else round(max(0.0, 100 - total_penalty),1)
-    )
+    ubci_score = 0.0 if fatal_defect_detected else round(max(0.0, 100 - total_penalty), 1)
 
     return (
         ubci_score,
@@ -265,19 +228,13 @@ def calculate_ubci_score(
     )
 
 
-
 def calculate_ubci_grade(
     ubci_score: float,
     fatal_defect_detected: bool = False,
 ) -> Grade:
     """UBCI v2 경계값을 사용해 등급을 계산합니다."""
-    if (
-        type(ubci_score) not in (int, float)
-        or not 0 <= ubci_score <= 100
-    ):
-        raise ValueError(
-            "ubci_score는 0~100 범위의 숫자여야 합니다."
-        )
+    if type(ubci_score) not in (int, float) or not 0 <= ubci_score <= 100:
+        raise ValueError("ubci_score는 0~100 범위의 숫자여야 합니다.")
 
     ubci_score = float(ubci_score)
 
@@ -293,8 +250,6 @@ def calculate_ubci_grade(
     return "B"
 
 
-
-
 def policy_agent(state: WMSInspectionState) -> WMSInspectionState:
     """
     2. Policy Agent (RAG 적용)
@@ -306,23 +261,14 @@ def policy_agent(state: WMSInspectionState) -> WMSInspectionState:
     logger.info("[Agent] Policy Agent 실행...")
 
     defects = state.get("defects")
-    vision_status = state.get(
-        "vision_status"
-    )
+    vision_status = state.get("vision_status")
 
     raw_revision_count = state.get(
         "revision_count",
         0,
     )
 
-    revision_count = (
-        raw_revision_count
-        if (
-            type(raw_revision_count) is int
-            and raw_revision_count >= 0
-        )
-        else 0
-    )
+    revision_count = raw_revision_count if (type(raw_revision_count) is int and raw_revision_count >= 0) else 0
 
     policy_evidence: list[dict] = []
     policy_rag_status = "RULE_ENGINE_FALLBACK"
@@ -330,37 +276,21 @@ def policy_agent(state: WMSInspectionState) -> WMSInspectionState:
 
     try:
         if vision_status != "COMPLETED":
-            raise ValueError(
-                "완료된 Vision 결과만 "
-                "Policy가 계산할 수 있습니다."
-            )
+            raise ValueError("완료된 Vision 결과만 Policy가 계산할 수 있습니다.")
 
         if type(defects) is not list:
-            raise ValueError(
-                "defects는 list여야 합니다."
-            )
+            raise ValueError("defects는 list여야 합니다.")
 
-        if any(
-            type(defect) is not dict
-            for defect in defects
-        ):
-            raise ValueError(
-                "defects의 각 항목은 dict여야 합니다."
-            )
+        if any(type(defect) is not dict for defect in defects):
+            raise ValueError("defects의 각 항목은 dict여야 합니다.")
         try:
-            policy_evidence = (
-                search_policy_rules(
-                    defects=defects,
-                    policy_version=(
-                        POLICY_VERSION
-                    ),
-                )
+            policy_evidence = search_policy_rules(
+                defects=defects,
+                policy_version=(POLICY_VERSION),
             )
-            policy_rag_domains = sorted({
-                str(item.get("policy_domain", ""))
-                for item in policy_evidence
-                if item.get("policy_domain")
-            })
+            policy_rag_domains = sorted(
+                {str(item.get("policy_domain", "")) for item in policy_evidence if item.get("policy_domain")}
+            )
             if set(policy_rag_domains) == {
                 "UBCI",
                 "WMS_OPERATION",
@@ -382,12 +312,8 @@ def policy_agent(state: WMSInspectionState) -> WMSInspectionState:
                 "score_breakdown": [],
                 "provisional_score_breakdown": None,
                 "fatal_defect_detected": False,
-                "grade_reason_code": (
-                    "NO_VISIBLE_DEFECT"
-                ),
-                "rule_reference": (
-                    POLICY_VERSION
-                ),
+                "grade_reason_code": ("NO_VISIBLE_DEFECT"),
+                "rule_reference": (POLICY_VERSION),
                 "policy_confidence": 1.0,
                 "policy_evidence": policy_evidence,
                 "reason_code": None,
@@ -395,46 +321,25 @@ def policy_agent(state: WMSInspectionState) -> WMSInspectionState:
             }
 
         else:
-            manual_types = sorted(
-                {
-                    defect.get("type")
-                    for defect in defects
-                }
-                & HITL_REQUIRED_DEFECTS
-            )
+            manual_types = sorted({defect.get("type") for defect in defects} & HITL_REQUIRED_DEFECTS)
 
-            scorable_defects = [
-                defect
-                for defect in defects
-                if defect.get("type")
-                not in HITL_REQUIRED_DEFECTS
-            ]
+            scorable_defects = [defect for defect in defects if defect.get("type") not in HITL_REQUIRED_DEFECTS]
 
             (
                 calculated_ubci_score,
                 calculated_score_breakdown,
                 fatal_defect_detected,
-            ) = calculate_ubci_score(
-                scorable_defects
-            )
+            ) = calculate_ubci_score(scorable_defects)
 
             if fatal_defect_detected:
-                grade_reason_code = next(
-                    item["type"]
-                    for item in calculated_score_breakdown
-                    if item["fatal"]
-                )
+                grade_reason_code = next(item["type"] for item in calculated_score_breakdown if item["fatal"])
 
                 result = {
                     "is_mint": False,
-                    "ubci_score": float(
-                        calculated_ubci_score
-                    ),
+                    "ubci_score": float(calculated_ubci_score),
                     "provisional_ubci_score": None,
                     "predicted_grade": "REJECT",
-                    "score_breakdown": (
-                        calculated_score_breakdown
-                    ),
+                    "score_breakdown": (calculated_score_breakdown),
                     "provisional_score_breakdown": None,
                     "fatal_defect_detected": True,
                     "grade_reason_code": grade_reason_code,
@@ -445,79 +350,47 @@ def policy_agent(state: WMSInspectionState) -> WMSInspectionState:
                 }
 
             elif manual_types:
-                repair_directive = (
-                    "UBCI 자동 감점 규칙이 정의되지 않아 "
-                    "관리자 확인이 필요한 결함: "
-                    + ", ".join(manual_types)
+                repair_directive = "UBCI 자동 감점 규칙이 정의되지 않아 관리자 확인이 필요한 결함: " + ", ".join(
+                    manual_types
                 )
 
                 result = {
                     "is_mint": False,
                     "ubci_score": None,
-                    "provisional_ubci_score": float(
-                        calculated_ubci_score
-                    ),
+                    "provisional_ubci_score": float(calculated_ubci_score),
                     "predicted_grade": None,
                     "score_breakdown": None,
-                    "provisional_score_breakdown": (
-                        calculated_score_breakdown
-                    ),
+                    "provisional_score_breakdown": (calculated_score_breakdown),
                     "fatal_defect_detected": None,
-                    "grade_reason_code": (
-                        manual_types[0]
-                    ),
-                    "rule_reference": (
-                        POLICY_VERSION
-                    ),
+                    "grade_reason_code": (manual_types[0]),
+                    "rule_reference": (POLICY_VERSION),
                     "policy_confidence": None,
-                    "reason_code": (
-                        "POLICY_REQUIRES_HITL"
-                    ),
+                    "reason_code": ("POLICY_REQUIRES_HITL"),
                     "repair_directive": repair_directive,
                 }
 
             else:
-                predicted_grade = (
-                    calculate_ubci_grade(
-                        calculated_ubci_score,
-                        fatal_defect_detected,
-                    )
+                predicted_grade = calculate_ubci_grade(
+                    calculated_ubci_score,
+                    fatal_defect_detected,
                 )
 
                 grade_reason_code = max(
                     calculated_score_breakdown,
-                    key=lambda item: (
-                        item[
-                            "applied_penalty"
-                        ]
-                    ),
+                    key=lambda item: item["applied_penalty"],
                 )["type"]
 
                 result = {
                     "is_mint": False,
-
                     # DB와 동일하게 float 보장
-                    "ubci_score": float(
-                        calculated_ubci_score
-                    ),
+                    "ubci_score": float(calculated_ubci_score),
                     "provisional_ubci_score": None,
-
-                    "predicted_grade": (
-                        predicted_grade
-                    ),
-                    "score_breakdown": (
-                        calculated_score_breakdown
-                    ),
+                    "predicted_grade": (predicted_grade),
+                    "score_breakdown": (calculated_score_breakdown),
                     "provisional_score_breakdown": None,
-                    "fatal_defect_detected": (
-                        fatal_defect_detected
-                    ),
-                    "grade_reason_code": (
-                        grade_reason_code
-                    ),
-                    "rule_reference": (
-                        POLICY_VERSION
-                    ),
+                    "fatal_defect_detected": (fatal_defect_detected),
+                    "grade_reason_code": (grade_reason_code),
+                    "rule_reference": (POLICY_VERSION),
                     "policy_confidence": 1.0,
                     "reason_code": None,
                     "repair_directive": None,
@@ -537,9 +410,7 @@ def policy_agent(state: WMSInspectionState) -> WMSInspectionState:
             "grade_reason_code": None,
             "rule_reference": None,
             "policy_confidence": None,
-            "reason_code": (
-                "UBCI_POLICY_VIOLATION"
-            ),
+            "reason_code": ("UBCI_POLICY_VIOLATION"),
             "repair_directive": str(error),
         }
 
@@ -578,42 +449,16 @@ def policy_agent(state: WMSInspectionState) -> WMSInspectionState:
     trace_event(
         "POLICY_OUTPUT",
         {
-            "is_mint": (
-                output["is_mint"]
-            ),
+            "is_mint": (output["is_mint"]),
             "input_defects": defects,
-            "ubci_score": (
-                output["ubci_score"]
-            ),
-            "provisional_ubci_score": (
-                output[
-                    "provisional_ubci_score"
-                ]
-            ),
-            "predicted_grade": (
-                output["predicted_grade"]
-            ),
-            "score_breakdown": (
-                output["score_breakdown"]
-            ),
-            "provisional_score_breakdown": (
-                output[
-                    "provisional_score_breakdown"
-                ]
-            ),
-            "fatal_defect_detected": (
-                output[
-                    "fatal_defect_detected"
-                ]
-            ),
-            "grade_reason_code": (
-                output[
-                    "grade_reason_code"
-                ]
-            ),
-            "rule_reference": (
-                output["rule_reference"]
-            ),
+            "ubci_score": (output["ubci_score"]),
+            "provisional_ubci_score": (output["provisional_ubci_score"]),
+            "predicted_grade": (output["predicted_grade"]),
+            "score_breakdown": (output["score_breakdown"]),
+            "provisional_score_breakdown": (output["provisional_score_breakdown"]),
+            "fatal_defect_detected": (output["fatal_defect_detected"]),
+            "grade_reason_code": (output["grade_reason_code"]),
+            "rule_reference": (output["rule_reference"]),
             "policy_evidence": [
                 {
                     key: item.get(key)
@@ -628,28 +473,12 @@ def policy_agent(state: WMSInspectionState) -> WMSInspectionState:
                 for item in output["policy_evidence"]
                 if isinstance(item, dict)
             ],
-            "policy_rag_status": (
-                output["policy_rag_status"]
-            ),
-            "policy_rag_domains": (
-                output["policy_rag_domains"]
-            ),
-            "policy_confidence": (
-                output[
-                    "policy_confidence"
-                ]
-            ),
-            "reason_code": (
-                output["reason_code"]
-            ),
-            "repair_directive": (
-                output[
-                    "repair_directive"
-                ]
-            ),
-            "revision_count": (
-                output["revision_count"]
-            ),
+            "policy_rag_status": (output["policy_rag_status"]),
+            "policy_rag_domains": (output["policy_rag_domains"]),
+            "policy_confidence": (output["policy_confidence"]),
+            "reason_code": (output["reason_code"]),
+            "repair_directive": (output["repair_directive"]),
+            "revision_count": (output["revision_count"]),
         },
     )
 

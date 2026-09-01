@@ -1,6 +1,6 @@
-import logging
 import hashlib
 import json
+import logging
 import math
 import os
 from datetime import UTC, datetime
@@ -39,27 +39,31 @@ MAX_CASE_CONTENT_CHARS = 6000
 # 이 값보다 낮은 LLM 판단은 최종 판정에 사용하지 않음
 MIN_RAG_DECISION_CONFIDENCE = 0.75
 
-_RAG_DEFECT_FIELDS = frozenset({
-    "type",
-    "defect_type",
-    "location",
-    "bbox",
-    "ratio",
-    "confidence",
-    "image_index",
-    "image_view",
-    "text_overlap",
-    "morphology_severe",
-})
-_RAG_SCORE_FIELDS = frozenset({
-    "type",
-    "detected_types",
-    "total_ratio",
-    "severity",
-    "text_overlap",
-    "applied_penalty",
-    "fatal",
-})
+_RAG_DEFECT_FIELDS = frozenset(
+    {
+        "type",
+        "defect_type",
+        "location",
+        "bbox",
+        "ratio",
+        "confidence",
+        "image_index",
+        "image_view",
+        "text_overlap",
+        "morphology_severe",
+    }
+)
+_RAG_SCORE_FIELDS = frozenset(
+    {
+        "type",
+        "detected_types",
+        "total_ratio",
+        "severity",
+        "text_overlap",
+        "applied_penalty",
+        "fatal",
+    }
+)
 
 
 def _safe_rag_value(value: Any) -> Any:
@@ -72,11 +76,7 @@ def _safe_rag_value(value: Any) -> Any:
     if isinstance(value, str):
         return value[:200]
     if isinstance(value, list):
-        return [
-            _safe_rag_value(item)
-            for item in value[:20]
-            if not isinstance(item, dict)
-        ]
+        return [_safe_rag_value(item) for item in value[:20] if not isinstance(item, dict)]
     return None
 
 
@@ -90,11 +90,7 @@ def _sanitize_records(
         return []
 
     return [
-        {
-            key: _safe_rag_value(value)
-            for key, value in record.items()
-            if key in allowed_fields
-        }
+        {key: _safe_rag_value(value) for key, value in record.items() if key in allowed_fields}
         for record in records[:max_items]
         if isinstance(record, dict)
     ]
@@ -106,7 +102,6 @@ FinalDecision = Literal[
     "REJECT_RETURN",
     "REJECT_DISCARD",
 ]
-
 
 
 class CriticCase(BaseModel):
@@ -172,35 +167,18 @@ class CriticCase(BaseModel):
         관리자 결정과 최종 등급이 서로 모순되지 않는지 확인합니다.
         """
 
-        if (
-            self.final_decision == "APPROVE_NORMAL"
-            and self.final_grade != "S"
-        ):
-            raise ValueError(
-                "APPROVE_NORMAL 판례의 final_grade는 S여야 합니다."
-            )
+        if self.final_decision == "APPROVE_NORMAL" and self.final_grade != "S":
+            raise ValueError("APPROVE_NORMAL 판례의 final_grade는 S여야 합니다.")
 
         if self.final_decision == "APPROVE_DOWNGRADE":
             if self.target_grade not in {"A", "B"}:
-                raise ValueError(
-                    "APPROVE_DOWNGRADE 판례에는 "
-                    "A 또는 B target_grade가 필요합니다."
-                )
+                raise ValueError("APPROVE_DOWNGRADE 판례에는 A 또는 B target_grade가 필요합니다.")
 
             if self.final_grade != self.target_grade:
-                raise ValueError(
-                    "하향 승인 판례의 final_grade와 "
-                    "target_grade가 일치해야 합니다."
-                )
+                raise ValueError("하향 승인 판례의 final_grade와 target_grade가 일치해야 합니다.")
 
-        if (
-            self.final_decision
-            in {"REJECT_RETURN", "REJECT_DISCARD"}
-            and self.final_grade != "REJECT"
-        ):
-            raise ValueError(
-                "반려 판례의 final_grade는 REJECT여야 합니다."
-            )
+        if self.final_decision in {"REJECT_RETURN", "REJECT_DISCARD"} and self.final_grade != "REJECT":
+            raise ValueError("반려 판례의 final_grade는 REJECT여야 합니다.")
 
         if self.is_authoritative and (
             not self.primary_reason_code
@@ -208,10 +186,7 @@ class CriticCase(BaseModel):
             or not self.reviewed_at
             or not self.reviewed_at.strip()
         ):
-            raise ValueError(
-                "권위 판례에는 관리자 사유와 "
-                "검토 시각이 필요합니다."
-            )
+            raise ValueError("권위 판례에는 관리자 사유와 검토 시각이 필요합니다.")
 
         return self
 
@@ -245,32 +220,16 @@ class CriticFewShotDecision(BaseModel):
     @model_validator(mode="after")
     def validate_decision(self):
         if any(
-            not isinstance(case_id, str)
-            or not case_id.strip()
-            or len(case_id) > 200
+            not isinstance(case_id, str) or not case_id.strip() or len(case_id) > 200
             for case_id in self.supporting_case_ids
         ):
-            raise ValueError(
-                "supporting_case_ids에는 유효한 판례 ID만 허용됩니다."
-            )
+            raise ValueError("supporting_case_ids에는 유효한 판례 ID만 허용됩니다.")
 
-        if (
-            self.has_sufficient_evidence
-            and not self.supporting_case_ids
-        ):
-            raise ValueError(
-                "충분한 판례가 있다고 판단했다면 "
-                "supporting_case_ids가 필요합니다."
-            )
+        if self.has_sufficient_evidence and not self.supporting_case_ids:
+            raise ValueError("충분한 판례가 있다고 판단했다면 supporting_case_ids가 필요합니다.")
 
-        if (
-            self.has_sufficient_evidence
-            and not self.is_consistent
-            and not self.repair_directive
-        ):
-            raise ValueError(
-                "불일치 판정에는 repair_directive가 필요합니다."
-            )
+        if self.has_sufficient_evidence and not self.is_consistent and not self.repair_directive:
+            raise ValueError("불일치 판정에는 repair_directive가 필요합니다.")
 
         return self
 
@@ -376,11 +335,7 @@ def upsert_critic_case(
     기존 판례 전체를 삭제하지 않습니다.
     """
 
-    parsed_case = (
-        case
-        if isinstance(case, CriticCase)
-        else CriticCase.model_validate(case)
-    )
+    parsed_case = case if isinstance(case, CriticCase) else CriticCase.model_validate(case)
 
     safe_defects = _sanitize_records(
         parsed_case.defects,
@@ -402,21 +357,10 @@ def upsert_critic_case(
         }
     )
     # 개발 테스트 컬렉션에서만 SEED 권위 판례 허용
-    is_test_collection = (
-        CRITIC_CASE_COLLECTION_NAME
-        .endswith("_dev_test")
-    )
+    is_test_collection = CRITIC_CASE_COLLECTION_NAME.endswith("_dev_test")
 
-    if (
-        parsed_case.source == "SEED"
-        and parsed_case.is_authoritative
-        and not is_test_collection
-    ):
-        raise ValueError(
-            "개발 테스트 컬렉션 외에는 "
-            "SEED 판례를 권위 판례로 "
-            "저장할 수 없습니다."
-        )
+    if parsed_case.source == "SEED" and parsed_case.is_authoritative and not is_test_collection:
+        raise ValueError("개발 테스트 컬렉션 외에는 SEED 판례를 권위 판례로 저장할 수 없습니다.")
 
     metadata = {
         "case_id": parsed_case.case_id,
@@ -425,14 +369,9 @@ def upsert_critic_case(
         "defect_types": ",".join(defect_types),
         "final_decision": parsed_case.final_decision,
         "final_grade": parsed_case.final_grade,
-        "primary_reason_code": (
-            parsed_case.primary_reason_code
-            or ""
-        ),
+        "primary_reason_code": (parsed_case.primary_reason_code or ""),
         "source": parsed_case.source,
-        "is_authoritative": (
-            parsed_case.is_authoritative
-        ),
+        "is_authoritative": (parsed_case.is_authoritative),
     }
 
     document = Document(
@@ -442,12 +381,7 @@ def upsert_critic_case(
         metadata=metadata,
     )
 
-    storage_id = hashlib.sha256(
-        (
-            f"{parsed_case.tenant_id}\0"
-            f"{parsed_case.case_id}"
-        ).encode()
-    ).hexdigest()
+    storage_id = hashlib.sha256((f"{parsed_case.tenant_id}\0{parsed_case.case_id}").encode()).hexdigest()
     get_case_vectorstore().add_documents(
         documents=[document],
         ids=[storage_id],
@@ -481,38 +415,28 @@ def upsert_authoritative_hitl_case(
     return upsert_critic_case(
         CriticCase(
             case_id=case_id,
-            tenant_id=str(
-                state.get("tenant_id") or "GLOBAL"
-            ),
-            policy_version=str(
-                state["rule_reference"]
-            ),
+            tenant_id=str(state.get("tenant_id") or "GLOBAL"),
+            policy_version=str(state["rule_reference"]),
             is_mint=bool(state["is_mint"]),
             defects=_sanitize_records(
                 state.get("defects"),
                 allowed_fields=_RAG_DEFECT_FIELDS,
             ),
-            vision_confidence=float(
-                state["vision_confidence"]
-            ),
+            vision_confidence=float(state["vision_confidence"]),
             ubci_score=float(state["ubci_score"]),
             predicted_grade=state["predicted_grade"],
             score_breakdown=_sanitize_records(
                 state.get("score_breakdown"),
                 allowed_fields=_RAG_SCORE_FIELDS,
             ),
-            policy_confidence=float(
-                state["policy_confidence"]
-            ),
+            policy_confidence=float(state["policy_confidence"]),
             final_decision=final_decision,
             primary_reason_code=primary_reason_code,
             target_grade=target_grade,
             final_grade=state["final_grade"],
             source="HITL",
             is_authoritative=True,
-            reviewed_at=datetime.now(
-                UTC
-            ).isoformat(),
+            reviewed_at=datetime.now(UTC).isoformat(),
         )
     )
 
@@ -536,25 +460,15 @@ def build_state_snapshot(
             state.get("defects"),
             allowed_fields=_RAG_DEFECT_FIELDS,
         ),
-        "vision_confidence": state.get(
-            "vision_confidence"
-        ),
-        "ubci_score": state.get(
-            "ubci_score"
-        ),
-        "predicted_grade": state.get(
-            "predicted_grade"
-        ),
+        "vision_confidence": state.get("vision_confidence"),
+        "ubci_score": state.get("ubci_score"),
+        "predicted_grade": state.get("predicted_grade"),
         "score_breakdown": _sanitize_records(
             state.get("score_breakdown"),
             allowed_fields=_RAG_SCORE_FIELDS,
         ),
-        "rule_reference": state.get(
-            "rule_reference"
-        ),
-        "policy_confidence": state.get(
-            "policy_confidence"
-        ),
+        "rule_reference": state.get("rule_reference"),
+        "policy_confidence": state.get("policy_confidence"),
     }
 
 
@@ -567,14 +481,11 @@ def build_search_query(
 
     snapshot = build_state_snapshot(state)
 
-    return (
-        "다음 도서 검수 결과와 유사한 관리자 확정 판례를 검색합니다.\n"
-        + json.dumps(
-            snapshot,
-            ensure_ascii=False,
-            sort_keys=True,
-            default=str,
-        )
+    return "다음 도서 검수 결과와 유사한 관리자 확정 판례를 검색합니다.\n" + json.dumps(
+        snapshot,
+        ensure_ascii=False,
+        sort_keys=True,
+        default=str,
     )
 
 
@@ -588,35 +499,22 @@ def search_similar_cases(
     """
 
     if type(top_k) is not int or not 1 <= top_k <= MAX_TOP_K:
-        raise ValueError(
-            f"top_k는 1과 {MAX_TOP_K} 사이의 정수여야 합니다."
-        )
+        raise ValueError(f"top_k는 1과 {MAX_TOP_K} 사이의 정수여야 합니다.")
 
-    collection = (
-        get_chroma_client()
-        .get_or_create_collection(
-            name=CRITIC_CASE_COLLECTION_NAME,
-        )
+    collection = get_chroma_client().get_or_create_collection(
+        name=CRITIC_CASE_COLLECTION_NAME,
     )
 
     if collection.count() == 0:
         return []
 
-    policy_version = str(
-        state.get("rule_reference") or ""
-    ).strip()
-    tenant_id = str(
-        state.get("tenant_id") or "GLOBAL"
-    ).strip()
+    policy_version = str(state.get("rule_reference") or "").strip()
+    tenant_id = str(state.get("tenant_id") or "GLOBAL").strip()
 
     if not policy_version or len(policy_version) > 100:
-        raise ValueError(
-            "유효한 정책 버전이 필요합니다."
-        )
+        raise ValueError("유효한 정책 버전이 필요합니다.")
     if not tenant_id or len(tenant_id) > 100:
-        raise ValueError(
-            "유효한 tenant_id가 필요합니다."
-        )
+        raise ValueError("유효한 tenant_id가 필요합니다.")
 
     metadata_filter = {
         "$and": [
@@ -632,21 +530,16 @@ def search_similar_cases(
             },
             {
                 "tenant_id": {
-                    "$in": sorted(
-                        {"GLOBAL", tenant_id}
-                    ),
+                    "$in": sorted({"GLOBAL", tenant_id}),
                 }
             },
         ]
     }
 
-    raw_results = (
-        get_case_vectorstore()
-        .similarity_search_with_score(
-            query=build_search_query(state),
-            k=max(top_k * 10, 20),
-            filter=metadata_filter,
-        )
+    raw_results = get_case_vectorstore().similarity_search_with_score(
+        query=build_search_query(state),
+        k=max(top_k * 10, 20),
+        filter=metadata_filter,
     )
 
     results = []
@@ -662,8 +555,7 @@ def search_similar_cases(
 
         # 검색 필터 오류에 대비한 이중 방어
         if (
-            metadata.get("is_authoritative")
-            is not True
+            metadata.get("is_authoritative") is not True
             or str(
                 metadata.get(
                     "policy_version",
@@ -671,14 +563,11 @@ def search_similar_cases(
                 )
             ).strip()
             != policy_version
-            or case_tenant
-            not in {"GLOBAL", tenant_id}
+            or case_tenant not in {"GLOBAL", tenant_id}
         ):
             continue
 
-        case_id = str(
-            metadata.get("case_id", "")
-        ).strip()
+        case_id = str(metadata.get("case_id", "")).strip()
         try:
             safe_distance = float(distance)
         except (TypeError, ValueError):
@@ -696,9 +585,7 @@ def search_similar_cases(
             {
                 "case_id": case_id,
                 "distance": safe_distance,
-                "content": document.page_content[
-                    :MAX_CASE_CONTENT_CHARS
-                ],
+                "content": document.page_content[:MAX_CASE_CONTENT_CHARS],
                 "metadata": dict(metadata),
             }
         )
@@ -789,14 +676,9 @@ def evaluate_with_precedents(
         "critic_retrieval_scores": [],
         "critic_retrieval_count": 0,
         "critic_decision_source": "RULE_ONLY",
-        "critic_explanation": (
-            "판례 없이 규칙 기반 검증만 "
-            "사용했습니다."
-        ),
+        "critic_explanation": ("판례 없이 규칙 기반 검증만 사용했습니다."),
         "critic_rag_confidence": None,
-        "critic_prompt_version": (
-            CRITIC_PROMPT_VERSION
-        ),
+        "critic_prompt_version": (CRITIC_PROMPT_VERSION),
     }
 
     try:
@@ -808,27 +690,16 @@ def evaluate_with_precedents(
         )
         return {
             **base_result,
-            "critic_decision_source": (
-                "RULE_FALLBACK"
-            ),
-            "critic_explanation": (
-                "판례 검색을 사용할 수 없어 "
-                "규칙 결과를 유지했습니다."
-            ),
+            "critic_decision_source": ("RULE_FALLBACK"),
+            "critic_explanation": ("판례 검색을 사용할 수 없어 규칙 결과를 유지했습니다."),
         }
 
     if not cases:
         logger.info("[Critic RAG] 검색된 확정 판례 없음 - RULE_ONLY")
         return base_result
 
-    case_ids = [
-        case["case_id"]
-        for case in cases
-    ]
-    distances = [
-        case["distance"]
-        for case in cases
-    ]
+    case_ids = [case["case_id"] for case in cases]
+    distances = [case["distance"] for case in cases]
     retrieved_result = {
         "critic_retrieved_case_ids": case_ids,
         "critic_retrieval_scores": distances,
@@ -847,18 +718,13 @@ def evaluate_with_precedents(
             timeout=60,
             max_retries=1,
             callbacks=[token_collector],
-        ).with_structured_output(
-            CriticFewShotDecision
-        )
+        ).with_structured_output(CriticFewShotDecision)
 
-        decision = (
-            CriticFewShotDecision
-            .model_validate(
-                structured_llm.invoke(
-                    build_dynamic_few_shot(
-                        state,
-                        cases,
-                    )
+        decision = CriticFewShotDecision.model_validate(
+            structured_llm.invoke(
+                build_dynamic_few_shot(
+                    state,
+                    cases,
                 )
             )
         )
@@ -870,71 +736,36 @@ def evaluate_with_precedents(
         return {
             **base_result,
             **retrieved_result,
-            "critic_decision_source": (
-                "RULE_FALLBACK"
-            ),
-            "critic_explanation": (
-                "판례는 검색했지만 LLM 검증을 "
-                "완료하지 못해 규칙 결과를 "
-                "유지했습니다."
-            ),
+            "critic_decision_source": ("RULE_FALLBACK"),
+            "critic_explanation": ("판례는 검색했지만 LLM 검증을 완료하지 못해 규칙 결과를 유지했습니다."),
         }
 
-    supporting_ids = set(
-        decision.supporting_case_ids
-    )
+    supporting_ids = set(decision.supporting_case_ids)
 
-    if not supporting_ids.issubset(
-        set(case_ids)
-    ):
+    if not supporting_ids.issubset(set(case_ids)):
         return {
             **base_result,
             **retrieved_result,
-            "critic_decision_source": (
-                "RULE_FALLBACK"
-            ),
-            "critic_explanation": (
-                "LLM이 검색되지 않은 판례 ID를 "
-                "사용해 규칙 결과를 유지했습니다."
-            ),
-            "critic_rag_confidence": (
-                decision.confidence
-            ),
+            "critic_decision_source": ("RULE_FALLBACK"),
+            "critic_explanation": ("LLM이 검색되지 않은 판례 ID를 사용해 규칙 결과를 유지했습니다."),
+            "critic_rag_confidence": (decision.confidence),
         }
 
-    if (
-        not decision.has_sufficient_evidence
-        or decision.confidence
-        < MIN_RAG_DECISION_CONFIDENCE
-    ):
+    if not decision.has_sufficient_evidence or decision.confidence < MIN_RAG_DECISION_CONFIDENCE:
         return {
             **base_result,
             **retrieved_result,
-            "critic_explanation": (
-                "유사 판례가 부족하거나 "
-                "판단 신뢰도가 낮아 규칙 결과를 "
-                "유지했습니다."
-            ),
-            "critic_rag_confidence": (
-                decision.confidence
-            ),
+            "critic_explanation": ("유사 판례가 부족하거나 판단 신뢰도가 낮아 규칙 결과를 유지했습니다."),
+            "critic_rag_confidence": (decision.confidence),
         }
 
-    reason_code = (
-        "OK"
-        if decision.is_consistent
-        else "UBCI_POLICY_VIOLATION"
-    )
+    reason_code = "OK" if decision.is_consistent else "UBCI_POLICY_VIOLATION"
     repair_directive = (
         None
         if decision.is_consistent
         else (
             decision.repair_directive
-            or (
-                "현재 Policy 결과가 유사 판례와 "
-                "일치하지 않습니다. 점수와 등급을 "
-                "다시 계산하세요."
-            )
+            or ("현재 Policy 결과가 유사 판례와 일치하지 않습니다. 점수와 등급을 다시 계산하세요.")
         )
     )
 
@@ -950,13 +781,7 @@ def evaluate_with_precedents(
         "reason_code": reason_code,
         "repair_directive": repair_directive,
         "critic_rag_used": True,
-        "critic_decision_source": (
-            "RULE_AND_RAG"
-        ),
-        "critic_explanation": (
-            decision.explanation
-        ),
-        "critic_rag_confidence": (
-            decision.confidence
-        ),
+        "critic_decision_source": ("RULE_AND_RAG"),
+        "critic_explanation": (decision.explanation),
+        "critic_rag_confidence": (decision.confidence),
     }

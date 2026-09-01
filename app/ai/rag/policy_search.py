@@ -14,26 +14,12 @@ from langchain_openai import OpenAIEmbeddings
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
-load_dotenv(
-    REPO_ROOT / ".env"
-)
+load_dotenv(REPO_ROOT / ".env")
 
-UBCI_POLICY_VERSION = (
-    "UBCI_SPEC_V2.0.0.0"
-)
+UBCI_POLICY_VERSION = "UBCI_SPEC_V2.0.0.0"
 
-UBCI_POLICY_FILE = (
-    REPO_ROOT
-    / "docs"
-    / "ai_knowledge_base"
-    / "UBCI_Specification_v2.0.0.0.md"
-)
-STANDARD_POLICY_FILE = (
-    REPO_ROOT
-    / "docs"
-    / "ai_knowledge_base"
-    / "WMS_표준_운영_정책서.md"
-)
+UBCI_POLICY_FILE = REPO_ROOT / "docs" / "ai_knowledge_base" / "UBCI_Specification_v2.0.0.0.md"
+STANDARD_POLICY_FILE = REPO_ROOT / "docs" / "ai_knowledge_base" / "WMS_표준_운영_정책서.md"
 
 POLICY_FILES = (
     (
@@ -75,9 +61,7 @@ def get_policy_vectorstore() -> Chroma:
 
     return Chroma(
         client=client,
-        collection_name=(
-            UBCI_COLLECTION_NAME
-        ),
+        collection_name=(UBCI_COLLECTION_NAME),
         embedding_function=OpenAIEmbeddings(
             model=os.getenv(
                 "OPENAI_EMBEDDING_MODEL",
@@ -96,16 +80,14 @@ def _split_policy_document(
     if not isinstance(content, str):
         raise TypeError("정책 문서는 문자열이어야 합니다.")
     if type(max_length) is not int or not 1 <= max_length <= 10_000:
-        raise ValueError(
-            "max_length는 1과 10000 사이의 정수여야 합니다."
-        )
+        raise ValueError("max_length는 1과 10000 사이의 정수여야 합니다.")
 
     chunks: list[str] = []
     current: list[str] = []
     current_length = 0
 
     blocks = [
-        block[start:start + max_length]
+        block[start : start + max_length]
         for raw_block in content.split("\n\n")
         if (block := raw_block.strip())
         for start in range(0, len(block), max_length)
@@ -114,14 +96,8 @@ def _split_policy_document(
     for block in blocks:
         separator_length = 2 if current else 0
 
-        if (
-            current
-            and current_length + separator_length + len(block)
-            > max_length
-        ):
-            chunks.append(
-                "\n\n".join(current)
-            )
+        if current and current_length + separator_length + len(block) > max_length:
+            chunks.append("\n\n".join(current))
             current = []
             current_length = 0
 
@@ -129,9 +105,7 @@ def _split_policy_document(
         current_length += separator_length + len(block)
 
     if current:
-        chunks.append(
-            "\n\n".join(current)
-        )
+        chunks.append("\n\n".join(current))
 
     return chunks
 
@@ -161,9 +135,7 @@ def sync_ubci_policy() -> int:
 
     for path, domain, version in POLICY_FILES:
         if not path.exists():
-            raise FileNotFoundError(
-                f"정책 파일을 찾을 수 없습니다: {path}"
-            )
+            raise FileNotFoundError(f"정책 파일을 찾을 수 없습니다: {path}")
 
         text = path.read_text(encoding="utf-8")
         chunks = _split_policy_document(text)
@@ -194,12 +166,8 @@ def sync_ubci_policy() -> int:
             ).add(chunk_id)
 
     for _, domain, _ in POLICY_FILES:
-        existing = vectorstore.get(
-            where={"policy_domain": domain}
-        )
-        existing_ids_by_domain[domain] = set(
-            existing.get("ids") or []
-        )
+        existing = vectorstore.get(where={"policy_domain": domain})
+        existing_ids_by_domain[domain] = set(existing.get("ids") or [])
 
     # 먼저 새 문서의 Embedding과 upsert를 끝냅니다.
     # 실패하더라도 기존 정책은 그대로 남습니다.
@@ -209,10 +177,7 @@ def sync_ubci_policy() -> int:
     )
 
     for _, domain, _ in POLICY_FILES:
-        stale_ids = sorted(
-            existing_ids_by_domain[domain]
-            - new_ids_by_domain.get(domain, set())
-        )
+        stale_ids = sorted(existing_ids_by_domain[domain] - new_ids_by_domain.get(domain, set()))
         if stale_ids:
             vectorstore.delete(ids=stale_ids)
 
@@ -221,57 +186,31 @@ def sync_ubci_policy() -> int:
 
 def search_policy_rules(
     defects: list[dict[str, Any]],
-    policy_version: str = (
-        UBCI_POLICY_VERSION
-    ),
+    policy_version: str = (UBCI_POLICY_VERSION),
     k: int = 4,
 ) -> list[dict[str, Any]]:
     """현재 결함과 관련된 UBCI 정책 검색."""
 
     if not isinstance(policy_version, str) or not policy_version.strip():
-        raise ValueError(
-            "policy_version은 비어 있지 않은 문자열이어야 합니다."
-        )
+        raise ValueError("policy_version은 비어 있지 않은 문자열이어야 합니다.")
 
     if type(k) is not int or k < 2:
-        raise ValueError(
-            "k는 2 이상의 정수여야 합니다."
-        )
+        raise ValueError("k는 2 이상의 정수여야 합니다.")
     if k > MAX_POLICY_TOP_K:
-        raise ValueError(
-            f"k는 {MAX_POLICY_TOP_K} 이하여야 합니다."
-        )
+        raise ValueError(f"k는 {MAX_POLICY_TOP_K} 이하여야 합니다.")
 
-    if not isinstance(defects, list) or any(
-        not isinstance(defect, dict)
-        for defect in defects
-    ):
-        raise ValueError(
-            "defects는 dict 항목으로 구성된 list여야 합니다."
-        )
+    if not isinstance(defects, list) or any(not isinstance(defect, dict) for defect in defects):
+        raise ValueError("defects는 dict 항목으로 구성된 list여야 합니다.")
 
-    defect_types = sorted(
-        {
-            str(
-                defect.get("type", "")
-            ).strip()
-            for defect in defects
-            if defect.get("type")
-        }
-    )
+    defect_types = sorted({str(defect.get("type", "")).strip() for defect in defects if defect.get("type")})
 
     query = (
         f"도서 결함: {', '.join(defect_types) or '없음'}. "
         "UBCI 감점, 등급, 치명 결함, 관리자 확인, "
         "재촬영 및 운영 처리 규칙"
     )
-    if len(defect_types) > 20 or any(
-        len(defect_type) > 100
-        for defect_type in defect_types
-    ):
-        raise ValueError(
-            "검색할 결함 종류가 허용 범위를 초과했습니다."
-        )
+    if len(defect_types) > 20 or any(len(defect_type) > 100 for defect_type in defect_types):
+        raise ValueError("검색할 결함 종류가 허용 범위를 초과했습니다.")
 
     vectorstore = get_policy_vectorstore()
     results: list[tuple[Document, float]] = []
@@ -323,12 +262,10 @@ def search_policy_rules(
         expected_source,
         metadata_filter,
     ) in metadata_filters:
-        domain_results = (
-            vectorstore.similarity_search_with_score(
-                query=query,
-                k=max(1, (k + 1) // 2),
-                filter=metadata_filter,
-            )
+        domain_results = vectorstore.similarity_search_with_score(
+            query=query,
+            k=max(1, (k + 1) // 2),
+            filter=metadata_filter,
         )
         validated_domain_results = []
         for document, distance in domain_results:
@@ -342,8 +279,7 @@ def search_policy_rules(
             clause_ref = metadata.get("clause_ref")
             if (
                 metadata.get("policy_domain") != domain
-                or metadata.get("policy_version")
-                != expected_version
+                or metadata.get("policy_version") != expected_version
                 or metadata.get("source") != expected_source
                 or not isinstance(chunk_id, str)
                 or not chunk_id.startswith(f"{domain}_")
@@ -351,21 +287,16 @@ def search_policy_rules(
                 or not clause_ref.strip()
                 or not isinstance(document.page_content, str)
                 or not document.page_content.strip()
-                or len(document.page_content)
-                > MAX_POLICY_CHUNK_LENGTH
+                or len(document.page_content) > MAX_POLICY_CHUNK_LENGTH
                 or not math.isfinite(safe_distance)
                 or safe_distance < 0
             ):
                 continue
 
-            validated_domain_results.append(
-                (document, safe_distance)
-            )
+            validated_domain_results.append((document, safe_distance))
 
         if not validated_domain_results:
-            raise RuntimeError(
-                f"정책 RAG에서 {domain} 도메인을 검색하지 못했습니다."
-            )
+            raise RuntimeError(f"정책 RAG에서 {domain} 도메인을 검색하지 못했습니다.")
         results.extend(validated_domain_results)
 
     results.sort(key=lambda item: item[1])
@@ -373,41 +304,17 @@ def search_policy_rules(
 
     return [
         {
-            "rule_id": (
-                "UBCI_POLICY"
-                if document.metadata.get(
-                    "policy_domain"
-                ) == "UBCI"
-                else "WMS_OPERATION_POLICY"
-            ),
-            "chunk_id": (
-                document.metadata.get(
-                    "chunk_id"
-                )
-            ),
-            "clause_ref": (
-                document.metadata.get(
-                    "clause_ref"
-                )
-            ),
-            "policy_version": (
-                document.metadata.get(
-                    "policy_version"
-                )
-            ),
-            "policy_domain": (
-                document.metadata.get(
-                    "policy_domain"
-                )
-            ),
+            "rule_id": ("UBCI_POLICY" if document.metadata.get("policy_domain") == "UBCI" else "WMS_OPERATION_POLICY"),
+            "chunk_id": (document.metadata.get("chunk_id")),
+            "clause_ref": (document.metadata.get("clause_ref")),
+            "policy_version": (document.metadata.get("policy_version")),
+            "policy_domain": (document.metadata.get("policy_domain")),
             "source": document.metadata.get(
                 "source",
                 UBCI_POLICY_FILE.name,
             ),
             "distance": float(distance),
-            "content": (
-                document.page_content
-            ),
+            "content": (document.page_content),
         }
         for document, distance in results
     ]
@@ -416,8 +323,4 @@ def search_policy_rules(
 if __name__ == "__main__":
     count = sync_ubci_policy()
 
-    print(
-        "[Policy RAG] "
-        f"UBCI/WMS 정책 {count}개 청크 "
-        "동기화 완료"
-    )
+    print(f"[Policy RAG] UBCI/WMS 정책 {count}개 청크 동기화 완료")

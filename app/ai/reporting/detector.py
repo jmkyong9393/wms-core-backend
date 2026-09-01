@@ -14,12 +14,7 @@ def fetch_fds_policies(session: Session) -> Dict[str, float]:
     logger.info("DB에서 FDS 정책(Config) 임계값을 불러옵니다...")
 
     # 기본값 Fallback
-    config = {
-        "MAX_RETURN_30D": 3.0,
-        "MIN_UBCI_SCORE": 30.0,
-        "MAX_RETURN_90D": 5.0,
-        "MAX_REFUND_AMT": 500000.0
-    }
+    config = {"MAX_RETURN_30D": 3.0, "MIN_UBCI_SCORE": 30.0, "MAX_RETURN_90D": 5.0, "MAX_REFUND_AMT": 500000.0}
 
     try:
         result = session.execute(text("SELECT policy_key, policy_value FROM fds_policies"))
@@ -29,6 +24,7 @@ def fetch_fds_policies(session: Session) -> Dict[str, float]:
         logger.error(f"FDS 정책을 DB에서 불러오는 중 에러 발생, 기본값을 사용합니다: {e}")
 
     return config
+
 
 def detect_black_consumers(raw_data: List[Dict[str, Any]], config: Dict[str, float]) -> List[Dict[str, Any]]:
     """
@@ -51,7 +47,9 @@ def detect_black_consumers(raw_data: List[Dict[str, Any]], config: Dict[str, flo
         # 룰 1: 악성 블랙컨슈머 (최근 30일 반품 X회 이상 & 도서 상태 평균 Y점 이하)
         if returns_30d >= config.get("MAX_RETURN_30D", 3) and avg_score <= config.get("MIN_UBCI_SCORE", 30.0):
             record["fraud_score"] = 95
-            record["fraud_reason"] = f"상습 고의 파손 의심 (최근 30일 반품 {returns_30d}회, 평균 UBCI {avg_score:.1f}점)"
+            record["fraud_reason"] = (
+                f"상습 고의 파손 의심 (최근 30일 반품 {returns_30d}회, 평균 UBCI {avg_score:.1f}점)"
+            )
             logger.warning(f"🚨 이상거래 탐지: {customer_name} ({customer_id}) - {record['fraud_reason']}")
             suspicious_records.append(record)
 

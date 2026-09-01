@@ -1,7 +1,8 @@
 """Vision Agent (GPT-4o + YOLO 하이브리드 판독)"""
-import logging
+
 import base64
 import json
+import logging
 import os
 import re
 from dataclasses import dataclass
@@ -50,12 +51,7 @@ def vision_agent(state: WMSInspectionState) -> WMSInspectionState:
 
     image_paths = state.get("image_paths") or []
     raw_revision_count = state.get("revision_count", 0)
-    revision_count = (
-        raw_revision_count
-        if type(raw_revision_count) is int
-        and raw_revision_count >= 0
-        else 0
-    )
+    revision_count = raw_revision_count if type(raw_revision_count) is int and raw_revision_count >= 0 else 0
 
     if state.get("human_feedback") == "RE_CHECK":
         revision_count = 0
@@ -77,9 +73,7 @@ def vision_agent(state: WMSInspectionState) -> WMSInspectionState:
         "overall_confidence": None,
         "human_feedback": None,
         "primary_reason_code": (
-            state.get("primary_reason_code")
-            if state.get("human_feedback") == "RE_CHECK"
-            else None
+            state.get("primary_reason_code") if state.get("human_feedback") == "RE_CHECK" else None
         ),
         "target_grade": None,
         "final_grade": None,
@@ -106,14 +100,7 @@ def vision_agent(state: WMSInspectionState) -> WMSInspectionState:
             "reason_code": None,
             "repair_directive": message,
             "revision_count": revision_count + 1,
-            "messages": [
-                AIMessage(
-                    content=(
-                        "[Vision Agent] 실행 실패 - "
-                        f"{message}"
-                    )
-                )
-            ],
+            "messages": [AIMessage(content=(f"[Vision Agent] 실행 실패 - {message}"))],
         }
 
         trace_event(
@@ -128,33 +115,19 @@ def vision_agent(state: WMSInspectionState) -> WMSInspectionState:
         return result
 
     if len(image_paths) != len(IMAGE_VIEWS):
-        return failure_result(
-            "앞면, 뒷면, 속지 이미지가 정확히 3장 필요합니다."
-        )
+        return failure_result("앞면, 뒷면, 속지 이미지가 정확히 3장 필요합니다.")
 
     stored_book_regions = state.get("book_regions")
-    if (
-        type(stored_book_regions) is not list
-        or len(stored_book_regions) != len(IMAGE_VIEWS)
-    ):
-        return failure_result(
-            "Book Detector 결과가 없거나 불완전합니다."
-        )
+    if type(stored_book_regions) is not list or len(stored_book_regions) != len(IMAGE_VIEWS):
+        return failure_result("Book Detector 결과가 없거나 불완전합니다.")
 
     region_by_index = {
-        region.get("image_index"): dict(region)
-        for region in stored_book_regions
-        if type(region) is dict
+        region.get("image_index"): dict(region) for region in stored_book_regions if type(region) is dict
     }
     if set(region_by_index) != set(range(len(IMAGE_VIEWS))):
-        return failure_result(
-            "Book Detector 사진 인덱스가 올바르지 않습니다."
-        )
+        return failure_result("Book Detector 사진 인덱스가 올바르지 않습니다.")
 
-    book_regions = [
-        region_by_index[index]
-        for index in range(len(IMAGE_VIEWS))
-    ]
+    book_regions = [region_by_index[index] for index in range(len(IMAGE_VIEWS))]
 
     full_image_prompt = """
 당신은 학습셋이 없는 도서 촬영면을 전체 판독하는 Vision Agent입니다.
@@ -271,32 +244,25 @@ HIGHLIGHTING, BARCODE_DAMAGE, OTHER_VISIBLE_DAMAGE
                 book_region,
             )
             annotated = draw_candidates(image, candidates)
-            spatial_candidate_count = sum(
-                bool(item["book_spatial_gate_passed"])
-                for item in raw_detections
+            spatial_candidate_count = sum(bool(item["book_spatial_gate_passed"]) for item in raw_detections)
+
+            book_region.update(
+                {
+                    "crop_applied": False,
+                    "analysis_mode": (
+                        "TRAINED_DETERMINISTIC_YOLO"
+                        if image_view in TRAINED_MODEL_VIEWS
+                        else "UNTRAINED_FULL_IMAGE_VLM"
+                    ),
+                    "analysis_skipped": False,
+                    "candidate_count_before": len(raw_detections),
+                    "candidate_count_after": spatial_candidate_count,
+                    "spatially_rejected_count": (len(raw_detections) - spatial_candidate_count),
+                    "ensemble_candidate_count": len(candidates),
+                }
             )
 
-            book_region.update({
-                "crop_applied": False,
-                "analysis_mode": (
-                    "TRAINED_DETERMINISTIC_YOLO"
-                    if image_view in TRAINED_MODEL_VIEWS
-                    else "UNTRAINED_FULL_IMAGE_VLM"
-                ),
-                "analysis_skipped": False,
-                "candidate_count_before": len(raw_detections),
-                "candidate_count_after": spatial_candidate_count,
-                "spatially_rejected_count": (
-                    len(raw_detections)
-                    - spatial_candidate_count
-                ),
-                "ensemble_candidate_count": len(candidates),
-            })
-
-            safe_candidates = [
-                state_safe_candidate(candidate)
-                for candidate in candidates
-            ]
+            safe_candidates = [state_safe_candidate(candidate) for candidate in candidates]
             all_raw_detections.extend(raw_detections)
             all_ensemble_candidates.extend(safe_candidates)
 
@@ -314,11 +280,7 @@ HIGHLIGHTING, BARCODE_DAMAGE, OTHER_VISIBLE_DAMAGE
             )
 
             if image_view in TRAINED_MODEL_VIEWS:
-                location = (
-                    "FRONT_COVER"
-                    if image_view == "FRONT"
-                    else "BACK_COVER"
-                )
+                location = "FRONT_COVER" if image_view == "FRONT" else "BACK_COVER"
 
                 for candidate in candidates:
                     proposed_type = candidate["proposed_type"]
@@ -342,53 +304,43 @@ HIGHLIGHTING, BARCODE_DAMAGE, OTHER_VISIBLE_DAMAGE
                             candidate["bbox"],
                             book_region["bbox"],
                         ),
-                        confidence=float(
-                            candidate["ensemble_confidence"]
-                        ),
+                        confidence=float(candidate["ensemble_confidence"]),
                         image_index=image_index,
-                        observation=(
-                            "학습 모델의 결정론적 결함 후보"
-                        ),
+                        observation=("학습 모델의 결정론적 결함 후보"),
                     ).model_dump()
-                    defect.update({
-                        "image_view": image_view,
-                        "image_url": raw_path,
-                        "defect_type": proposed_type,
-                        "coordinate_space": (
-                            "ORIGINAL_IMAGE_NORMALIZED"
-                        ),
-                        "book_coverage": candidate["book_coverage"],
-                        "ratio_source": (
-                            "BOOK_REGION_BBOX_AREA"
-                            if not book_region.get("fallback_used")
-                            else "ORIGINAL_IMAGE_BBOX_AREA"
-                        ),
-                        "candidate_id": candidate["candidate_id"],
-                        "proposed_type": proposed_type,
-                        "yolo_confidence": candidate["yolo_confidence"],
-                        "ensemble_confidence": (
-                            candidate["ensemble_confidence"]
-                        ),
-                        "source_models": candidate["source_models"],
-                        "source_predictions": (
-                            candidate["source_predictions"]
-                        ),
-                        "class_conflict": candidate["class_conflict"],
-                        "validation_source": (
-                            "TRAINED_DETERMINISTIC_YOLO"
-                        ),
-                    })
+                    defect.update(
+                        {
+                            "image_view": image_view,
+                            "image_url": raw_path,
+                            "defect_type": proposed_type,
+                            "coordinate_space": ("ORIGINAL_IMAGE_NORMALIZED"),
+                            "book_coverage": candidate["book_coverage"],
+                            "ratio_source": (
+                                "BOOK_REGION_BBOX_AREA"
+                                if not book_region.get("fallback_used")
+                                else "ORIGINAL_IMAGE_BBOX_AREA"
+                            ),
+                            "candidate_id": candidate["candidate_id"],
+                            "proposed_type": proposed_type,
+                            "yolo_confidence": candidate["yolo_confidence"],
+                            "ensemble_confidence": (candidate["ensemble_confidence"]),
+                            "source_models": candidate["source_models"],
+                            "source_predictions": (candidate["source_predictions"]),
+                            "class_conflict": candidate["class_conflict"],
+                            "validation_source": ("TRAINED_DETERMINISTIC_YOLO"),
+                        }
+                    )
                     preliminary_defects.append(defect)
-                    reviewed_candidates.append({
-                        **state_safe_candidate(candidate),
-                        "route_decision": "DETERMINISTIC",
-                    })
+                    reviewed_candidates.append(
+                        {
+                            **state_safe_candidate(candidate),
+                            "route_decision": "DETERMINISTIC",
+                        }
+                    )
                 continue
 
             if image_view not in UNTRAINED_VLM_VIEWS:
-                raise ValueError(
-                    f"학습셋 라우팅이 정의되지 않은 사진: {image_view}"
-                )
+                raise ValueError(f"학습셋 라우팅이 정의되지 않은 사진: {image_view}")
 
             candidate_metadata = [
                 {
@@ -424,38 +376,34 @@ HIGHLIGHTING, BARCODE_DAMAGE, OTHER_VISIBLE_DAMAGE
             ]
 
             for candidate in candidates:
-                content.extend([
-                    {
-                        "type": "text",
-                        "text": (
-                            "Doodle 힌트 확대 이미지 "
-                            f"candidate_id={candidate['candidate_id']}"
-                        ),
-                    },
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": image_to_data_url(
-                                candidate["crop"],
-                                max_side=512,
-                                quality=80,
-                            ),
-                            "detail": "high",
+                content.extend(
+                    [
+                        {
+                            "type": "text",
+                            "text": (f"Doodle 힌트 확대 이미지 candidate_id={candidate['candidate_id']}"),
                         },
-                    },
-                ])
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": image_to_data_url(
+                                    candidate["crop"],
+                                    max_side=512,
+                                    quality=80,
+                                ),
+                                "detail": "high",
+                            },
+                        },
+                    ]
+                )
 
-            full_review = full_image_model.invoke([
-                ("system", full_image_prompt),
-                HumanMessage(content=content),
-            ])
-            inner_image_quality_ok = (
-                inner_image_quality_ok
-                and full_review.image_quality_ok
+            full_review = full_image_model.invoke(
+                [
+                    ("system", full_image_prompt),
+                    HumanMessage(content=content),
+                ]
             )
-            inner_confidences.append(
-                full_review.review_confidence
-            )
+            inner_image_quality_ok = inner_image_quality_ok and full_review.image_quality_ok
+            inner_confidences.append(full_review.review_confidence)
             vision_observations.extend(
                 {
                     "image_index": image_index,
@@ -469,36 +417,33 @@ HIGHLIGHTING, BARCODE_DAMAGE, OTHER_VISIBLE_DAMAGE
 
             for returned_defect in full_review.defects:
                 if returned_defect.image_index != image_index:
-                    raise ValueError(
-                        "속지 전체 판독의 image_index가 올바르지 않습니다."
-                    )
+                    raise ValueError("속지 전체 판독의 image_index가 올바르지 않습니다.")
 
                 defect = returned_defect.model_dump()
                 defect["ratio"] = calculate_bbox_area_ratio(
                     defect["bbox"],
                     book_region["bbox"],
                 )
-                defect.update({
-                    "image_view": image_view,
-                    "image_url": raw_path,
-                    "defect_type": defect["type"],
-                    "coordinate_space": (
-                        "ORIGINAL_IMAGE_NORMALIZED"
-                    ),
-                    "ratio_source": (
-                        "ORIGINAL_IMAGE_BBOX_AREA"
-                    ),
-                    "vlm_confidence": defect["confidence"],
-                    "validation_source": "FULL_IMAGE_GPT4O",
-                    "doodle_hint_ids": [
-                        candidate["candidate_id"]
-                        for candidate in candidates
-                        if calculate_bbox_iou(
-                            defect["bbox"],
-                            candidate["bbox"],
-                        ) > 0
-                    ],
-                })
+                defect.update(
+                    {
+                        "image_view": image_view,
+                        "image_url": raw_path,
+                        "defect_type": defect["type"],
+                        "coordinate_space": ("ORIGINAL_IMAGE_NORMALIZED"),
+                        "ratio_source": ("ORIGINAL_IMAGE_BBOX_AREA"),
+                        "vlm_confidence": defect["confidence"],
+                        "validation_source": "FULL_IMAGE_GPT4O",
+                        "doodle_hint_ids": [
+                            candidate["candidate_id"]
+                            for candidate in candidates
+                            if calculate_bbox_iou(
+                                defect["bbox"],
+                                candidate["bbox"],
+                            )
+                            > 0
+                        ],
+                    }
+                )
                 preliminary_defects.append(defect)
 
             reviewed_candidates.extend(
@@ -509,19 +454,16 @@ HIGHLIGHTING, BARCODE_DAMAGE, OTHER_VISIBLE_DAMAGE
                 for candidate in candidates
             )
 
-        preliminary_defects = deduplicate_confirmed_defects(
-            preliminary_defects
-        )
-        for defect_index, defect in enumerate(
-            preliminary_defects
-        ):
+        preliminary_defects = deduplicate_confirmed_defects(preliminary_defects)
+        for defect_index, defect in enumerate(preliminary_defects):
             defect["validation_index"] = defect_index
 
         public_defects = [
             {
                 key: value
                 for key, value in defect.items()
-                if key not in {
+                if key
+                not in {
                     "image_url",
                     "source_predictions",
                 }
@@ -543,53 +485,40 @@ HIGHLIGHTING, BARCODE_DAMAGE, OTHER_VISIBLE_DAMAGE
         ]
 
         for image_index, image in enumerate(source_images):
-            image_defects = [
-                defect
-                for defect in preliminary_defects
-                if defect["image_index"] == image_index
-            ]
-            combined_content.extend([
-                {
-                    "type": "text",
-                    "text": (
-                        f"사진 {image_index}: "
-                        f"{IMAGE_VIEWS[image_index]}"
-                    ),
-                },
-                {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": image_to_data_url(
-                            draw_defects(
-                                image,
-                                image_defects,
-                            ),
-                            max_side=1600,
-                            quality=85,
-                        ),
-                        "detail": "high",
+            image_defects = [defect for defect in preliminary_defects if defect["image_index"] == image_index]
+            combined_content.extend(
+                [
+                    {
+                        "type": "text",
+                        "text": (f"사진 {image_index}: {IMAGE_VIEWS[image_index]}"),
                     },
-                },
-            ])
-
-        combined_review = combined_model.invoke([
-            ("system", combined_prompt),
-            HumanMessage(content=combined_content),
-        ])
-        expected_indices = set(
-            range(len(preliminary_defects))
-        )
-        returned_indices = [
-            item.defect_index
-            for item in combined_review.reviews
-        ]
-        if (
-            len(returned_indices) != len(set(returned_indices))
-            or set(returned_indices) != expected_indices
-        ):
-            raise ValueError(
-                "종합 검증이 결함 인덱스를 누락·중복·추가했습니다."
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": image_to_data_url(
+                                draw_defects(
+                                    image,
+                                    image_defects,
+                                ),
+                                max_side=1600,
+                                quality=85,
+                            ),
+                            "detail": "high",
+                        },
+                    },
+                ]
             )
+
+        combined_review = combined_model.invoke(
+            [
+                ("system", combined_prompt),
+                HumanMessage(content=combined_content),
+            ]
+        )
+        expected_indices = set(range(len(preliminary_defects)))
+        returned_indices = [item.defect_index for item in combined_review.reviews]
+        if len(returned_indices) != len(set(returned_indices)) or set(returned_indices) != expected_indices:
+            raise ValueError("종합 검증이 결함 인덱스를 누락·중복·추가했습니다.")
 
         confidence_values = [
             combined_review.review_confidence,
@@ -598,9 +527,7 @@ HIGHLIGHTING, BARCODE_DAMAGE, OTHER_VISIBLE_DAMAGE
         final_defects: list[dict] = []
 
         for item in combined_review.reviews:
-            defect = dict(
-                preliminary_defects[item.defect_index]
-            )
+            defect = dict(preliminary_defects[item.defect_index])
             review_payload = item.model_dump()
             review_record = {
                 key: value
@@ -608,59 +535,41 @@ HIGHLIGHTING, BARCODE_DAMAGE, OTHER_VISIBLE_DAMAGE
                     **defect,
                     "combined_review": review_payload,
                 }.items()
-                if key not in {
+                if key
+                not in {
                     "image_url",
                     "source_predictions",
                 }
             }
-            confidence_values.append(
-                item.review_confidence
-            )
+            confidence_values.append(item.review_confidence)
 
             printed_content_false_positive = (
-                defect.get("type") in {
+                defect.get("type")
+                in {
                     "WRITING",
                     "HIGHLIGHTING",
                 }
                 and item.printed_content_only
             )
 
-            if (
-                item.decision == "REJECTED"
-                or printed_content_false_positive
-            ):
+            if item.decision == "REJECTED" or printed_content_false_positive:
                 rejected_candidates.append(review_record)
                 continue
 
-            if (
-                item.decision == "UNCERTAIN"
-                or item.review_confidence
-                < MIN_VISION_CONFIDENCE
-            ):
+            if item.decision == "UNCERTAIN" or item.review_confidence < MIN_VISION_CONFIDENCE:
                 uncertain_candidates.append(review_record)
                 continue
 
-            defect["confidence"] = (
-                item.review_confidence
-            )
-            defect["combined_validation"] = (
-                review_payload
-            )
+            defect["confidence"] = item.review_confidence
+            defect["combined_validation"] = review_payload
             defect.pop("validation_index", None)
             defect.pop("image_url", None)
             defect.pop("source_predictions", None)
             final_defects.append(defect)
 
-        final_defects = deduplicate_confirmed_defects(
-            final_defects
-        )
-        all_image_quality_ok = (
-            inner_image_quality_ok
-            and combined_review.image_quality_ok
-        )
-        missed_defect_suspected = (
-            combined_review.missed_defect_suspected
-        )
+        final_defects = deduplicate_confirmed_defects(final_defects)
+        all_image_quality_ok = inner_image_quality_ok and combined_review.image_quality_ok
+        missed_defect_suspected = combined_review.missed_defect_suspected
         vision_confidence = min(confidence_values)
 
     except Exception as error:
@@ -675,10 +584,7 @@ HIGHLIGHTING, BARCODE_DAMAGE, OTHER_VISIBLE_DAMAGE
                 "error_type": error_type,
             },
         )
-        return failure_result(
-            "Vision 처리 중 오류가 발생했습니다. "
-            f"오류 유형: {error_type}"
-        )
+        return failure_result(f"Vision 처리 중 오류가 발생했습니다. 오류 유형: {error_type}")
 
     vision_status = "COMPLETED"
     vision_reason_code = None
@@ -687,47 +593,27 @@ HIGHLIGHTING, BARCODE_DAMAGE, OTHER_VISIBLE_DAMAGE
     if not all_image_quality_ok:
         vision_status = "REVIEW_REQUIRED"
         vision_reason_code = "VISION_IMAGE_QUALITY"
-        repair_directive = (
-            "흐림, 가림, 역광 등으로 사진 판독이 어렵습니다. "
-            "앞면, 뒷면, 속지를 다시 촬영해 주세요."
-        )
+        repair_directive = "흐림, 가림, 역광 등으로 사진 판독이 어렵습니다. 앞면, 뒷면, 속지를 다시 촬영해 주세요."
         revision_count += 1
     elif missed_defect_suspected:
         vision_status = "REVIEW_REQUIRED"
-        vision_reason_code = (
-            "VISION_MISSED_DEFECT_SUSPECTED"
-        )
-        repair_directive = (
-            "종합 검증에서 목록 밖 추가 결함이 의심됩니다. "
-            "관리자 확인이 필요합니다."
-        )
+        vision_reason_code = "VISION_MISSED_DEFECT_SUSPECTED"
+        repair_directive = "종합 검증에서 목록 밖 추가 결함이 의심됩니다. 관리자 확인이 필요합니다."
         revision_count += 1
     elif uncertain_candidates:
         vision_status = "REVIEW_REQUIRED"
-        vision_reason_code = (
-            "VISION_UNCERTAIN_CANDIDATE"
-        )
-        repair_directive = (
-            "종합 검증이 확정하지 못한 결함이 있습니다. "
-            "표시된 BBox를 관리자가 확인해야 합니다."
-        )
+        vision_reason_code = "VISION_UNCERTAIN_CANDIDATE"
+        repair_directive = "종합 검증이 확정하지 못한 결함이 있습니다. 표시된 BBox를 관리자가 확인해야 합니다."
         revision_count += 1
     elif vision_confidence < MIN_VISION_CONFIDENCE:
         vision_status = "REVIEW_REQUIRED"
         vision_reason_code = "VISION_LOW_CONFIDENCE"
-        repair_directive = (
-            "Vision 판단 신뢰도가 기준보다 낮아 "
-            "관리자 확인이 필요합니다."
-        )
+        repair_directive = "Vision 판단 신뢰도가 기준보다 낮아 관리자 확인이 필요합니다."
         revision_count += 1
 
     result = {
         **downstream_reset,
-        "is_mint": (
-            not final_defects
-            if vision_status == "COMPLETED"
-            else None
-        ),
+        "is_mint": (not final_defects if vision_status == "COMPLETED" else None),
         "yolo_model_manifest": model_manifest,
         "book_regions": book_regions,
         "raw_yolo_detections": all_raw_detections,
@@ -753,13 +639,10 @@ HIGHLIGHTING, BARCODE_DAMAGE, OTHER_VISIBLE_DAMAGE
                     "결함="
                     + (
                         ", ".join(
-                            f"{defect_type}×"
-                            f"{sum(1 for item in final_defects if item.get('type') == defect_type)}"
-                            for defect_type in sorted({
-                                str(item.get("type"))
-                                for item in final_defects
-                                if item.get("type")
-                            })
+                            f"{defect_type}×{sum(1 for item in final_defects if item.get('type') == defect_type)}"
+                            for defect_type in sorted(
+                                {str(item.get("type")) for item in final_defects if item.get("type")}
+                            )
                         )
                         or "없음"
                     )
@@ -770,11 +653,7 @@ HIGHLIGHTING, BARCODE_DAMAGE, OTHER_VISIBLE_DAMAGE
                     f"신뢰도={vision_confidence}, "
                     "YOLO="
                     + (
-                        ", ".join(
-                            f"{item.get('name')}="
-                            f"{Path(str(item.get('path'))).name}"
-                            for item in model_manifest
-                        )
+                        ", ".join(f"{item.get('name')}={Path(str(item.get('path'))).name}" for item in model_manifest)
                         or "없음"
                     )
                     + ", 경로=FRONT/BACK→General, "
@@ -793,32 +672,23 @@ HIGHLIGHTING, BARCODE_DAMAGE, OTHER_VISIBLE_DAMAGE
             "vision_confidence": vision_confidence,
             "model_manifest": model_manifest,
             "book_regions": book_regions,
-            "raw_detection_count": len(
-                all_raw_detections
-            ),
-            "ensemble_candidate_count": len(
-                all_ensemble_candidates
-            ),
+            "raw_detection_count": len(all_raw_detections),
+            "ensemble_candidate_count": len(all_ensemble_candidates),
             "confirmed_defects": [
                 {
                     key: value
                     for key, value in defect.items()
-                    if key not in {
+                    if key
+                    not in {
                         "image_url",
                         "source_predictions",
                     }
                 }
                 for defect in final_defects
             ],
-            "rejected_candidate_count": len(
-                rejected_candidates
-            ),
-            "uncertain_candidate_count": len(
-                uncertain_candidates
-            ),
-            "missed_defect_suspected": (
-                missed_defect_suspected
-            ),
+            "rejected_candidate_count": len(rejected_candidates),
+            "uncertain_candidate_count": len(uncertain_candidates),
+            "missed_defect_suspected": (missed_defect_suspected),
             "repair_directive": repair_directive,
             "revision_count": revision_count,
         },

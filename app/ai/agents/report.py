@@ -1,7 +1,8 @@
 """Report·AutoRefund Agent"""
-import logging
+
 import base64
 import json
+import logging
 import os
 import re
 from dataclasses import dataclass
@@ -60,22 +61,11 @@ def auto_refund_agent(state: WMSInspectionState) -> WMSInspectionState:
         or type(defects) is not list
         or defects
     ):
-        raise ValueError(
-            "Auto Refund는 검증이 완료된 무결함 MINT 도서만 "
-            "처리할 수 있습니다."
-        )
+        raise ValueError("Auto Refund는 검증이 완료된 무결함 MINT 도서만 처리할 수 있습니다.")
 
     # Vision 신뢰도 검증
-    if (
-        type(vision_confidence) not in (int, float)
-        or not MIN_VISION_CONFIDENCE
-        <= vision_confidence
-        <= 1
-    ):
-        raise ValueError(
-            "Auto Refund에는 기준 이상의 "
-            "vision_confidence가 필요합니다."
-        )
+    if type(vision_confidence) not in (int, float) or not MIN_VISION_CONFIDENCE <= vision_confidence <= 1:
+        raise ValueError("Auto Refund에는 기준 이상의 vision_confidence가 필요합니다.")
 
     (
         ubci_score,
@@ -112,20 +102,13 @@ def auto_refund_agent(state: WMSInspectionState) -> WMSInspectionState:
         "grade_reason_code": "NO_VISIBLE_DEFECT",
         "rule_reference": POLICY_VERSION,
         "policy_evidence": policy_evidence,
-        "policy_rag_status": state.get(
-            "policy_rag_status"
-        ),
-        "policy_rag_domains": state.get(
-            "policy_rag_domains"
-        ) or [],
+        "policy_rag_status": state.get("policy_rag_status"),
+        "policy_rag_domains": state.get("policy_rag_domains") or [],
         "reason_code": None,
         "vision_confidence": overall_confidence,
         "policy_confidence": None,
         "overall_confidence": overall_confidence,
-        "message": (
-            "앞면, 뒷면, 속지에서 확인 가능한 결함이 없어 "
-            "MINT 자동 승인 처리되었습니다."
-        ),
+        "message": ("앞면, 뒷면, 속지에서 확인 가능한 결함이 없어 MINT 자동 승인 처리되었습니다."),
     }
 
     return {
@@ -159,7 +142,6 @@ def auto_refund_agent(state: WMSInspectionState) -> WMSInspectionState:
             )
         ],
     }
-
 
 
 # 고객 노출용 결함 한글 라벨 (내부 코드 비노출 원칙)
@@ -225,26 +207,17 @@ def _fallback_narrative(
             str(defect.get("type") or ""),
             "외관 상태 참고사항",
         )
-        notes.append(
-            f"{label} ({_location_label(defect.get('location'))})"
-        )
+        notes.append(f"{label} ({_location_label(defect.get('location'))})")
 
     grade_label = GRADE_LABEL_KO.get(final_grade, final_grade)
     if final_grade == "REJECT":
-        message = (
-            "정밀 검수 결과 재판매 기준을 충족하지 못해 "
-            "매입이 어려운 상태로 확인되었습니다. 양해 부탁드립니다."
-        )
+        message = "정밀 검수 결과 재판매 기준을 충족하지 못해 매입이 어려운 상태로 확인되었습니다. 양해 부탁드립니다."
     elif notes:
         message = (
-            f"정밀 검수 결과 {grade_label}으로 판정되었습니다. "
-            "아래 확인된 사항 외의 사용감은 발견되지 않았습니다."
+            f"정밀 검수 결과 {grade_label}으로 판정되었습니다. 아래 확인된 사항 외의 사용감은 발견되지 않았습니다."
         )
     else:
-        message = (
-            f"정밀 검수 결과 {grade_label}으로 판정되었습니다. "
-            "눈에 띄는 결함 없이 양호한 상태입니다."
-        )
+        message = f"정밀 검수 결과 {grade_label}으로 판정되었습니다. 눈에 띄는 결함 없이 양호한 상태입니다."
 
     return {
         "customer_message": message,
@@ -262,21 +235,16 @@ def build_customer_narrative(
 
     [고객 노출 경계] 귀책을 단정하지 않고 내부 코드·조항 전문을 노출하지 않는다.
     """
-    if os.getenv(
-        "REPORT_NARRATIVE_LLM_ENABLED", "true"
-    ).lower() in ("0", "false"):
+    if os.getenv("REPORT_NARRATIVE_LLM_ENABLED", "true").lower() in ("0", "false"):
         return _fallback_narrative(final_grade, defects)
 
     defect_lines = [
-        f"- {DEFECT_LABEL_KO.get(str(d.get('type') or ''), '기타')} "
-        f"(위치: {_location_label(d.get('location'))})"
+        f"- {DEFECT_LABEL_KO.get(str(d.get('type') or ''), '기타')} (위치: {_location_label(d.get('location'))})"
         for d in (defects or [])
         if isinstance(d, dict)
     ]
 
-    defect_block = (
-        chr(10).join(defect_lines) if defect_lines else "- 없음"
-    )
+    defect_block = chr(10).join(defect_lines) if defect_lines else "- 없음"
     prompt = f"""당신은 중고서점 품질보증서를 작성하는 CS 담당자입니다.
 규칙:
 1. 존댓말, 과장·추측 금지. 결함의 심각도에 맞는 어조 (가벼운 사용감은 다정하게, 매입 불가는 정중하되 단호하게).
@@ -284,7 +252,7 @@ def build_customer_narrative(
 3. 내부 코드명이나 규정 조항 전문을 쓰지 않는다.
 4. 영문 대문자 코드(FRONT_COVER 등)를 그대로 옮겨 적지 말고 한글 표현만 사용한다.
 판정 등급: {GRADE_LABEL_KO.get(final_grade, final_grade)}
-품질 점수: {ubci_score if ubci_score is not None else '해당 없음'}
+품질 점수: {ubci_score if ubci_score is not None else "해당 없음"}
 확인된 결함:
 {defect_block}"""
 
@@ -304,9 +272,7 @@ def build_customer_narrative(
             CustomerCertificateNarrative,
         )
 
-        narrative = CustomerCertificateNarrative.model_validate(
-            narrative_model.invoke(prompt)
-        )
+        narrative = CustomerCertificateNarrative.model_validate(narrative_model.invoke(prompt))
         return {
             "customer_message": narrative.customer_message,
             "condition_notes": narrative.condition_notes,
@@ -318,7 +284,6 @@ def build_customer_narrative(
             type(error).__name__,
         )
         return _fallback_narrative(final_grade, defects)
-
 
 
 def report_agent(state: WMSInspectionState) -> WMSInspectionState:
@@ -333,15 +298,11 @@ def report_agent(state: WMSInspectionState) -> WMSInspectionState:
     human_feedback = state.get("human_feedback")
     predicted_grade = state.get("predicted_grade")
     target_grade = state.get("target_grade")
-    primary_reason_code = state.get(
-        "primary_reason_code"
-    )
+    primary_reason_code = state.get("primary_reason_code")
 
     if human_feedback is None:
         if state.get("reason_code") != "OK":
-            raise ValueError(
-                "AI 자동 보고서는 Critic OK 이후에만 생성할 수 있습니다."
-            )
+            raise ValueError("AI 자동 보고서는 Critic OK 이후에만 생성할 수 있습니다.")
 
         if predicted_grade not in {
             "S",
@@ -349,9 +310,7 @@ def report_agent(state: WMSInspectionState) -> WMSInspectionState:
             "B",
             "REJECT",
         }:
-            raise ValueError(
-                "유효한 predicted_grade가 필요합니다."
-            )
+            raise ValueError("유효한 predicted_grade가 필요합니다.")
 
         result = "INSPECTION_COMPLETED"
         message = "AI 검수 완료"
@@ -364,68 +323,40 @@ def report_agent(state: WMSInspectionState) -> WMSInspectionState:
 
     elif human_feedback == "APPROVE_DOWNGRADE":
         if target_grade not in {"A", "B"}:
-            raise ValueError(
-                "등급 하향 승인에는 A/B target_grade가 필요합니다."
-            )
+            raise ValueError("등급 하향 승인에는 A/B target_grade가 필요합니다.")
 
-        if (
-            type(primary_reason_code) is not str
-            or not primary_reason_code.strip()
-        ):
-            raise ValueError(
-                "등급 하향 승인에는 primary_reason_code가 필요합니다."
-            )
+        if type(primary_reason_code) is not str or not primary_reason_code.strip():
+            raise ValueError("등급 하향 승인에는 primary_reason_code가 필요합니다.")
 
         result = "HUMAN_APPROVED_DOWNGRADE"
-        message = (
-            f"관리자 등급 하향 승인 완료: "
-            f"{target_grade}등급"
-        )
+        message = f"관리자 등급 하향 승인 완료: {target_grade}등급"
         final_grade = target_grade
 
     elif human_feedback == "REJECT_RETURN":
-        if (
-            type(primary_reason_code) is not str
-            or not primary_reason_code.strip()
-        ):
-            raise ValueError(
-                "반품에는 primary_reason_code가 필요합니다."
-            )
+        if type(primary_reason_code) is not str or not primary_reason_code.strip():
+            raise ValueError("반품에는 primary_reason_code가 필요합니다.")
 
         result = "HUMAN_REJECTED_RETURN"
         message = "관리자 반품 결정 완료"
         final_grade = "REJECT"
 
     elif human_feedback == "REJECT_DISCARD":
-        if (
-            type(primary_reason_code) is not str
-            or not primary_reason_code.strip()
-        ):
-            raise ValueError(
-                "폐기에는 primary_reason_code가 필요합니다."
-            )
+        if type(primary_reason_code) is not str or not primary_reason_code.strip():
+            raise ValueError("폐기에는 primary_reason_code가 필요합니다.")
 
         result = "HUMAN_REJECTED_DISCARD"
         message = "관리자 폐기 결정 완료"
         final_grade = "REJECT"
 
     elif human_feedback == "RE_CHECK":
-        raise ValueError(
-            "RE_CHECK는 Report가 아니라 Vision으로 이동해야 합니다."
-        )
+        raise ValueError("RE_CHECK는 Report가 아니라 Vision으로 이동해야 합니다.")
 
     else:
-        raise ValueError(
-            f"허용되지 않은 human_feedback입니다: "
-            f"{human_feedback!r}"
-        )
+        raise ValueError(f"허용되지 않은 human_feedback입니다: {human_feedback!r}")
 
     policy_evidence = _public_policy_evidence(
         state,
-        fallback_rule_id=(
-            state.get("grade_reason_code")
-            or "UBCI_DETERMINISTIC_SCORE"
-        ),
+        fallback_rule_id=(state.get("grade_reason_code") or "UBCI_DETERMINISTIC_SCORE"),
         fallback_clause_ref="UBCI_SCORE_CALCULATION",
         fallback_source="RULE_ENGINE_FALLBACK",
     )
@@ -441,54 +372,26 @@ def report_agent(state: WMSInspectionState) -> WMSInspectionState:
     report = {
         "result": result,
         "customer_narrative": customer_narrative,
-        "decision": (
-            human_feedback
-            if human_feedback is not None
-            else "AI_INSPECTION"
-        ),
+        "decision": (human_feedback if human_feedback is not None else "AI_INSPECTION"),
         "defects": state.get("defects") or [],
         "ubci_score": state.get("ubci_score"),
-        "provisional_ubci_score": state.get(
-            "provisional_ubci_score"
-        ),
+        "provisional_ubci_score": state.get("provisional_ubci_score"),
         "predicted_grade": predicted_grade,
         "final_grade": final_grade,
-        "score_breakdown": (
-            state.get("score_breakdown") or []
-        ),
-        "provisional_score_breakdown": (
-            state.get(
-                "provisional_score_breakdown"
-            ) or []
-        ),
-        "fatal_defect_detected": state.get(
-            "fatal_defect_detected"
-        ),
-        "grade_reason_code": state.get(
-            "grade_reason_code"
-        ),
+        "score_breakdown": (state.get("score_breakdown") or []),
+        "provisional_score_breakdown": (state.get("provisional_score_breakdown") or []),
+        "fatal_defect_detected": state.get("fatal_defect_detected"),
+        "grade_reason_code": state.get("grade_reason_code"),
         "primary_reason_code": primary_reason_code,
         "target_grade": target_grade,
-        "rule_reference": state.get(
-            "rule_reference"
-        ),
+        "rule_reference": state.get("rule_reference"),
         "policy_evidence": policy_evidence,
-        "policy_rag_status": state.get(
-            "policy_rag_status"
-        ),
-        "policy_rag_domains": state.get(
-            "policy_rag_domains"
-        ) or [],
+        "policy_rag_status": state.get("policy_rag_status"),
+        "policy_rag_domains": state.get("policy_rag_domains") or [],
         "reason_code": state.get("reason_code"),
-        "vision_confidence": state.get(
-            "vision_confidence"
-        ),
-        "policy_confidence": state.get(
-            "policy_confidence"
-        ),
-        "overall_confidence": state.get(
-            "overall_confidence"
-        ),
+        "vision_confidence": state.get("vision_confidence"),
+        "policy_confidence": state.get("policy_confidence"),
+        "overall_confidence": state.get("overall_confidence"),
         "message": message,
     }
 
