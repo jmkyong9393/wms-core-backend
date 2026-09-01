@@ -8,6 +8,7 @@ from langchain_core.documents import Document
 from pydantic import ValidationError
 
 from app.ai import agents
+from app.ai.agents import critic as agents_critic
 from app.ai import supervisor
 from app.ai.rag import critic_cases
 from app.ai.rag import policy_search
@@ -893,7 +894,7 @@ def test_critic_hard_rule_skips_rag(
         )
 
     monkeypatch.setattr(
-        agents,
+        agents_critic,
         "evaluate_with_precedents",
         fail_if_called,
     )
@@ -917,7 +918,7 @@ def test_critic_agent_uses_rag_result(
     monkeypatch,
 ):
     monkeypatch.setattr(
-        agents,
+        agents_critic,
         "evaluate_with_precedents",
         lambda state: make_rag_result(),
     )
@@ -940,7 +941,7 @@ def test_critic_rejects_tampered_policy_score(
     monkeypatch,
 ):
     monkeypatch.setattr(
-        agents,
+        agents_critic,
         "evaluate_with_precedents",
         lambda state: pytest.fail(
             "불일치 점수는 RAG 전에 차단되어야 합니다."
@@ -989,7 +990,7 @@ def test_langgraph_critic_to_report(
     monkeypatch,
 ):
     monkeypatch.setattr(
-        agents,
+        agents_critic,
         "evaluate_with_precedents",
         lambda state: make_rag_result(),
     )
@@ -1197,7 +1198,7 @@ def test_invalid_revision_count_returns_quality_error(
         )
 
     monkeypatch.setattr(
-        agents,
+        agents_critic,
         "evaluate_with_precedents",
         fail_if_called,
     )

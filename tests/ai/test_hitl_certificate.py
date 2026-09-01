@@ -5,6 +5,8 @@ from uuid import uuid4
 from PIL import Image
 
 from app.ai import agents
+from app.ai.agents import detector as agents_detector
+from app.ai.agents import vision as agents_vision
 from app.ai.agents import (
     CandidateReview,
     auto_refund_agent,
@@ -437,7 +439,7 @@ def test_local_image_loader_enforces_pixel_limit(
         str(tmp_path),
     )
     monkeypatch.setattr(
-        agents,
+        agents_detector,
         "MAX_INSPECTION_IMAGE_PIXELS",
         100,
     )
@@ -455,7 +457,12 @@ def test_book_detector_exception_is_not_hidden_by_fallback(
     monkeypatch,
 ):
     monkeypatch.setattr(
-        agents,
+        agents_detector,
+        "_load_inspection_image",
+        lambda _: Image.new("RGB", (100, 100)),
+    )
+    monkeypatch.setattr(
+        agents_vision,
         "_load_inspection_image",
         lambda _: Image.new("RGB", (100, 100)),
     )
@@ -464,12 +471,17 @@ def test_book_detector_exception_is_not_hidden_by_fallback(
         raise RuntimeError("missing detector dependency")
 
     monkeypatch.setattr(
-        agents,
+        agents_detector,
         "detect_book_region",
         fail_detector,
     )
     monkeypatch.setattr(
-        agents,
+        agents_detector,
+        "trace_event",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        agents_vision,
         "trace_event",
         lambda *args, **kwargs: None,
     )
@@ -549,7 +561,7 @@ def test_policy_scores_confirmed_inner_page_damage(
     monkeypatch,
 ):
     monkeypatch.setattr(
-        "app.ai.agents.search_policy_rules",
+        "app.ai.agents.policy.search_policy_rules",
         lambda **_: [],
     )
 
@@ -662,7 +674,7 @@ def test_policy_unknown_penalty_still_requires_hitl(
     monkeypatch,
 ):
     monkeypatch.setattr(
-        "app.ai.agents.search_policy_rules",
+        "app.ai.agents.policy.search_policy_rules",
         lambda **_: [],
     )
 
@@ -696,7 +708,7 @@ def test_fatal_defect_takes_priority_over_manual_defect(
     monkeypatch,
 ):
     monkeypatch.setattr(
-        "app.ai.agents.search_policy_rules",
+        "app.ai.agents.policy.search_policy_rules",
         lambda **_: [],
     )
 
@@ -848,12 +860,12 @@ def test_two_track_vision_uses_full_vlm_only_for_inner(
         return [], [candidate]
 
     monkeypatch.setattr(
-        agents,
+        agents_vision,
         "ChatOpenAI",
         FakeChatOpenAI,
     )
     monkeypatch.setattr(
-        agents,
+        agents_vision,
         "get_yolo_model_manifest",
         lambda: [
             {
@@ -870,17 +882,27 @@ def test_two_track_vision_uses_full_vlm_only_for_inner(
         ],
     )
     monkeypatch.setattr(
-        agents,
+        agents_detector,
         "_load_inspection_image",
         lambda path: Image.new("RGB", (100, 100)),
     )
     monkeypatch.setattr(
-        agents,
+        agents_vision,
+        "_load_inspection_image",
+        lambda path: Image.new("RGB", (100, 100)),
+    )
+    monkeypatch.setattr(
+        agents_vision,
         "detect_yolo_candidates",
         fake_candidates,
     )
     monkeypatch.setattr(
-        agents,
+        agents_detector,
+        "trace_event",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        agents_vision,
         "trace_event",
         lambda *args, **kwargs: None,
     )
