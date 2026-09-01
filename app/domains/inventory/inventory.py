@@ -28,6 +28,9 @@ from app.models.wms import (
     User,
 )
 
+# 개발용 하드코딩 응답 라우트(/api/inventory/status)를 제거하면서 비었다.
+# 실사용은 v1_router 뿐이며, router는 임포트 호환을 위해 남긴다.
+# (제거분 백업: archive/2026-09-01_phase4/removed_inventory_status_endpoint.py.txt)
 router = APIRouter()
 v1_router = APIRouter()
 
@@ -169,18 +172,6 @@ class InventoryListResponse(BaseModel):
         ge=0,
         description="전체 페이지 수",
     )
-
-
-@router.get("/status")
-def get_inventory_status():
-    return {
-        "total_books": 1500,
-        "total_locations": 200,
-        "recent_transactions": [
-            {"type": "INBOUND", "quantity": 10},
-            {"type": "OUTBOUND", "quantity": 2},
-        ],
-    }
 
 
 def _format_location(

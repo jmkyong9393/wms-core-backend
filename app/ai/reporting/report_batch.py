@@ -292,25 +292,44 @@ def generate_weekly_insights(
     return insights
 
 def save_insight_report(session: Session, insights: Dict[str, Any]):
+    """주간 인사이트를 테넌트별로 저장한다.
+
+    지표 산출 쿼리가 전 테넌트를 합산하므로, 현재는 동일한 집계를 각 테넌트 행으로
+    복제해 넣는다. 테넌트별 분리 집계는 별건(쿼리에 tenant_id GROUP BY 추가).
+    """
     if not insights:
         return
     logger.info("생성된 주간 인사이트 리포트:")
     for key, value in insights.items():
         logger.info(f" - {key}: {value}")
 
-    # 동일 주차 리포트가 있으면 멱등성 위해 삭제 후 재삽입
-    session.execute(text("DELETE FROM weekly_insights WHERE report_week = :wk"), {"wk": insights["report_week"]})
+    tenant_ids = [
+        row[0]
+        for row in session.execute(text("SELECT id FROM tenants")).all()
+    ]
+    if not tenant_ids:
+        logger.warning("테넌트가 없어 주간 인사이트를 저장하지 않습니다.")
+        return
 
-    report = WeeklyInsight(
-        id=uuid.uuid4(),
-        report_week=insights["report_week"],
-        saved_labor_cost_krw=insights["saved_labor_cost_krw"],
-        top_defective_publishers=insights["top_defective_publishers"],
-        location_hotspots=insights["location_hotspots"],
-        logistics_hotspots=insights["logistics_hotspots"],
-        predicted_returns=insights["predicted_returns"]
+    # 동일 주차 리포트가 있으면 멱등성 위해 삭제 후 재삽입
+    session.execute(
+        text("DELETE FROM weekly_insights WHERE report_week = :wk"),
+        {"wk": insights["report_week"]},
     )
-    session.add(report)
+
+    for tenant_id in tenant_ids:
+        session.add(
+            WeeklyInsight(
+                id=uuid.uuid4(),
+                tenant_id=tenant_id,
+                report_week=insights["report_week"],
+                saved_labor_cost_krw=insights["saved_labor_cost_krw"],
+                top_defective_publishers=insights["top_defective_publishers"],
+                location_hotspots=insights["location_hotspots"],
+                logistics_hotspots=insights["logistics_hotspots"],
+                predicted_returns=insights["predicted_returns"],
+            )
+        )
 
 def main():
     import sys

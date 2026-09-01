@@ -392,7 +392,11 @@ def get_weekly_insights(
     current_admin: User = Depends(require_admin_or_master),
     session: Session = Depends(get_session),
 ) -> list[WeeklyInsightResponse]:
-    insights = session.exec(select(WeeklyInsight).order_by(WeeklyInsight.report_week.desc())).all()
+    insights = session.exec(
+        select(WeeklyInsight)
+        .where(WeeklyInsight.tenant_id == current_admin.tenant_id)
+        .order_by(WeeklyInsight.report_week.desc())
+    ).all()
     return insights
 
 

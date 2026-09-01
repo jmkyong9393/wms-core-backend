@@ -9,6 +9,27 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql://admin:password@localhost:5432/wms_db"
     PUBLIC_WEB_BASE_URL: str = "http://localhost:3000"
 
+    # 배포 프론트 오리진. 쉼표로 여러 개 지정한다.
+    # 예) CORS_ALLOWED_ORIGINS=https://wms.example.com,https://admin.example.com
+    CORS_ALLOWED_ORIGINS: str = ""
+
+    @property
+    def cors_allowed_origins(self) -> list[str]:
+        """로컬 개발 오리진 + 환경변수로 주입된 배포 오리진."""
+        local_origins = [
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:3001",
+            "http://127.0.0.1:3001",
+        ]
+        deployed = [
+            origin.strip()
+            for origin in self.CORS_ALLOWED_ORIGINS.split(",")
+            if origin.strip()
+        ]
+        # 중복 제거하되 순서를 유지한다.
+        return list(dict.fromkeys(local_origins + deployed))
+
     # 검수 이미지 조회에 허용할 CloudFront 배포 도메인과 객체 경로
     CLOUDFRONT_IMAGE_BASE_URL: str = "https://d3j61tpuly7r0p.cloudfront.net"
     CLOUDFRONT_IMAGE_PATH_PREFIX: str = "/uploads/"

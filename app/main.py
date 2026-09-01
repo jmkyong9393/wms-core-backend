@@ -81,13 +81,9 @@ async def app_exception_handler(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:3001",
-        "http://127.0.0.1:3001",
-        # 이후 실제 프론트 URL 추가는 여기에!
-    ],
+    # 배포 오리진은 코드가 아니라 CORS_ALLOWED_ORIGINS 환경변수로 주입한다.
+    # allow_credentials=True 라 와일드카드는 쓸 수 없다(브라우저가 거부).
+    allow_origins=settings.cors_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -131,9 +127,6 @@ app.include_router(
     prefix="/api/v1/admin/rejected-items",
     tags=["Inventory"],
 )
-
-# 기존 개발용 재고 상태 API
-app.include_router(inventory.router, prefix="/api/inventory", tags=["Inventory"])
 
 # 관리자 및 개발 지원 API
 app.include_router(admin.router, prefix="/api/v1/admin", tags=["Admin"])
