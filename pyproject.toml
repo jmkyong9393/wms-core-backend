@@ -51,45 +51,36 @@ dev = [
 ]
 
 [tool.ruff]
-# 기존 코드가 한글 주석·긴 f-string으로 88자를 자주 넘는다. 줄바꿈 강제는
-# 한글 문장을 어색하게 쪼개므로 실측 분포(중앙값 98, 최대 180)를 감안해 120으로 둔다.
+# 한글 주석·문자열이 88자를 자주 넘어 120으로 둔다.
 line-length = 120
 
 [tool.ruff.lint]
-# 룰셋을 ruff 버전 기본값에 맡기지 않고 명시 고정한다 — 도구 업그레이드가
-# CI를 갑자기 빨갛게 만들지 않도록.
+# 도구 업그레이드로 CI가 갑자기 깨지지 않도록 룰셋을 명시 고정한다.
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "DTZ", "RUF"]
 
-# 아래 ignore는 "안 고친 것"이 아니라 "검토 후 내린 결정"이다. 되살릴 때는 근거를 남길 것.
+# 아래 ignore는 검토 후 내린 결정이다. 되살릴 때는 근거를 남길 것.
 ignore = [
-    # ── 런타임 어노테이션 보류: FastAPI·Pydantic·SQLModel이 타입 힌트를 런타임에
-    #    평가한다. 일괄 현대화(list[str]·X | None)는 필드 추론을 바꿀 수 있어
-    #    도메인별 실물 검증 없이 만지지 않는다.
+    # 런타임 어노테이션: FastAPI·Pydantic·SQLModel이 타입 힌트를 런타임에 평가하므로
+    # 일괄 현대화는 필드 추론을 바꿀 수 있다.
     "UP006", "UP045", "UP035", "RUF013",
-    # ── FastAPI 관용구: Depends()/Query()를 기본 인자로 쓰는 것이 프레임워크 표준이다.
+    # Depends()/Query()를 기본 인자로 쓰는 것은 FastAPI 표준이다.
     "B008",
-    # ── 기존 코드가 naive datetime(utcnow)으로 DB 컬럼을 채운다. tz-aware 전환은
-    #    저장값 의미가 바뀌는 마이그레이션 건이라 린트로 강제하지 않는다.
+    # naive datetime -> tz-aware 전환은 저장값 의미가 바뀌는 마이그레이션 건이다.
     "DTZ003", "DTZ005",
-    # ── 한글 주석·문서화 문자열의 전각 문장부호를 "혼동 문자"로 잡는다.
-    #    이 코드베이스의 서술 언어가 한국어이므로 규칙 자체가 맞지 않는다.
+    # 한글 전각 문장부호를 혼동 문자로 잡는 규칙이라 이 코드베이스에 맞지 않는다.
     "RUF001", "RUF002", "RUF003",
-    # ── str-Enum 현대화 보류: SQLModel 컬럼·Pydantic 직렬화가 (str, Enum)
-    #    조합의 값 표현에 의존한다. StrEnum 전환은 저장·응답 값 검증이 필요한 별건.
+    # SQLModel 컬럼·Pydantic 직렬화가 (str, Enum) 값 표현에 의존한다.
     "UP042",
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# agents 패키지는 분할 시 재수출(`import *`)로 임포트 호환을 유지한다.
-# 미사용으로 보이는 심볼이 실제로는 하위 모듈의 공개 API다.
+# agents 패키지는 재수출(import *)로 임포트 호환을 유지한다.
 "app/ai/agents/*.py" = ["F401", "F403", "F405"]
 "app/models/wms.py" = ["F401", "F403"]
 "app/models/*.py" = ["F403", "F405"]
 "app/worker/__init__.py" = ["F401", "F403"]
-# 프리즈 구역(app/ai) 기존 코드의 미용 위반. 이 구역은 코드 수정에 조장 승인이
-# 필요하므로(01-freeze-zones.md) 린트가 임의 diff를 유발하지 않게 분리한다.
-# B905(zip strict)는 길이 불일치 시 예외를 던지므로 미용이 아니라 동작 변경이다.
-# 새로 작성하는 app/ai 파일에는 적용되지 않는다 — 아래 목록은 파일 단위로 좁혔다.
+# app/ai 기존 코드의 잔여 위반. B905(zip strict)는 길이 불일치 시 예외를 던지므로
+# 미용이 아니라 동작 변경이라 함께 제외한다.
 "app/ai/agents/common.py" = ["SIM108"]
 "app/ai/agents/detector.py" = ["B905", "RUF046"]
 "app/ai/agents/human.py" = ["E501"]
@@ -99,26 +90,16 @@ ignore = [
 testpaths = ["tests"]
 
 [tool.mypy]
-# pydantic 모델·BaseSettings의 생성자 시그니처를 이해시키기 위한 공식 플러그인.
-# 없으면 `Settings()`가 "필수 인자 누락"으로 잘못 잡힌다(값은 환경변수에서 온다).
+# 없으면 Settings()가 "필수 인자 누락"으로 잘못 잡힌다(값은 환경변수에서 온다).
 plugins = ["pydantic.mypy"]
-# python_version은 고정하지 않는다. 고정하면 실행 인터프리터(로컬 3.14 / CI 3.11)와
-# 어긋나 설치된 서드파티 스텁(numpy 등)이 문법 오류로 잡힌다 — 실측 확인.
-# 서드파티 스텁이 없는 패키지(ultralytics, langgraph 등)가 많아 전역으로 켠다.
+# python_version을 고정하면 실행 인터프리터와 어긋나 서드파티 스텁이 문법 오류로 잡힌다.
+# 스텁이 없는 패키지(ultralytics, langgraph 등)가 많아 ignore_missing_imports를 켠다.
 ignore_missing_imports = true
 
 # ── mypy 베이스라인 ──
-# 아래 모듈은 현재 타입 오류가 남아 있어 검사에서 제외한다. 나머지 모듈에 대해서는
-# mypy가 하드 게이트로 동작하므로, 새 코드와 깨끗한 모듈은 계속 깨끗하게 유지된다.
-#
-# 오류의 대부분은 SQLModel 컬럼 표현식에 대한 오탐이다 — mypy가 `Order.shipped_at`을
-# 파이썬 필드 타입(datetime)으로 보고 `.desc()`/`.in_()`/비교 연산을 오류로 잡는다.
-# 실제 런타임에서는 InstrumentedAttribute라 정상 동작한다(E2E로 검증됨).
-#
-# 남은 오류는 대부분 join/order_by 인자와 State TypedDict 접근이며, sqlmodel의 col()로
-# 해결되는 컬럼 연산(desc/in_/is_not/label 등)은 이미 정리했다 (44개 모듈 -> 32개).
-# 이 목록은 줄여 나갈 부채다. 여기 있는 파일을 손볼 때 오류를 정리하고 항목을 지울 것.
-# 반대로 깨끗한 파일에 쿼리를 추가해 오탐이 나면, 사유를 적고 이 목록에 추가한다.
+# 타입 오류가 남은 모듈만 검사에서 제외한다. 나머지는 mypy가 하드 게이트로 지킨다.
+# 오류 대부분은 SQLModel 컬럼 표현식 오탐이며(런타임은 정상), col()로 해결되는
+# 컬럼 연산은 이미 정리했다. 이 목록은 줄여 나갈 부채다.
 
 # ── mypy 베이스라인 ──
 # 아래 모듈은 현재 타입 오류가 남아 있어 검사에서 제외한다. 나머지 모듈에 대해서는

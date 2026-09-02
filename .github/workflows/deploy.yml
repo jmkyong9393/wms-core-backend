@@ -84,8 +84,7 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          # 아직 클러스터에 Deployment 매니페스트가 없어 실제 롤아웃은 하지 않는다.
-          # k8s/ 에 Deployment/Service/Secret 를 추가한 뒤 아래 두 줄을 활성화할 것.
+          # k8s/ 에 Deployment 매니페스트를 추가한 뒤 아래 두 줄을 활성화할 것.
           # kubectl set image deployment/wms-api api=$ECR_REGISTRY/$ECR_API_REPOSITORY:$IMAGE_TAG
           # kubectl set image deployment/wms-ai-worker ai-worker=$ECR_REGISTRY/$ECR_WORKER_REPOSITORY:$IMAGE_TAG
           echo "::warning::ECR 푸시까지만 수행했습니다. EKS 롤아웃은 매니페스트 준비 후 활성화됩니다."

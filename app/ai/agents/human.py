@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 def human_node(state: WMSInspectionState) -> WMSInspectionState:
     """
     6. Human-In-The-Loop (HITL) 노드
-    TODO: Critic이 반복해서 Policy를 반려하거나 확신할 수 없는 예외 케이스(Outlier)일 경우, 관리자의 수동 개입을 대기합니다.
+    Critic이 반복 반려하거나 확신할 수 없는 건일 때 관리자 판정을 기다린다.
     - 주의: 이 노드는 MemorySaver에 의해 일시 정지(Pause)를 유발하는 용도이므로 빈 상태로 둡니다.
     """
     logger.info("[Agent] HITL 노드 진입 - 관리자의 수동 개입(승인/수정) 대기 중")

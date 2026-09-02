@@ -63,13 +63,9 @@ def build_proposal(
 
     return SimpleNamespace(
         id=UUID("00000000-0000-4000-8000-000000000020"),
-        tenant_id=UUID(
-            "00000000-0000-4000-8000-000000000001"
-        ),
+        tenant_id=UUID("00000000-0000-4000-8000-000000000001"),
         book_id=UUID("00000000-0000-4000-8000-000000000010"),
-        return_job_id=UUID(
-            "00000000-0000-4000-8000-000000000030"
-        ),
+        return_job_id=UUID("00000000-0000-4000-8000-000000000030"),
         proposal_source=RestockProposalSource.RETURN_REJECTION,
         status=status,
         recent_sales_quantity=10,
@@ -116,16 +112,12 @@ def test_lists_tenant_restock_proposals():
     assert result[0].status == OrderProposalStatus.PENDING
     assert result[0].pending_auto_po_quantity == 3
     assert result[0].recommended_order_quantity == 6
-    assert result[0].proposal_source == (
-        RestockProposalSource.RETURN_REJECTION
-    )
+    assert result[0].proposal_source == (RestockProposalSource.RETURN_REJECTION)
 
 
 def test_returns_restock_proposal_detail_with_reviewer():
     book = build_book()
-    reviewer_id = UUID(
-        "00000000-0000-4000-8000-000000000040"
-    )
+    reviewer_id = UUID("00000000-0000-4000-8000-000000000040")
     proposal = build_proposal(reviewer_id=reviewer_id)
     reviewer = SimpleNamespace(
         employee_id="ADMIN-001",
@@ -170,10 +162,6 @@ def test_raises_when_restock_proposal_is_not_found():
     with pytest.raises(RestockProposalNotFoundError):
         get_restock_proposal_detail(
             session=session,
-            tenant_id=UUID(
-                "00000000-0000-4000-8000-000000000001"
-            ),
-            proposal_id=UUID(
-                "00000000-0000-4000-8000-000000000020"
-            ),
+            tenant_id=UUID("00000000-0000-4000-8000-000000000001"),
+            proposal_id=UUID("00000000-0000-4000-8000-000000000020"),
         )

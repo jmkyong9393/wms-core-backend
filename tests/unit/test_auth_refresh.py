@@ -44,9 +44,7 @@ def build_user(
 ):
     return SimpleNamespace(
         id=UUID("00000000-0000-4000-8000-000000000001"),
-        tenant_id=UUID(
-            "00000000-0000-4000-8000-000000000002"
-        ),
+        tenant_id=UUID("00000000-0000-4000-8000-000000000002"),
         status=UserStatus.ACTIVE,
         auth_version=auth_version,
         refresh_token_hash=refresh_token_hash,
@@ -74,9 +72,7 @@ def test_login_refresh_session_increments_auth_version(
 
     assert refresh_token == "login-refresh-token"
     assert user.auth_version == 4
-    assert user.refresh_token_hash == hash_refresh_token(
-        refresh_token
-    )
+    assert user.refresh_token_hash == hash_refresh_token(refresh_token)
     assert user.refresh_token_expires_at is not None
     assert user.refresh_token_expires_at > datetime.utcnow()
 
@@ -86,12 +82,8 @@ def test_refresh_session_rotation_changes_token_without_auth_version_change(
 ):
     user = build_user(
         auth_version=4,
-        refresh_token_hash=hash_refresh_token(
-            "previous-refresh-token"
-        ),
-        refresh_token_expires_at=(
-            datetime.utcnow() + timedelta(days=1)
-        ),
+        refresh_token_hash=hash_refresh_token("previous-refresh-token"),
+        refresh_token_expires_at=(datetime.utcnow() + timedelta(days=1)),
     )
     previous_token_hash = user.refresh_token_hash
 
@@ -107,9 +99,7 @@ def test_refresh_session_rotation_changes_token_without_auth_version_change(
 
     assert next_refresh_token == "rotated-refresh-token"
     assert user.auth_version == 4
-    assert user.refresh_token_hash == hash_refresh_token(
-        next_refresh_token
-    )
+    assert user.refresh_token_hash == hash_refresh_token(next_refresh_token)
     assert user.refresh_token_hash != previous_token_hash
     assert user.refresh_token_expires_at is not None
     assert user.refresh_token_expires_at > datetime.utcnow()
@@ -119,9 +109,7 @@ def test_get_user_by_refresh_token_returns_active_session_user():
     refresh_token = "valid-refresh-token"
     user = build_user(
         refresh_token_hash=hash_refresh_token(refresh_token),
-        refresh_token_expires_at=(
-            datetime.utcnow() + timedelta(days=1)
-        ),
+        refresh_token_expires_at=(datetime.utcnow() + timedelta(days=1)),
     )
     session = FakeSession(user=user)
 
@@ -131,19 +119,14 @@ def test_get_user_by_refresh_token_returns_active_session_user():
     )
 
     assert result is user
-    assert any(
-        "FOR UPDATE" in statement
-        for statement in session.executed_statements
-    )
+    assert any("FOR UPDATE" in statement for statement in session.executed_statements)
 
 
 def test_get_user_by_refresh_token_rejects_expired_token():
     refresh_token = "expired-refresh-token"
     user = build_user(
         refresh_token_hash=hash_refresh_token(refresh_token),
-        refresh_token_expires_at=(
-            datetime.utcnow() - timedelta(seconds=1)
-        ),
+        refresh_token_expires_at=(datetime.utcnow() - timedelta(seconds=1)),
     )
     session = FakeSession(user=user)
 
@@ -158,12 +141,8 @@ def test_get_user_by_refresh_token_rejects_expired_token():
 def test_revoke_refresh_session_clears_session_and_invalidates_access_tokens():
     user = build_user(
         auth_version=4,
-        refresh_token_hash=hash_refresh_token(
-            "active-refresh-token"
-        ),
-        refresh_token_expires_at=(
-            datetime.utcnow() + timedelta(days=1)
-        ),
+        refresh_token_hash=hash_refresh_token("active-refresh-token"),
+        refresh_token_expires_at=(datetime.utcnow() + timedelta(days=1)),
     )
 
     auth_service.revoke_refresh_session(user=user)
@@ -179,12 +158,8 @@ def test_password_change_revokes_refresh_session(
 ):
     user = build_user(
         auth_version=4,
-        refresh_token_hash=hash_refresh_token(
-            "active-refresh-token"
-        ),
-        refresh_token_expires_at=(
-            datetime.utcnow() + timedelta(days=1)
-        ),
+        refresh_token_hash=hash_refresh_token("active-refresh-token"),
+        refresh_token_expires_at=(datetime.utcnow() + timedelta(days=1)),
     )
     saved_users = []
 
@@ -246,10 +221,7 @@ def test_refresh_token_cookie_is_http_only_and_scoped_to_auth_api():
 
     cookie_header = response.headers["set-cookie"].lower()
 
-    assert (
-        f"{settings.REFRESH_TOKEN_COOKIE_NAME}=refresh-token-value"
-        in cookie_header
-    )
+    assert f"{settings.REFRESH_TOKEN_COOKIE_NAME}=refresh-token-value" in cookie_header
     assert "httponly" in cookie_header
     assert "path=/api/v1/auth" in cookie_header
 

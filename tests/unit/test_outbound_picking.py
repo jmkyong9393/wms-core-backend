@@ -134,6 +134,7 @@ def build_inventory(
         sale_price=sale_price,
     )
 
+
 def build_book():
     return outbound.Book(
         id=BOOK_ID,
@@ -141,6 +142,7 @@ def build_book():
         isbn="9791234567890",
         virtual_stock=10,
     )
+
 
 def build_used_inventory():
     return InventoryUsedItem(
@@ -207,11 +209,7 @@ def test_new_stock_picking_reserves_inventory_without_deducting_quantity():
         session=session,
     )
 
-    allocations = [
-        item
-        for item in session.added_items
-        if isinstance(item, OrderItemInventoryAllocation)
-    ]
+    allocations = [item for item in session.added_items if isinstance(item, OrderItemInventoryAllocation)]
 
     assert response.status == OrderStatus.PICKING
     assert response.total_price == Decimal("27000.00")
@@ -229,10 +227,7 @@ def test_new_stock_picking_reserves_inventory_without_deducting_quantity():
     assert picked_item.isbn == "9791234567890"
     assert picked_item.condition_grade == ConditionGrade.MINT
     assert picked_item.lpn_barcode is None
-    assert (
-        picked_item.allocation_type
-        == outbound.PickingAllocationType.NEW_STOCK
-    )
+    assert picked_item.allocation_type == outbound.PickingAllocationType.NEW_STOCK
     assert picked_item.allocation_id == allocations[0].id
     assert picked_item.picked_quantity == 0
     assert picked_item.is_completed is False
@@ -273,11 +268,7 @@ def test_used_lpn_picking_reserves_lpn_and_creates_allocation(monkeypatch):
         session=session,
     )
 
-    allocations = [
-        item
-        for item in session.added_items
-        if isinstance(item, OrderItemLpnAllocation)
-    ]
+    allocations = [item for item in session.added_items if isinstance(item, OrderItemLpnAllocation)]
 
     assert response.status == OrderStatus.PICKING
     assert response.total_price == Decimal("13500.00")
@@ -286,19 +277,11 @@ def test_used_lpn_picking_reserves_lpn_and_creates_allocation(monkeypatch):
     assert allocations[0].order_item_id == ORDER_ITEM_ID
     assert allocations[0].inventory_used_item_id == USED_INVENTORY_ID
     assert order_item.unit_price == Decimal("15000")
-    picked_item = (
-        response.picking_groups[0]
-        .racks[0]
-        .shelves[0]
-        .items[0]
-    )
+    picked_item = response.picking_groups[0].racks[0].shelves[0].items[0]
 
     assert picked_item.isbn == "9791234567890"
 
-    assert (
-        picked_item.allocation_type
-        == outbound.PickingAllocationType.USED_ITEM
-    )
+    assert picked_item.allocation_type == outbound.PickingAllocationType.USED_ITEM
     assert picked_item.allocation_id == allocations[0].id
     assert picked_item.picked_quantity == 0
     assert picked_item.is_completed is False
@@ -468,6 +451,7 @@ def test_insufficient_inventory_rolls_back_without_reservation():
     assert session.committed is False
     assert session.rolled_back is True
 
+
 def test_scan_new_stock_isbn_increases_picked_quantity():
     order = build_order(status=OrderStatus.PICKING)
     order_item = build_order_item(quantity=2)
@@ -504,23 +488,20 @@ def test_scan_new_stock_isbn_increases_picked_quantity():
     response = outbound.scan_picking_item(
         order_id=ORDER_ID,
         request=outbound.PickingScanRequest(
-            allocation_type=(
-                outbound.PickingAllocationType.NEW_STOCK
-            ),
+            allocation_type=(outbound.PickingAllocationType.NEW_STOCK),
             allocation_id=allocation.id,
             barcode="9791234567890",
         ),
         session=session,
     )
 
-    assert response.allocation_type == (
-        outbound.PickingAllocationType.NEW_STOCK
-    )
+    assert response.allocation_type == (outbound.PickingAllocationType.NEW_STOCK)
     assert response.expected_quantity == 2
     assert response.picked_quantity == 1
     assert response.is_completed is False
     assert allocation.picked_quantity == 1
     assert session.committed is True
+
 
 def test_scan_used_lpn_marks_reserved_lpn_as_picked():
     order = build_order(status=OrderStatus.PICKING)
@@ -552,18 +533,14 @@ def test_scan_used_lpn_marks_reserved_lpn_as_picked():
     response = outbound.scan_picking_item(
         order_id=ORDER_ID,
         request=outbound.PickingScanRequest(
-            allocation_type=(
-                outbound.PickingAllocationType.USED_ITEM
-            ),
+            allocation_type=(outbound.PickingAllocationType.USED_ITEM),
             allocation_id=allocation.id,
             barcode="LPN-TEST-0001",
         ),
         session=session,
     )
 
-    assert response.allocation_type == (
-        outbound.PickingAllocationType.USED_ITEM
-    )
+    assert response.allocation_type == (outbound.PickingAllocationType.USED_ITEM)
     assert response.expected_quantity == 1
     assert response.picked_quantity == 1
     assert response.is_completed is True
@@ -606,12 +583,7 @@ def test_get_picking_instruction_returns_scan_progress():
         session=session,
     )
 
-    picked_item = (
-        response.picking_groups[0]
-        .racks[0]
-        .shelves[0]
-        .items[0]
-    )
+    picked_item = response.picking_groups[0].racks[0].shelves[0].items[0]
 
     assert response.order_id == ORDER_ID
     assert response.status == OrderStatus.PICKING

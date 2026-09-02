@@ -55,9 +55,7 @@ def test_returns_paginated_employee_list_with_user_uuid():
 
     response = list_employees(
         session=session,
-        tenant_id=UUID(
-            "00000000-0000-4000-8000-000000000100"
-        ),
+        tenant_id=UUID("00000000-0000-4000-8000-000000000100"),
         keyword="홍",
         role=UserRole.WORKER,
         status=UserStatus.ACTIVE,
@@ -74,9 +72,7 @@ def test_returns_paginated_employee_list_with_user_uuid():
 
     employee = response.items[0]
 
-    assert str(employee.id) == (
-        "00000000-0000-4000-8000-000000000001"
-    )
+    assert str(employee.id) == ("00000000-0000-4000-8000-000000000001")
     assert employee.employee_id == "NZ26080201"
     assert employee.name == "홍길동"
     assert employee.role == UserRole.WORKER
@@ -94,9 +90,7 @@ def test_returns_paginated_employee_list_with_user_uuid():
 
 
 def test_applies_employee_filters_to_count_and_list_queries():
-    tenant_id = UUID(
-        "00000000-0000-4000-8000-000000000100"
-    )
+    tenant_id = UUID("00000000-0000-4000-8000-000000000100")
     session = FakeSession(
         results=[
             FakeResult(one_value=0),
@@ -120,14 +114,8 @@ def test_applies_employee_filters_to_count_and_list_queries():
 
         assert tenant_id in parameters
         assert "%홍%" in parameters
-        assert any(
-            getattr(value, "value", value) == "WORKER"
-            for value in parameters
-        )
-        assert any(
-            getattr(value, "value", value) == "ACTIVE"
-            for value in parameters
-        )
+        assert any(getattr(value, "value", value) == "WORKER" for value in parameters)
+        assert any(getattr(value, "value", value) == "ACTIVE" for value in parameters)
 
         assert "users.tenant_id" in statement_sql
         assert "users.employee_id" in statement_sql
@@ -145,9 +133,7 @@ def test_returns_zero_total_pages_for_empty_employee_list():
 
     response = list_employees(
         session=session,
-        tenant_id=UUID(
-            "00000000-0000-4000-8000-000000000100"
-        ),
+        tenant_id=UUID("00000000-0000-4000-8000-000000000100"),
         page=1,
         size=20,
     )

@@ -57,13 +57,9 @@ class FakeSession:
 def build_rejected_return_job():
     return SimpleNamespace(
         id=UUID("00000000-0000-4000-8000-000000000001"),
-        tenant_id=UUID(
-            "00000000-0000-4000-8000-000000000002"
-        ),
+        tenant_id=UUID("00000000-0000-4000-8000-000000000002"),
         book_id=UUID("00000000-0000-4000-8000-000000000003"),
-        inbound_item_id=UUID(
-            "00000000-0000-4000-8000-000000000004"
-        ),
+        inbound_item_id=UUID("00000000-0000-4000-8000-000000000004"),
         status=ReturnJobStatus.REJECTED,
         agent_logs={
             "admin_decision_code": "DMG_EXT_WET",
@@ -124,27 +120,18 @@ def test_creates_restock_proposal_from_rejected_job(
         fake_generate_restock_recommendation,
     )
 
-    result = (
-        restock_service.create_restock_proposal_for_rejected_job(
-            session=session,
-            return_job_id=return_job.id,
-        )
+    result = restock_service.create_restock_proposal_for_rejected_job(
+        session=session,
+        return_job_id=return_job.id,
     )
 
     assert result.created is True
-    created_proposals = [
-        item
-        for item in session.added_items
-        if isinstance(item, restock_service.OrderProposal)
-    ]
+    created_proposals = [item for item in session.added_items if isinstance(item, restock_service.OrderProposal)]
 
     assert len(created_proposals) == 1
 
     proposal = created_proposals[0]
-    assert (
-        return_job.agent_logs["restock_generation"]["status"]
-        == restock_service.RESTOCK_GENERATION_COMPLETED
-    )
+    assert return_job.agent_logs["restock_generation"]["status"] == restock_service.RESTOCK_GENERATION_COMPLETED
     # GENERATING 저장 → RESPONSE_SAVED 저장 → Proposal/COMPLETED 저장
     assert session.commit_count == 3
     assert session.refresh_count == 1
@@ -192,11 +179,9 @@ def test_returns_existing_proposal_without_agent_call(
         fail_if_agent_is_called,
     )
 
-    result = (
-        restock_service.create_restock_proposal_for_rejected_job(
-            session=session,
-            return_job_id=return_job.id,
-        )
+    result = restock_service.create_restock_proposal_for_rejected_job(
+        session=session,
+        return_job_id=return_job.id,
     )
 
     assert result.created is False
@@ -233,6 +218,7 @@ def test_rejects_non_rejected_return_job(status):
             session=session,
             return_job_id=return_job.id,
         )
+
 
 def test_saves_not_required_status_for_zero_recommendation(
     monkeypatch,
@@ -283,18 +269,15 @@ def test_saves_not_required_status_for_zero_recommendation(
         fake_generate_restock_recommendation,
     )
 
-    result = (
-        restock_service.create_restock_proposal_for_rejected_job(
-            session=session,
-            return_job_id=return_job.id,
-        )
+    result = restock_service.create_restock_proposal_for_rejected_job(
+        session=session,
+        return_job_id=return_job.id,
     )
 
     assert result.created is True
-    assert result.proposal.status == (
-        OrderProposalStatus.NOT_REQUIRED
-    )
+    assert result.proposal.status == (OrderProposalStatus.NOT_REQUIRED)
     assert result.proposal.pending_auto_po_quantity == 5
+
 
 def test_uses_saved_agent_response_without_calling_openai(
     monkeypatch,
@@ -348,9 +331,7 @@ def test_uses_saved_agent_response_without_calling_openai(
     )
 
     def fail_if_agent_is_called(_request):
-        raise AssertionError(
-            "저장된 Agent 응답이 있으면 OpenAI를 다시 호출하면 안 됩니다."
-        )
+        raise AssertionError("저장된 Agent 응답이 있으면 OpenAI를 다시 호출하면 안 됩니다.")
 
     monkeypatch.setattr(
         restock_service,
@@ -358,26 +339,19 @@ def test_uses_saved_agent_response_without_calling_openai(
         fail_if_agent_is_called,
     )
 
-    result = (
-        restock_service.create_restock_proposal_for_rejected_job(
-            session=session,
-            return_job_id=return_job.id,
-        )
+    result = restock_service.create_restock_proposal_for_rejected_job(
+        session=session,
+        return_job_id=return_job.id,
     )
 
     assert result.created is True
     assert result.generation_in_progress is False
     assert result.proposal is not None
     assert result.proposal.recommended_order_quantity == 45
-    assert result.proposal.reason_summary == (
-        "저장된 Agent 응답으로 추천안을 복구합니다."
-    )
+    assert result.proposal.reason_summary == ("저장된 Agent 응답으로 추천안을 복구합니다.")
     assert session.commit_count == 1
     assert session.refresh_count == 1
-    assert (
-        return_job.agent_logs["restock_generation"]["status"]
-        == restock_service.RESTOCK_GENERATION_COMPLETED
-    )
+    assert return_job.agent_logs["restock_generation"]["status"] == restock_service.RESTOCK_GENERATION_COMPLETED
 
 
 def test_skips_duplicate_agent_call_when_generation_is_in_progress(
@@ -417,9 +391,7 @@ def test_skips_duplicate_agent_call_when_generation_is_in_progress(
     )
 
     def fail_if_agent_is_called(_request):
-        raise AssertionError(
-            "GENERATING 상태에서는 OpenAI를 중복 호출하면 안 됩니다."
-        )
+        raise AssertionError("GENERATING 상태에서는 OpenAI를 중복 호출하면 안 됩니다.")
 
     monkeypatch.setattr(
         restock_service,
@@ -427,11 +399,9 @@ def test_skips_duplicate_agent_call_when_generation_is_in_progress(
         fail_if_agent_is_called,
     )
 
-    result = (
-        restock_service.create_restock_proposal_for_rejected_job(
-            session=session,
-            return_job_id=return_job.id,
-        )
+    result = restock_service.create_restock_proposal_for_rejected_job(
+        session=session,
+        return_job_id=return_job.id,
     )
 
     assert result.created is False
@@ -445,12 +415,8 @@ def test_skips_duplicate_agent_call_when_generation_is_in_progress(
 def test_creates_safety_stock_restock_proposal(
     monkeypatch,
 ):
-    tenant_id = UUID(
-        "00000000-0000-4000-8000-000000000100"
-    )
-    book_id = UUID(
-        "00000000-0000-4000-8000-000000000101"
-    )
+    tenant_id = UUID("00000000-0000-4000-8000-000000000100")
+    book_id = UUID("00000000-0000-4000-8000-000000000101")
     book = SimpleNamespace(
         id=book_id,
         isbn="9790000000001",
@@ -493,43 +459,32 @@ def test_creates_safety_stock_restock_proposal(
         fake_generate_recommendation,
     )
 
-    result = (
-        restock_service.create_restock_proposal_for_safety_stock(
-            session=session,
-            tenant_id=tenant_id,
-            book_id=book_id,
-            safety_stock_quantity=16,
-        )
+    result = restock_service.create_restock_proposal_for_safety_stock(
+        session=session,
+        tenant_id=tenant_id,
+        book_id=book_id,
+        safety_stock_quantity=16,
     )
 
     assert result.created is True
     assert result.proposal is not None
     assert result.proposal.return_job_id is None
-    assert result.proposal.proposal_source == (
-        RestockProposalSource.SAFETY_STOCK
-    )
+    assert result.proposal.proposal_source == (RestockProposalSource.SAFETY_STOCK)
     assert result.proposal.status == OrderProposalStatus.PENDING
     assert result.proposal.recommended_order_quantity == 13
 
     request = captured_request["value"]
-    assert request.proposal_source == (
-        RestockProposalSource.SAFETY_STOCK
-    )
+    assert request.proposal_source == (RestockProposalSource.SAFETY_STOCK)
     assert request.safety_stock_quantity == 16
     assert request.rejected_quantity == 0
-    assert request.rejection_reason_code == (
-        restock_service.SAFETY_STOCK_REASON_CODE
-    )
+    assert request.rejection_reason_code == (restock_service.SAFETY_STOCK_REASON_CODE)
+
 
 def test_returns_existing_pending_safety_stock_proposal(
     monkeypatch,
 ):
-    tenant_id = UUID(
-        "00000000-0000-4000-8000-000000000100"
-    )
-    book_id = UUID(
-        "00000000-0000-4000-8000-000000000101"
-    )
+    tenant_id = UUID("00000000-0000-4000-8000-000000000100")
+    book_id = UUID("00000000-0000-4000-8000-000000000101")
     book = SimpleNamespace(
         id=book_id,
         isbn="9790000000001",
@@ -549,9 +504,7 @@ def test_returns_existing_pending_safety_stock_proposal(
     )
 
     def fail_if_agent_called(_request):
-        raise AssertionError(
-            "기존 PENDING 추천안이 있으면 Agent를 호출하면 안 됩니다."
-        )
+        raise AssertionError("기존 PENDING 추천안이 있으면 Agent를 호출하면 안 됩니다.")
 
     monkeypatch.setattr(
         restock_service,
@@ -559,13 +512,11 @@ def test_returns_existing_pending_safety_stock_proposal(
         fail_if_agent_called,
     )
 
-    result = (
-        restock_service.create_restock_proposal_for_safety_stock(
-            session=session,
-            tenant_id=tenant_id,
-            book_id=book_id,
-            safety_stock_quantity=16,
-        )
+    result = restock_service.create_restock_proposal_for_safety_stock(
+        session=session,
+        tenant_id=tenant_id,
+        book_id=book_id,
+        safety_stock_quantity=16,
     )
 
     assert result.created is False
@@ -573,15 +524,12 @@ def test_returns_existing_pending_safety_stock_proposal(
     assert session.added_items == []
     assert session.commit_count == 0
 
+
 def test_skips_safety_stock_agent_when_stock_is_sufficient(
     monkeypatch,
 ):
-    tenant_id = UUID(
-        "00000000-0000-4000-8000-000000000100"
-    )
-    book_id = UUID(
-        "00000000-0000-4000-8000-000000000101"
-    )
+    tenant_id = UUID("00000000-0000-4000-8000-000000000100")
+    book_id = UUID("00000000-0000-4000-8000-000000000101")
     book = SimpleNamespace(
         id=book_id,
         isbn="9790000000001",
@@ -602,9 +550,7 @@ def test_skips_safety_stock_agent_when_stock_is_sufficient(
     )
 
     def fail_if_agent_called(_request):
-        raise AssertionError(
-            "안전재고가 충족되면 Agent를 호출하면 안 됩니다."
-        )
+        raise AssertionError("안전재고가 충족되면 Agent를 호출하면 안 됩니다.")
 
     monkeypatch.setattr(
         restock_service,
@@ -612,13 +558,11 @@ def test_skips_safety_stock_agent_when_stock_is_sufficient(
         fail_if_agent_called,
     )
 
-    result = (
-        restock_service.create_restock_proposal_for_safety_stock(
-            session=session,
-            tenant_id=tenant_id,
-            book_id=book_id,
-            safety_stock_quantity=16,
-        )
+    result = restock_service.create_restock_proposal_for_safety_stock(
+        session=session,
+        tenant_id=tenant_id,
+        book_id=book_id,
+        safety_stock_quantity=16,
     )
 
     assert result.created is False

@@ -4,8 +4,7 @@ on:
   pull_request:
     branches:
       - main
-  # 브랜치에서 게이트를 직접 돌려볼 수 있게 수동 실행을 허용한다.
-  # (PR을 열기 전에 CI 통과 여부를 확인하는 용도)
+  # 브랜치에서 게이트를 직접 돌려보기 위한 수동 실행
   workflow_dispatch:
 
 jobs:
@@ -30,20 +29,18 @@ jobs:
       - name: Install Dependencies
         run: uv sync --frozen --dev
 
-      # 하드 게이트. 규칙셋과 ignore 사유는 pyproject [tool.ruff.lint]에 문서화되어 있다.
+      # 하드 게이트. 규칙셋과 ignore 사유는 pyproject [tool.ruff.lint] 참조.
       - name: Lint (Ruff)
         run: uv run ruff check app/
 
-      # 하드 게이트. app/ai 포맷 부채는 조장 승인(2026-09-01) 후 정리 완료되어
-      # 이제 전 범위를 검사한다.
+      # 하드 게이트
       - name: Format Check (Ruff)
         run: uv run ruff format --check app/
 
-      # 하드 게이트. 테스트가 깨진 채로 머지되던 `|| echo` 무력화를 제거했다.
+      # 하드 게이트
       - name: Test (Pytest)
         run: uv run pytest -q
 
-      # 하드 게이트. 오류가 남은 44개 모듈은 pyproject [[tool.mypy.overrides]]에
-      # 사유와 함께 베이스라인으로 제외했고, 나머지 108개 모듈은 여기서 지켜진다.
+      # 하드 게이트. 베이스라인 제외 모듈은 pyproject [[tool.mypy.overrides]] 참조.
       - name: Type Check (Mypy)
         run: uv run mypy app/

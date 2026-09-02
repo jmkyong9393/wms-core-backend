@@ -67,9 +67,7 @@ def main() -> None:
     out.append("> uv run python scripts/generate_api_spec.py")
     out.append("> ```")
     out.append(">")
-    out.append(
-        "> 실행 중인 서버에서는 `http://localhost:8080/docs`(Swagger UI)로도 볼 수 있습니다."
-    )
+    out.append("> 실행 중인 서버에서는 `http://localhost:8080/docs`(Swagger UI)로도 볼 수 있습니다.")
     out.append("")
     out.append(f"- 생성일: {date.today().isoformat()}")
     out.append(f"- 엔드포인트: **{total}개** / 태그 {len(by_tag)}개")
@@ -114,8 +112,7 @@ def main() -> None:
                     req = "O" if p.get("required") else "-"
                     desc = (p.get("description") or "").replace("|", "\\|").replace("\n", " ")
                     out.append(
-                        f"| `{p['name']}` | {p['in']} | {req} | "
-                        f"{type_of(p.get('schema', {}), schemas)} | {desc} |"
+                        f"| `{p['name']}` | {p['in']} | {req} | {type_of(p.get('schema', {}), schemas)} | {desc} |"
                     )
                 out.append("")
 
@@ -131,11 +128,7 @@ def main() -> None:
                         out.append("| 필드 | 필수 | 타입 | 설명 |")
                         out.append("|---|---|---|---|")
                         for fname, fschema in fields["properties"].items():
-                            desc = (
-                                (fschema.get("description") or "")
-                                .replace("|", "\\|")
-                                .replace("\n", " ")
-                            )
+                            desc = (fschema.get("description") or "").replace("|", "\\|").replace("\n", " ")
                             out.append(
                                 f"| `{fname}` | {'O' if fname in required else '-'} | "
                                 f"{type_of(fschema, schemas)} | {desc} |"
@@ -157,9 +150,7 @@ def main() -> None:
                     out.append(f"| {code} | {desc} | {schema_name} |")
                 out.append("")
 
-    io.open("docs/API_Specification.md", "w", encoding="utf-8", newline="\n").write(
-        "\n".join(out) + "\n"
-    )
+    io.open("docs/API_Specification.md", "w", encoding="utf-8", newline="\n").write("\n".join(out) + "\n")
     print(f"docs/API_Specification.md written: {total} endpoints, {len(by_tag)} tags")
 
 

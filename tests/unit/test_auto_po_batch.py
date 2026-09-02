@@ -17,9 +17,7 @@ class FakeSessionContext:
 def test_batch_queues_safety_stock_restock_tasks(
     monkeypatch,
 ):
-    tenant_id = UUID(
-        "00000000-0000-4000-8000-000000000100"
-    )
+    tenant_id = UUID("00000000-0000-4000-8000-000000000100")
     queued_tasks = []
 
     monkeypatch.setattr(
@@ -37,9 +35,7 @@ def test_batch_queues_safety_stock_restock_tasks(
         "fetch_books_needing_restock",
         lambda _session: [
             {
-                "book_id": (
-                    "00000000-0000-4000-8000-000000000001"
-                ),
+                "book_id": ("00000000-0000-4000-8000-000000000001"),
                 "title": "안전재고 부족 도서",
                 "weekly_sales": 8,
                 "current_stock": 2,
@@ -68,10 +64,7 @@ def test_batch_queues_safety_stock_restock_tasks(
 
     assert queued_tasks == [
         {
-            "task_name": (
-                "app.worker."
-                "process_safety_stock_restock_proposal"
-            ),
+            "task_name": ("app.worker.process_safety_stock_restock_proposal"),
             "args": [
                 str(tenant_id),
                 "00000000-0000-4000-8000-000000000001",
@@ -101,9 +94,7 @@ def test_batch_does_not_queue_task_when_no_book_is_short(
     )
 
     def fail_if_called(*_args, **_kwargs):
-        raise AssertionError(
-            "안전재고 부족 도서가 없으면 Task를 등록하면 안 됩니다."
-        )
+        raise AssertionError("안전재고 부족 도서가 없으면 Task를 등록하면 안 됩니다.")
 
     monkeypatch.setattr(
         auto_po_batch.celery_app,

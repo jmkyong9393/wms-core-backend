@@ -1,13 +1,7 @@
-"""노드 계측 — 구간 지연과 LLM 토큰을 노드 단위로 수집한다.
+"""노드별 구간 지연과 LLM 토큰·비용을 수집한다.
 
-**노드 구현을 수정하지 않는다.** 그래프 등록 시점에 노드 함수를 감싸기만 하므로
-프리즈 구역(파이프라인 구조·모델 배정)에 영향이 없다. 래퍼를 벗기면 원래 함수다.
-
-수집 값은 state의 두 리듀서 필드에 누적된다.
-  node_timings  [{node, ms, at}]              재검수 루프가 돌면 같은 노드가 여러 번 쌓인다
-  node_tokens   [{node, prompt, completion, total, cost_usd, calls}]
-
-계측 실패가 검수를 막아서는 안 되므로 모든 예외를 삼킨다(fail-open).
+그래프 등록 시점에 노드 함수를 감싸기만 하며, 결과는 state의 node_timings /
+node_tokens에 누적된다. 계측 실패가 검수를 막지 않도록 예외는 삼킨다.
 """
 
 import contextvars
@@ -21,13 +15,11 @@ from langchain_core.callbacks import BaseCallbackHandler
 
 logger = logging.getLogger(__name__)
 
-# 현재 실행 중인 노드 이름과 그 노드의 토큰 수집함.
-# langchain_community(get_openai_callback)가 설치돼 있지 않아 직접 만든다.
-# 콜백은 전역 인스턴스라 "어느 노드에서 부른 호출인가"를 알 수 없으므로 contextvar로 잇는다.
+# 콜백은 전역 인스턴스라 호출 노드를 알 수 없어 contextvar로 잇는다.
 _current_node: contextvars.ContextVar = contextvars.ContextVar("wms_current_node", default=None)
 _token_sink: contextvars.ContextVar = contextvars.ContextVar("wms_token_sink", default=None)
 
-# gpt-4o / gpt-4o-mini 1K 토큰당 단가(USD). 요금 개정 시 이 표만 고친다.
+# 1K 토큰당 단가(USD)
 _PRICE = {
     "gpt-4o": {"in": 0.0025, "out": 0.010},
     "gpt-4o-mini": {"in": 0.00015, "out": 0.0006},
@@ -35,9 +27,7 @@ _PRICE = {
 
 
 def _cost(model: str, prompt: int, completion: int) -> float:
-    # 긴 키부터 대조한다. "gpt-4o"는 "gpt-4o-mini"의 접두사라, 짧은 키를 먼저 보면
-    # mini 호출이 전부 4o 단가로 계산된다(실측: policy_agent 5,406토큰이 $0.000905 대신
-    # $0.015083으로 기록됐다).
+    # "gpt-4o"가 "gpt-4o-mini"의 접두사라 긴 키부터 대조한다.
     for key in sorted(_PRICE, key=len, reverse=True):
         if key in (model or ""):
             p = _PRICE[key]
@@ -46,11 +36,9 @@ def _cost(model: str, prompt: int, completion: int) -> float:
 
 
 class TokenCollector(BaseCallbackHandler):
-    """LangChain 콜백. 노드별 토큰을 contextvar 수집함에 적재한다.
+    """노드별 LLM 토큰 사용량을 수집하는 LangChain 콜백.
 
-    **BaseCallbackHandler를 반드시 상속한다.** ChatOpenAI의 `callbacks` 필드는
-    타입 검증을 하므로, 상속하지 않은 객체를 넘기면 생성자가 예외를 던지고
-    llm 인스턴스가 통째로 None이 된다(실측으로 확인).
+    ChatOpenAI의 callbacks 필드가 타입 검증을 하므로 BaseCallbackHandler를 상속해야 한다.
     """
 
     def on_llm_end(self, response, **kwargs):
@@ -92,7 +80,7 @@ class TokenCollector(BaseCallbackHandler):
 
 token_collector = TokenCollector()
 
-# 컨테이너 TZ가 UTC라 datetime.now()는 UTC를 준다. 기록 시각은 KST로 남긴다.
+# 컨테이너 TZ가 UTC이므로 기록 시각은 KST로 변환한다.
 _KST = timezone(timedelta(hours=9))
 
 
@@ -118,7 +106,6 @@ def instrument(name: str, fn: Callable) -> Callable:
 
         ms = int((time.perf_counter() - t0) * 1000)
         if not isinstance(out, dict):
-            # 노드가 dict를 돌려주지 않으면 계측을 붙일 자리가 없다. 원본을 그대로 돌려준다.
             return out
 
         try:
@@ -127,7 +114,7 @@ def instrument(name: str, fn: Callable) -> Callable:
                 *out["node_timings"],
                 {"node": name, "ms": ms, "at": _now_kst_iso()},
             ]
-            # 토큰이 0인 노드(결정론적 노드)는 기록하지 않는다 — 목록이 의미 없이 길어진다.
+            # 토큰을 쓰지 않은 노드는 기록하지 않는다
             if sink:
                 out.setdefault("node_tokens", [])
                 out["node_tokens"] = [
@@ -150,7 +137,7 @@ def instrument(name: str, fn: Callable) -> Callable:
 
 
 def summarize(timings, tokens) -> Dict[str, Any]:
-    """노드별 목록을 발표·논문에서 바로 쓸 수 있는 집계로 접는다."""
+    """노드별 계측 목록을 합계로 집계한다."""
     by_node: Dict[str, Dict[str, Any]] = {}
     for t in timings or []:
         n = t.get("node")

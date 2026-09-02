@@ -23,10 +23,7 @@ def test_hitl_agent_alert_is_saved_then_published(
                 "category": "AGENT_ALERT",
                 "severity": "MEDIUM",
                 "title": "AI 검수 결과 관리자 확인 필요",
-                "message": (
-                    "AI 검수가 자동 확정되지 않아 관리자 검수가 필요합니다. "
-                    "사유 코드: VISION_LOW_CONFIDENCE"
-                ),
+                "message": ("AI 검수가 자동 확정되지 않아 관리자 검수가 필요합니다. 사유 코드: VISION_LOW_CONFIDENCE"),
                 "timestamp": "2026-07-28T12:00:00",
                 "read": False,
             },
@@ -61,14 +58,8 @@ def test_hitl_agent_alert_is_saved_then_published(
     )
 
     assert captured["create"]["tenant_id"] == job.tenant_id
-    assert (
-        captured["create"]["category"]
-        == NotificationCategory.AGENT_ALERT
-    )
-    assert (
-        captured["create"]["severity"]
-        == NotificationSeverity.MEDIUM
-    )
+    assert captured["create"]["category"] == NotificationCategory.AGENT_ALERT
+    assert captured["create"]["severity"] == NotificationSeverity.MEDIUM
     assert captured["create"]["payload"] == {
         "return_job_id": str(job.id),
         "inspection_task_id": "inspection-task-001",
@@ -76,10 +67,7 @@ def test_hitl_agent_alert_is_saved_then_published(
     }
 
     assert captured["publish"]["event_name"] == "AGENT_ALERT"
-    assert (
-        captured["publish"]["publish_function"]
-        is worker.publish_tenant_notification_event
-    )
+    assert captured["publish"]["publish_function"] is worker.publish_tenant_notification_event
     assert captured["publish"]["tenant_id"] == str(job.tenant_id)
     assert captured["publish"]["event"]["category"] == "AGENT_ALERT"
     assert captured["publish"]["event"]["read"] is False

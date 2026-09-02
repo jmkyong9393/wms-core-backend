@@ -53,6 +53,7 @@ def test_reject_allows_missing_score():
 
     assert request.ubci_score is None
 
+
 def test_accepts_hitl_contract_fields():
     request = InspectionInventoryRequest(
         return_job_id="00000000-0000-4000-8000-000000000001",
@@ -79,15 +80,14 @@ def test_accepts_hitl_contract_fields():
 )
 def test_rejects_invalid_hitl_contract_values(field, value):
     payload = {
-        "return_job_id": (
-            "00000000-0000-4000-8000-000000000001"
-        ),
+        "return_job_id": ("00000000-0000-4000-8000-000000000001"),
         "decision": "REJECT",
     }
     payload[field] = value
 
     with pytest.raises(ValidationError):
         InspectionInventoryRequest(**payload)
+
 
 def test_approve_accepts_admin_final_grade_without_ubci_score():
     request = InspectionInventoryRequest(

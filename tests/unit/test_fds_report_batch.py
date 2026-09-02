@@ -59,12 +59,8 @@ def test_creates_new_tenant_scoped_fds_report():
     assert report.fraud_score == 95
 
     select_params = session.execute_calls[0]["params"]
-    assert select_params["tenant_id"] == UUID(
-        record["tenant_id"]
-    )
-    assert select_params["cid"] == UUID(
-        record["customer_id"]
-    )
+    assert select_params["tenant_id"] == UUID(record["tenant_id"])
+    assert select_params["cid"] == UUID(record["customer_id"])
 
 
 def test_updates_existing_report_when_score_increases():

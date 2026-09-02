@@ -38,11 +38,10 @@ logger = logging.getLogger(__name__)
 
 
 def critic_agent(state: WMSInspectionState) -> WMSInspectionState:
-    """
-    3. Critic Agent
-    TODO: Policy Agent가 RAG에서 가져온 규정과 실제 감점 연산이 타당한지 교차 검증하세요.
-    - 핵심: 검증 실패 시 Policy로 되돌려보냅니다. 여러 번 실패할 경우 HITL(수동 개입)으로 에스컬레이션합니다.
-    - 출력: reason_code ("OK", "REJECT"), revision_count 증가
+    """3. Critic Agent — Vision 결과와 Policy 감점 연산의 정합성을 교차 검증한다.
+
+    검증에 실패하면 Policy로 되돌리고, 반복 실패하면 HITL로 넘긴다.
+    출력: reason_code, revision_count
     """
     logger.info("[Agent] Critic Agent 실행...")
 

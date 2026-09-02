@@ -53,9 +53,7 @@ def test_returns_new_and_used_inventory_availability_fields():
         total=2,
         rows=[
             {
-                "id": UUID(
-                    "00000000-0000-4000-8000-000000000001"
-                ),
+                "id": UUID("00000000-0000-4000-8000-000000000001"),
                 "stock_type": "NEW_STOCK",
                 "book_title": "신간 도서",
                 "book_isbn": "9790000000001",
@@ -77,9 +75,7 @@ def test_returns_new_and_used_inventory_availability_fields():
                 "date": datetime(2026, 7, 30, 10, 0, 0),
             },
             {
-                "id": UUID(
-                    "00000000-0000-4000-8000-000000000002"
-                ),
+                "id": UUID("00000000-0000-4000-8000-000000000002"),
                 "stock_type": "USED_ITEM",
                 "book_title": "중고 도서",
                 "book_isbn": "9790000000002",
@@ -123,9 +119,7 @@ def test_returns_new_and_used_inventory_availability_fields():
     assert response.total_pages == 1
 
     assert new_stock.stock_type == "NEW_STOCK"
-    assert response.items[0].book.cover_image_url == (
-        "https://image.aladin.co.kr/product/example.jpg"
-    )
+    assert response.items[0].book.cover_image_url == ("https://image.aladin.co.kr/product/example.jpg")
     assert response.items[1].book.cover_image_url is None
     assert new_stock.grade is None
     assert new_stock.quantity == 10
@@ -198,10 +192,7 @@ def test_applies_isbn_filter_to_new_and_used_inventory_query():
 
     compiled_params = session.list_statement.compile().params
 
-    assert sum(
-        value == "9790000000001"
-        for value in compiled_params.values()
-    ) == 2
+    assert sum(value == "9790000000001" for value in compiled_params.values()) == 2
 
 
 def test_excludes_shipped_lpn_from_inventory_query():
@@ -251,6 +242,7 @@ def test_returns_zero_total_pages_when_inventory_is_empty():
     assert response.total == 0
     assert response.total_pages == 0
 
+
 def test_applies_grid_filters_to_inventory_count_and_list_queries():
     session = FakeSession(
         total=0,
@@ -285,22 +277,12 @@ def test_applies_grid_filters_to_inventory_count_and_list_queries():
         assert list(parameters).count("B") == 2
 
         # 시작일·종료일이 신간/중고의 updated_at 기준으로 적용된다.
-        assert list(parameters).count(
-            date(2026, 7, 1)
-        ) == 2
-        assert list(parameters).count(
-            date(2026, 7, 31)
-        ) == 2
+        assert list(parameters).count(date(2026, 7, 1)) == 2
+        assert list(parameters).count(date(2026, 7, 31)) == 2
         assert "date(inventory.updated_at)" in statement_sql
-        assert (
-            "date(inventory_used_items.updated_at)"
-            in statement_sql
-        )
+        assert "date(inventory_used_items.updated_at)" in statement_sql
 
         # EXCELLENT는 중고 단품 등급 조건으로 적용되고,
         # 신간(MINT)은 결과에서 제외된다.
-        assert any(
-            getattr(value, "value", value) == "EXCELLENT"
-            for value in parameters
-        )
+        assert any(getattr(value, "value", value) == "EXCELLENT" for value in parameters)
         assert False in parameters

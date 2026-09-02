@@ -139,10 +139,7 @@ def test_returns_inbound_dashboard_summary():
     assert response.daily_inbound_trend[-1].new_stock_quantity == 0
     assert response.daily_inbound_trend[-1].used_return_quantity == 2
 
-    grade_counts = {
-        item.grade: item.quantity
-        for item in response.grade_distribution
-    }
+    grade_counts = {item.grade: item.quantity for item in response.grade_distribution}
     assert grade_counts[ConditionGrade.EXCELLENT] == 2
     assert grade_counts[ConditionGrade.NORMAL] == 1
     assert grade_counts[ConditionGrade.MINT] == 0
@@ -157,9 +154,7 @@ def test_returns_inbound_dashboard_summary():
     assert response.zone_stocks[1].available_quantity == 5
 
     assert len(response.recent_activities) == 1
-    assert response.recent_activities[0].book_title == (
-        "입고 대시보드 테스트 도서"
-    )
+    assert response.recent_activities[0].book_title == ("입고 대시보드 테스트 도서")
     assert response.recent_activities[0].location_barcode == "B-2-1"
 
     assert len(session.statements) == 8

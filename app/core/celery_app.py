@@ -43,9 +43,7 @@ celery_app.conf.update(
     # 작업 실행 제한 시간
     task_soft_time_limit=300,
     task_time_limit=360,
-    # AI 검수만 상한을 따로 둔다. 촬영 3컷 각각에 GPT-4o(타임아웃 90s) +
-    # 검증용 gpt-4o-mini(60s)가 붙고 Critic LLM(60s)까지 이어져 최악의 경우
-    # 전역 상한 300s를 넘긴다. 실측 정상 구간은 20~35초다(E2E 2026-09-01).
+    # AI 검수는 촬영 컷마다 LLM을 여러 번 호출해 전역 상한(300s)을 넘길 수 있다.
     task_annotations={
         "app.worker.process_inspection": {
             "soft_time_limit": 600,

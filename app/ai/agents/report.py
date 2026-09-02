@@ -39,10 +39,10 @@ logger = logging.getLogger(__name__)
 
 
 def auto_refund_agent(state: WMSInspectionState) -> WMSInspectionState:
-    """
-    4. Auto-Refund Agent (Fast-track)
-    TODO: MINT 등급의 새 책에 대한 환불 승인 사유서(JSON)를 작성하세요.
-    - 출력: final_report (str, JSON format)
+    """4. Auto-Refund Agent — 무결함 MINT 건의 자동 매입 사유서를 작성한다.
+
+    경로 단일화 이후 그래프에서는 호출되지 않으며, 자격 판정은 Supervisor가 한다.
+    출력: final_report (JSON 문자열)
     """
     logger.info("[Agent] Auto Refund Agent 실행...")
 
@@ -173,8 +173,7 @@ GRADE_LABEL_KO = {
     "REJECT": "매입 불가",
 }
 
-# 고객 노출용 결함 위치 한글 라벨. 영문 enum을 그대로 프롬프트에 넣으면
-# LLM이 그 코드를 고객 문구에 그대로 복사한다(실측).
+# 고객 노출용 결함 위치 한글 라벨. 영문 enum을 그대로 넣으면 문구에 그대로 나간다.
 LOCATION_LABEL_KO = {
     "FRONT_COVER": "앞표지",
     "BACK_COVER": "뒤표지",
@@ -195,10 +194,7 @@ def _fallback_narrative(
     final_grade: str,
     defects: list,
 ) -> dict:
-    """LLM 호출 불가 시 사용하는 결정론적 보증서 서술.
-
-    문장은 백엔드에서만 만든다 — 프론트가 등급별 문구를 하드코딩하지 않게 하기 위함.
-    """
+    """LLM을 쓸 수 없을 때 사용하는 결정론적 보증서 서술."""
     notes = []
     for defect in defects or []:
         if not isinstance(defect, dict):
@@ -361,8 +357,7 @@ def report_agent(state: WMSInspectionState) -> WMSInspectionState:
         fallback_source="RULE_ENGINE_FALLBACK",
     )
 
-    # 고객 공개용 서술 생성 (LLM + 결정론적 폴백).
-    # 이 노드는 Celery 워커의 그래프 실행 안에서만 돌므로 API 동기 루프에서 LLM을 부르지 않는다.
+    # 고객 공개용 서술 생성 (LLM 실패 시 결정론적 폴백)
     customer_narrative = build_customer_narrative(
         final_grade=final_grade,
         defects=state.get("defects") or [],

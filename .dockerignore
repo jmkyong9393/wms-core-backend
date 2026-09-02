@@ -1,4 +1,4 @@
-# 빌드 컨텍스트 제외 — .venv/models 미제외 시 수 GB 전송으로 빌드가 사실상 멈춘다
+# 빌드 컨텍스트 제외. .venv/models를 넣으면 수 GB가 전송된다.
 .venv/
 .git/
 .github/
@@ -7,10 +7,10 @@
 __pycache__/
 *.pyc
 
-# 가중치는 이미지에 굽지 않고 볼륨(./models:/app/models:ro)으로 공급
+# 가중치는 이미지에 굽지 않고 볼륨으로 공급
 models/
 
-# 문서는 제외하되 RAG 시딩 원문(ai_knowledge_base)은 이미지에 포함
+# 문서는 제외하되 RAG 시딩 원문은 포함
 docs/*
 !docs/ai_knowledge_base
 

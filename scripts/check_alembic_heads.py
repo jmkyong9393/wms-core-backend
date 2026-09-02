@@ -10,10 +10,7 @@ def main() -> None:
     heads = script.get_heads()
 
     if len(heads) != 1:
-        raise SystemExit(
-            "Expected exactly one Alembic head, "
-            f"but found {len(heads)}: {', '.join(heads) or '<none>'}"
-        )
+        raise SystemExit(f"Expected exactly one Alembic head, but found {len(heads)}: {', '.join(heads) or '<none>'}")
 
     print(f"Alembic head: {heads[0]}")
 

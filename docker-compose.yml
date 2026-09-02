@@ -57,16 +57,13 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql://admin:password@db:5432/wms_db
-    # 마이그레이션은 이미지에 구워지지만, 로컬에서 새로 추가한 리비전이 즉시
-    # 반영되도록 소스를 마운트한다(app 핫리로드와 동일한 이유).
+    # 새로 추가한 리비전이 즉시 반영되도록 마운트한다
     volumes:
       - ./alembic:/app/alembic:ro
       - ./app:/app/app
     command: ["alembic", "upgrade", "head"]
 
-  # UBCI/WMS 정책 문서를 Chroma에 시딩하는 one-shot 작업.
-  # Policy Agent가 조회하는 컬렉션(wms_ubci_policies)의 정식 시딩 절차이며,
-  # ingest.py(wms_return_policies)는 legacy로 Policy Agent가 읽지 않는다.
+  # UBCI/WMS 정책 문서를 Chroma에 시딩한다 (컬렉션 wms_ubci_policies).
   rag-seed:
     build: .
     container_name: wms-core-rag-seed
@@ -79,7 +76,7 @@ services:
     environment:
       CHROMA_SERVER_HOST: chroma-server
       CHROMA_SERVER_PORT: 8000
-    # Dockerfile은 docs를 이미지에 굽지 않으므로 시딩 원문은 마운트로 공급한다
+    # docs는 이미지에 포함되지 않아 마운트로 공급한다
     volumes:
       - ./docs/ai_knowledge_base:/app/docs/ai_knowledge_base:ro
     command: ["python", "-m", "app.ai.rag.policy_search"]
@@ -158,9 +155,7 @@ services:
     volumes:
       - ./app:/app/app
       - ./models:/app/models:ro
-    # 검수 워커만 prefork를 쓴다. YOLO/torch 추론은 C 확장 안에서 CPU를 점유해
-    # 그린렛에 양보하지 않으므로, gevent 풀에서는 동시 실행이 서로를 막고
-    # soft_time_limit 계측도 왜곡된다. 동시성 2는 컨테이너 메모리 기준값이다.
+    # YOLO/torch 추론은 C 확장에서 CPU를 점유해 그린렛에 양보하지 않으므로 prefork를 쓴다.
     command: ["celery", "-A", "app.worker", "worker", "-Q", "inspection", "-l", "info", "--pool=prefork", "-c", "2", "-E", "-n", "inspection@%h"]
 
   restock-worker:

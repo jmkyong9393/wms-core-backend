@@ -36,12 +36,8 @@ class FakeSession:
 def build_inbound_item():
     return SimpleNamespace(
         id=UUID("00000000-0000-4000-8000-000000000001"),
-        inbound_job_id=UUID(
-            "00000000-0000-4000-8000-000000000002"
-        ),
-        book_id=UUID(
-            "00000000-0000-4000-8000-000000000003"
-        ),
+        inbound_job_id=UUID("00000000-0000-4000-8000-000000000002"),
+        book_id=UUID("00000000-0000-4000-8000-000000000003"),
         scan_value="test-certificate-token",
         lpn_barcode="LPN-TEST-0001",
         condition_grade=None,
@@ -83,9 +79,7 @@ def test_returns_available_inventory_location_after_inspection():
         ubci_score=Decimal("91.50"),
     )
     used_inventory_item = SimpleNamespace(
-        location_id=UUID(
-            "00000000-0000-4000-8000-000000000004"
-        ),
+        location_id=UUID("00000000-0000-4000-8000-000000000004"),
         status=UsedInventoryStatus.AVAILABLE,
     )
 
@@ -111,9 +105,7 @@ def test_returns_available_inventory_location_after_inspection():
     assert result.lpn_barcode == "LPN-TEST-0001"
     assert result.final_grade == ConditionGrade.EXCELLENT
     assert result.ubci_score == Decimal("91.50")
-    assert result.inventory_status == (
-        UsedInventoryStatus.AVAILABLE
-    )
+    assert result.inventory_status == (UsedInventoryStatus.AVAILABLE)
     assert result.location is not None
     assert result.location.barcode == "B-1-2"
     assert result.requires_retake is False
@@ -162,9 +154,7 @@ def test_returns_rejected_item_location():
         ubci_score=Decimal("40.00"),
     )
     rejected_item = SimpleNamespace(
-        location_id=UUID(
-            "00000000-0000-4000-8000-000000000004"
-        ),
+        location_id=UUID("00000000-0000-4000-8000-000000000004"),
         status=RejectedItemStatus.REJECT_HOLD,
     )
 
@@ -188,9 +178,7 @@ def test_returns_rejected_item_location():
     )
 
     assert result.final_grade == ConditionGrade.REJECT
-    assert result.rejected_item_status == (
-        RejectedItemStatus.REJECT_HOLD
-    )
+    assert result.rejected_item_status == (RejectedItemStatus.REJECT_HOLD)
     assert result.location is not None
     assert result.location.barcode == "B-1-2"
     assert result.requires_retake is False

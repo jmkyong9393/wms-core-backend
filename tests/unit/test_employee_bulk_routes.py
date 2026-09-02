@@ -31,21 +31,13 @@ def client():
     )
 
     current_master = SimpleNamespace(
-        id=UUID(
-            "00000000-0000-4000-8000-000000000001"
-        ),
-        tenant_id=UUID(
-            "00000000-0000-4000-8000-000000000100"
-        ),
+        id=UUID("00000000-0000-4000-8000-000000000001"),
+        tenant_id=UUID("00000000-0000-4000-8000-000000000100"),
         employee_id="NZ0000000",
     )
 
-    app.dependency_overrides[
-        require_master
-    ] = lambda: current_master
-    app.dependency_overrides[
-        get_session
-    ] = lambda: SimpleNamespace()
+    app.dependency_overrides[require_master] = lambda: current_master
+    app.dependency_overrides[get_session] = lambda: SimpleNamespace()
 
     with TestClient(app) as test_client:
         yield test_client
@@ -54,20 +46,13 @@ def client():
 
 
 def test_downloads_bulk_employee_template(client):
-    response = client.get(
-        "/api/v1/users/admin/bulk-template"
-    )
+    response = client.get("/api/v1/users/admin/bulk-template")
 
     assert response.status_code == 200
-    assert response.headers[
-        "content-type"
-    ].startswith(
-        "application/vnd.openxmlformats-officedocument."
-        "spreadsheetml.sheet"
+    assert response.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-    assert "attachment" in response.headers[
-        "content-disposition"
-    ]
+    assert "attachment" in response.headers["content-disposition"]
     assert response.headers["cache-control"] == "no-store"
 
     workbook = load_workbook(
@@ -76,10 +61,7 @@ def test_downloads_bulk_employee_template(client):
     )
     worksheet = workbook.active
 
-    assert [
-        cell.value
-        for cell in worksheet[1]
-    ] == [
+    assert [cell.value for cell in worksheet[1]] == [
         "이름",
         "입사일",
         "역할",
@@ -128,24 +110,16 @@ def test_bulk_create_returns_result_xlsx(
             "file": (
                 "employees.xlsx",
                 b"test-xlsx-content",
-                (
-                    "application/vnd.openxmlformats-"
-                    "officedocument.spreadsheetml.sheet"
-                ),
+                ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
             )
         },
     )
 
     assert response.status_code == 201
-    assert response.headers[
-        "content-type"
-    ].startswith(
-        "application/vnd.openxmlformats-officedocument."
-        "spreadsheetml.sheet"
+    assert response.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-    assert "attachment" in response.headers[
-        "content-disposition"
-    ]
+    assert "attachment" in response.headers["content-disposition"]
     assert response.headers["cache-control"] == "no-store"
     assert response.headers["pragma"] == "no-cache"
 
@@ -167,12 +141,7 @@ def test_bulk_create_returns_row_errors_for_invalid_xlsx(
     monkeypatch,
 ):
     def raise_validation_error(_file_content):
-        raise EmployeeBulkExcelValidationError(
-            [
-                "2행 - 역할은 ADMIN, WORKER, 관리자, "
-                "작업자 중 하나여야 합니다."
-            ]
-        )
+        raise EmployeeBulkExcelValidationError(["2행 - 역할은 ADMIN, WORKER, 관리자, 작업자 중 하나여야 합니다."])
 
     monkeypatch.setattr(
         admin_users,
@@ -186,19 +155,13 @@ def test_bulk_create_returns_row_errors_for_invalid_xlsx(
             "file": (
                 "employees.xlsx",
                 b"invalid-xlsx-content",
-                (
-                    "application/vnd.openxmlformats-"
-                    "officedocument.spreadsheetml.sheet"
-                ),
+                ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
             )
         },
     )
 
     assert response.status_code == 422
-    assert response.json()["detail"]["errors"] == [
-        "2행 - 역할은 ADMIN, WORKER, 관리자, "
-        "작업자 중 하나여야 합니다."
-    ]
+    assert response.json()["detail"]["errors"] == ["2행 - 역할은 ADMIN, WORKER, 관리자, 작업자 중 하나여야 합니다."]
 
 
 def test_bulk_create_rejects_non_xlsx_file(client):
@@ -214,6 +177,4 @@ def test_bulk_create_rejects_non_xlsx_file(client):
     )
 
     assert response.status_code == 422
-    assert "xlsx" in response.json()["detail"][
-        "message"
-    ]
+    assert "xlsx" in response.json()["detail"]["message"]

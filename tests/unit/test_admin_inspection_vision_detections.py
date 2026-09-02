@@ -21,9 +21,7 @@ def build_valid_vision_defect():
 
 
 def test_builds_vision_detection_from_complete_agent_defect():
-    detections = _build_vision_detections(
-        [build_valid_vision_defect()]
-    )
+    detections = _build_vision_detections([build_valid_vision_defect()])
 
     assert len(detections) == 1
 
@@ -36,10 +34,7 @@ def test_builds_vision_detection_from_complete_agent_defect():
     assert detection.confidence == 0.91
     assert detection.yolo_confidence == 0.84
     assert detection.bbox == [0.12, 0.08, 0.31, 0.27]
-    assert (
-        detection.coordinate_space
-        == "ORIGINAL_IMAGE_NORMALIZED"
-    )
+    assert detection.coordinate_space == "ORIGINAL_IMAGE_NORMALIZED"
 
 
 def test_ignores_legacy_defect_without_overlay_fields():

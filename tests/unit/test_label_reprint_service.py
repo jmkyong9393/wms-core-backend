@@ -46,16 +46,12 @@ def build_inventory_item(
         condition_grade=ConditionGrade.EXCELLENT,
         ubci_score=ubci_score,
         status=status,
-        return_job_id=UUID(
-            "00000000-0000-4000-8000-000000000010"
-        ),
+        return_job_id=UUID("00000000-0000-4000-8000-000000000010"),
     )
 
 
 def build_return_job(
-    final_report: str | None = (
-        '{"message": "AI inspection completed."}'
-    ),
+    final_report: str | None = ('{"message": "AI inspection completed."}'),
 ):
     return SimpleNamespace(
         final_report=final_report,
@@ -73,9 +69,7 @@ def test_builds_lpn_reprint_zpl_from_inbound_item(
         certificate_token,
     ):
         captured_arguments["lpn_barcode"] = lpn_barcode
-        captured_arguments["certificate_token"] = (
-            certificate_token
-        )
+        captured_arguments["certificate_token"] = certificate_token
         return "^XA^FDLPN^FS^XZ"
 
     monkeypatch.setattr(

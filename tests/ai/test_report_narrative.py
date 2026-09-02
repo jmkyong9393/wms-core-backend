@@ -1,4 +1,4 @@
-"""Report Agent 고객 서술 생성 검증 (LLM 비활성 폴백 경로)."""
+"""Report Agent의 고객 서술 생성(폴백 경로)을 검증한다."""
 
 import pytest
 
@@ -36,7 +36,7 @@ def test_mint_narrative_has_no_notes():
 
 
 def test_narrative_never_leaks_internal_codes():
-    """고객 노출 경계: 결함·위치 영문 enum이 그대로 나가면 안 된다."""
+    """결함·위치 영문 enum이 고객 문구로 나가지 않아야 한다."""
     narrative = build_customer_narrative(
         "A",
         [
@@ -45,9 +45,7 @@ def test_narrative_never_leaks_internal_codes():
         ],
         88,
     )
-    rendered = narrative["customer_message"] + " ".join(
-        narrative["condition_notes"]
-    )
+    rendered = narrative["customer_message"] + " ".join(narrative["condition_notes"])
     for internal_code in (
         "COVER_TEAR",
         "EDGE_WEAR",

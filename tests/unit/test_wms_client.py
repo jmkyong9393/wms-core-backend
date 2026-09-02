@@ -61,14 +61,10 @@ def test_call_wms_inspection_result_api_sends_hitl_fields(
         rejection_disposition=None,
     )
 
-    assert captured["url"].endswith(
-        "/api/v1/internal/inventory/inspection-results"
-    )
+    assert captured["url"].endswith("/api/v1/internal/inventory/inspection-results")
 
     assert captured["json"] == {
-        "return_job_id": (
-            "00000000-0000-4000-8000-000000000001"
-        ),
+        "return_job_id": ("00000000-0000-4000-8000-000000000001"),
         "decision": "APPROVE",
         "ubci_score": 72.5,
         "defects": [{"type": "COVER_SCRATCH"}],
@@ -77,8 +73,6 @@ def test_call_wms_inspection_result_api_sends_hitl_fields(
         "rejection_disposition": None,
     }
 
-    assert captured["headers"]["Idempotency-Key"] == (
-        "return-job:test-job-id"
-    )
+    assert captured["headers"]["Idempotency-Key"] == ("return-job:test-job-id")
     assert result["condition_grade"] == "NORMAL"
     assert result["inventory_changed"] is True

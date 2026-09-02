@@ -4,11 +4,7 @@ from app.models.wms import Location
 
 
 def _check_constraint_names() -> set[str]:
-    return {
-        constraint.name
-        for constraint in Location.__table__.constraints
-        if isinstance(constraint, CheckConstraint)
-    }
+    return {constraint.name for constraint in Location.__table__.constraints if isinstance(constraint, CheckConstraint)}
 
 
 def test_location_has_warehouse_policy_constraints():
@@ -35,6 +31,4 @@ def test_location_uses_canonical_barcode_components():
         barcode="B-3-10",
     )
 
-    assert location.barcode == (
-        f"{location.zone}-{location.rack}-{location.shelf}"
-    )
+    assert location.barcode == (f"{location.zone}-{location.rack}-{location.shelf}")

@@ -70,11 +70,7 @@ def test_bulk_create_assigns_ids_by_hire_date_then_name(
     monkeypatch,
 ):
     session = FakeSession()
-    current_master = SimpleNamespace(
-        tenant_id=UUID(
-            "00000000-0000-4000-8000-000000000100"
-        )
-    )
+    current_master = SimpleNamespace(tenant_id=UUID("00000000-0000-4000-8000-000000000100"))
 
     monkeypatch.setattr(
         auth_service,
@@ -122,16 +118,10 @@ def test_bulk_create_assigns_ids_by_hire_date_then_name(
     )
 
     # 결과 행 자체는 원본 엑셀 순서를 유지한다.
-    assert [
-        result.source_row
-        for result in results
-    ] == [2, 3, 4]
+    assert [result.source_row for result in results] == [2, 3, 4]
 
     # 사번은 입사일 → 이름 순서로 부여된다.
-    assert [
-        result.employee_id
-        for result in results
-    ] == [
+    assert [result.employee_id for result in results] == [
         "NZ2608013",
         "NZ2608012",
         "NZ2608011",
@@ -141,23 +131,13 @@ def test_bulk_create_assigns_ids_by_hire_date_then_name(
     assert session.rollback_count == 0
     assert len(session.added_users) == 3
 
-    assert all(
-        user.must_change_password is True
-        for user in session.added_users
-    )
-    assert all(
-        user.password_hash == "hashed-password"
-        for user in session.added_users
-    )
+    assert all(user.must_change_password is True for user in session.added_users)
+    assert all(user.password_hash == "hashed-password" for user in session.added_users)
 
 
 def test_bulk_create_rejects_duplicate_email_before_commit():
     session = FakeSession()
-    current_master = SimpleNamespace(
-        tenant_id=UUID(
-            "00000000-0000-4000-8000-000000000100"
-        )
-    )
+    current_master = SimpleNamespace(tenant_id=UUID("00000000-0000-4000-8000-000000000100"))
 
     with pytest.raises(
         ValueError,

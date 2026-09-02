@@ -24,9 +24,7 @@ def build_inventory_item():
 
 
 def build_return_job(
-    final_report: str | None = (
-        '{"message": "AI inspection completed."}'
-    ),
+    final_report: str | None = ('{"message": "AI inspection completed."}'),
 ):
     return SimpleNamespace(
         final_report=final_report,
@@ -72,12 +70,10 @@ def test_returns_sent_when_ubci_label_is_transmitted(
         fake_send_zpl_to_label_printer,
     )
 
-    label_print_status, label_print_error = (
-        inspection_inventory._try_print_ubci_label(
-            inbound_item=inbound_item,
-            inventory_item=inventory_item,
-            return_job=return_job,
-        )
+    label_print_status, label_print_error = inspection_inventory._try_print_ubci_label(
+        inbound_item=inbound_item,
+        inventory_item=inventory_item,
+        return_job=return_job,
     )
 
     assert captured_arguments == {
@@ -106,12 +102,10 @@ def test_returns_skipped_when_ubci_printer_is_disabled(
         fake_send_zpl_to_label_printer,
     )
 
-    label_print_status, label_print_error = (
-        inspection_inventory._try_print_ubci_label(
-            inbound_item=inbound_item,
-            inventory_item=inventory_item,
-            return_job=return_job,
-        )
+    label_print_status, label_print_error = inspection_inventory._try_print_ubci_label(
+        inbound_item=inbound_item,
+        inventory_item=inventory_item,
+        return_job=return_job,
     )
 
     assert label_print_status == LabelPrintStatus.SKIPPED
@@ -126,9 +120,7 @@ def test_skips_ubci_print_until_public_certificate_is_ready(
     return_job = build_return_job(final_report=None)
 
     def fail_if_printer_is_called(_zpl):
-        raise AssertionError(
-            "Printer should not be called before certificate readiness"
-        )
+        raise AssertionError("Printer should not be called before certificate readiness")
 
     monkeypatch.setattr(
         inspection_inventory,
@@ -136,19 +128,14 @@ def test_skips_ubci_print_until_public_certificate_is_ready(
         fail_if_printer_is_called,
     )
 
-    label_print_status, label_print_error = (
-        inspection_inventory._try_print_ubci_label(
-            inbound_item=inbound_item,
-            inventory_item=inventory_item,
-            return_job=return_job,
-        )
+    label_print_status, label_print_error = inspection_inventory._try_print_ubci_label(
+        inbound_item=inbound_item,
+        inventory_item=inventory_item,
+        return_job=return_job,
     )
 
     assert label_print_status == LabelPrintStatus.SKIPPED
-    assert label_print_error == (
-        "공개 품질보증서가 아직 준비되지 않아 "
-        "UBCI 라벨 출력을 보류했습니다."
-    )
+    assert label_print_error == ("공개 품질보증서가 아직 준비되지 않아 UBCI 라벨 출력을 보류했습니다.")
 
 
 def test_returns_failed_without_raising_when_ubci_print_fails(
@@ -167,15 +154,11 @@ def test_returns_failed_without_raising_when_ubci_print_fails(
         fail_to_send_zpl,
     )
 
-    label_print_status, label_print_error = (
-        inspection_inventory._try_print_ubci_label(
-            inbound_item=inbound_item,
-            inventory_item=inventory_item,
-            return_job=return_job,
-        )
+    label_print_status, label_print_error = inspection_inventory._try_print_ubci_label(
+        inbound_item=inbound_item,
+        inventory_item=inventory_item,
+        return_job=return_job,
     )
 
     assert label_print_status == LabelPrintStatus.FAILED
-    assert label_print_error == (
-        "UBCI 라벨 출력에 실패했습니다. 수동 출력이 필요합니다."
-    )
+    assert label_print_error == ("UBCI 라벨 출력에 실패했습니다. 수동 출력이 필요합니다.")

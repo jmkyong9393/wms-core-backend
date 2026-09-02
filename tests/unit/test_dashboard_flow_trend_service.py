@@ -70,15 +70,11 @@ def test_returns_daily_inventory_and_inspection_flow_with_empty_dates():
     completed_jobs = [
         SimpleNamespace(
             ai_inspection_started_at=first_started_at,
-            ai_inspection_completed_at=(
-                first_started_at + timedelta(seconds=60)
-            ),
+            ai_inspection_completed_at=(first_started_at + timedelta(seconds=60)),
         ),
         SimpleNamespace(
             ai_inspection_started_at=today_started_at,
-            ai_inspection_completed_at=(
-                today_started_at + timedelta(seconds=120)
-            ),
+            ai_inspection_completed_at=(today_started_at + timedelta(seconds=120)),
         ),
     ]
 

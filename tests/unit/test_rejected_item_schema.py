@@ -38,8 +38,6 @@ def test_used_inventory_accepts_only_sellable_used_grades():
 
 
 def test_rejected_items_have_bulk_clear_lookup_index():
-    index_names = {
-        index.name for index in RejectedItem.__table__.indexes
-    }
+    index_names = {index.name for index in RejectedItem.__table__.indexes}
 
     assert "ix_rejected_items_status_location" in index_names

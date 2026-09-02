@@ -13,12 +13,14 @@ from app.domains.admin.admin import (
 )
 from app.domains.admin.schemas.admin_dashboard import FdsPolicyUpdateRequest
 
+
 class FakeResult:
     def __init__(self, rows=None):
         self.rows = rows or []
 
     def all(self):
         return self.rows
+
 
 class FakeSession:
     def __init__(self, results=None):
@@ -46,12 +48,9 @@ class FakeSession:
     def get(self, model, key):
         # For put/update test
         if model == FdsPolicy:
-            return FdsPolicy(
-                policy_key=key,
-                policy_value=3.0,
-                description="Test description"
-            )
+            return FdsPolicy(policy_key=key, policy_value=3.0, description="Test description")
         return None
+
 
 def test_get_weekly_insights():
     mock_insight = SimpleNamespace(
@@ -65,7 +64,7 @@ def test_get_weekly_insights():
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow(),
     )
-    
+
     session = FakeSession(results=[FakeResult(rows=[mock_insight])])
     admin = User(
         id=UUID("00000000-0000-4000-8000-000000000100"),
@@ -75,11 +74,12 @@ def test_get_weekly_insights():
         password_hash="...",
         role=UserRole.ADMIN,
     )
-    
+
     response = get_weekly_insights(current_admin=admin, session=session)
     assert len(response) == 1
     assert response[0].report_week == "2026-W28"
     assert response[0].saved_labor_cost_krw == 1200000
+
 
 def test_get_fds_reports():
     mock_report = SimpleNamespace(
@@ -92,13 +92,15 @@ def test_get_fds_reports():
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow(),
     )
-    
+
     # First result is FdsReport select. Second result is Order select for customer name.
-    session = FakeSession(results=[
-        FakeResult(rows=[mock_report]),
-        FakeResult(rows=[(UUID("00000000-0000-4000-8000-000000000003"), "B2B 고객사A")]),
-    ])
-    
+    session = FakeSession(
+        results=[
+            FakeResult(rows=[mock_report]),
+            FakeResult(rows=[(UUID("00000000-0000-4000-8000-000000000003"), "B2B 고객사A")]),
+        ]
+    )
+
     admin = User(
         id=UUID("00000000-0000-4000-8000-000000000100"),
         tenant_id=UUID("00000000-0000-4000-8000-000000000200"),
@@ -107,25 +109,27 @@ def test_get_fds_reports():
         password_hash="...",
         role=UserRole.ADMIN,
     )
-    
+
     response = get_fds_reports(current_admin=admin, session=session)
     assert len(response) == 1
     assert response[0].fraud_score == 95
     assert response[0].customer_name == "B2B 고객사A"
 
+
 def test_get_fds_policies_seeds_when_empty():
-    session = FakeSession(results=[
-        FakeResult(rows=[]), # No existing policies triggers seeding
-        FakeResult(rows=[
-            SimpleNamespace(
-                policy_key="MAX_RETURN_30D",
-                policy_value=3.0,
-                description="Desc",
-                updated_at=datetime.utcnow()
-            )
-        ])
-    ])
-    
+    session = FakeSession(
+        results=[
+            FakeResult(rows=[]),  # No existing policies triggers seeding
+            FakeResult(
+                rows=[
+                    SimpleNamespace(
+                        policy_key="MAX_RETURN_30D", policy_value=3.0, description="Desc", updated_at=datetime.utcnow()
+                    )
+                ]
+            ),
+        ]
+    )
+
     admin = User(
         id=UUID("00000000-0000-4000-8000-000000000100"),
         tenant_id=UUID("00000000-0000-4000-8000-000000000200"),
@@ -134,7 +138,7 @@ def test_get_fds_policies_seeds_when_empty():
         password_hash="...",
         role=UserRole.ADMIN,
     )
-    
+
     response = get_fds_policies(current_admin=admin, session=session)
     # Default policy seeding adds 4 policies
     assert len(session.added) == 4
@@ -143,13 +147,10 @@ def test_get_fds_policies_seeds_when_empty():
     assert len(response) == 1
     assert response[0].policy_key == "MAX_RETURN_30D"
 
+
 def test_update_fds_policy():
-    session = FakeSession(results=[
-        FakeResult(rows=[
-            SimpleNamespace(policy_key="MAX_RETURN_30D")
-        ])
-    ])
-    
+    session = FakeSession(results=[FakeResult(rows=[SimpleNamespace(policy_key="MAX_RETURN_30D")])])
+
     admin = User(
         id=UUID("00000000-0000-4000-8000-000000000100"),
         tenant_id=UUID("00000000-0000-4000-8000-000000000200"),
@@ -158,14 +159,9 @@ def test_update_fds_policy():
         password_hash="...",
         role=UserRole.ADMIN,
     )
-    
+
     req = FdsPolicyUpdateRequest(policy_value=10.0)
-    response = update_fds_policy(
-        policy_key="MAX_RETURN_30D",
-        request=req,
-        current_admin=admin,
-        session=session
-    )
-    
+    response = update_fds_policy(policy_key="MAX_RETURN_30D", request=req, current_admin=admin, session=session)
+
     assert response.policy_value == 10.0
     assert session.committed is True

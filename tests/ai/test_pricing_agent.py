@@ -25,9 +25,7 @@ def make_request(
 
     data.update(overrides)
 
-    return PricingRecommendationRequest(
-        **data
-    )
+    return PricingRecommendationRequest(**data)
 
 
 @pytest.mark.parametrize(
@@ -44,26 +42,18 @@ def test_round_to_hundred(
 ):
     """100원 단위 반올림 검증."""
 
-    assert (
-        pricing_module.round_to_hundred(
-            price
-        )
-        == expected
-    )
+    assert pricing_module.round_to_hundred(price) == expected
 
 
 def test_calculate_final_price():
     """카테고리와 UBCI 기반 가격 계산 검증."""
 
-    final_price, raw_price, category_label = (
-        pricing_module.calculate_final_price(
-            make_request()
-        )
-    )
+    final_price, raw_price, category_label = pricing_module.calculate_final_price(make_request())
 
     assert raw_price == Decimal("12038.4")
     assert final_price == 12000
     assert category_label == "소설·시·희곡"
+
 
 @pytest.mark.parametrize(
     ("category", "expected_retention"),
@@ -86,16 +76,10 @@ def test_category_policy(
 ):
     """문서에 정의된 카테고리 보존계수 검증."""
 
-    _, actual_retention = (
-        pricing_module.CATEGORY_POLICY[
-            category
-        ]
-    )
+    _, actual_retention = pricing_module.CATEGORY_POLICY[category]
 
-    assert (
-        actual_retention
-        == expected_retention
-    )
+    assert actual_retention == expected_retention
+
 
 @pytest.mark.parametrize(
     ("ubci_score", "expected"),
@@ -116,12 +100,7 @@ def test_condition_retention(
 ):
     """UBCI 등급별 상태 보존계수 검증."""
 
-    assert (
-        pricing_module.calculate_condition_retention(
-            ubci_score
-        )
-        == expected
-    )
+    assert pricing_module.calculate_condition_retention(ubci_score) == expected
 
 
 def test_condition_retention_is_monotonic():
@@ -132,16 +111,9 @@ def test_condition_retention_is_monotonic():
         101,
     )
 
-    retentions = [
-        pricing_module.calculate_condition_retention(
-            score
-        )
-        for score in scores
-    ]
+    retentions = [pricing_module.calculate_condition_retention(score) for score in scores]
 
-    assert retentions == sorted(
-        retentions
-    )
+    assert retentions == sorted(retentions)
 
 
 def test_pricing_agent_returns_llm_reason(
@@ -186,9 +158,7 @@ def test_pricing_agent_returns_llm_reason(
         FakeChatOpenAI,
     )
 
-    result = pricing_module.pricing_agent(
-        make_request()
-    )
+    result = pricing_module.pricing_agent(make_request())
 
     assert result.final_price == 12000
     assert result.discount_rate == 34
@@ -205,9 +175,7 @@ def test_missing_api_key_uses_fallback(
         raising=False,
     )
 
-    result = pricing_module.pricing_agent(
-        make_request()
-    )
+    result = pricing_module.pricing_agent(make_request())
 
     assert result.final_price == 12000
     assert result.discount_rate == 34
@@ -245,6 +213,7 @@ def test_invalid_ubci_score_is_rejected(
         make_request(
             ubci_score=ubci_score,
         )
+
 
 @pytest.mark.parametrize(
     (

@@ -59,18 +59,7 @@ def technical_failure_node(
 def _decide_next_node(
     state: WMSInspectionState,
 ) -> tuple[str, str]:
-    """Supervisor의 지휘 판단 본체 — (다음 노드, 판단 근거)를 반환한다.
-
-    판단은 supervisor_node가 수행해 결정·근거를 state에 기록하고,
-    라우팅 함수(route_from_supervisor)는 그 결정을 집행만 한다.
-    """
-    # 1. 안전장치: 무한 루프 방지 (Max Retries가 2 이상이면 human_node(HITL 수동 개입) 반환)
-    # 2. 초기 상태: 결함 판독이 아직 안 되었으면 vision_agent 반환
-    # 3. [Fast-track]: is_mint가 True이면 auto_refund_agent 반환
-    # 4. 결함이 있는데 UBCI 산정이 아직 안 되었으면 policy_agent 반환
-    # 5. Critic 검증이 아직 안 됨 (또는 통과 못함) -> reason_code 검토 로직
-    #    - 검증 실패 시 policy_agent 재처리 또는 human_node 에스컬레이션 구현
-    # 6. Critic 검증 완벽히 통과 시 report_agent 반환
+    """다음에 실행할 노드와 그 판단 근거를 반환한다."""
 
     def route(
         node: str,
@@ -187,10 +176,7 @@ def _decide_next_node(
             "허용되지 않은 관리자 입력",
         )
 
-    # 판독 커버리지 게이트 — "검수하지 못했다"와 "검수했더니 흠이 없다"는
-    # 하위 노드에서 똑같이 defects=[]로 표현되며, 그 둘을 구분할 수 있는 정보
-    # (book_regions의 detected 여부)는 전 에이전트 보고를 종합하는 여기에만 모인다.
-    # 전 컷이 책 미식별인데 MINT가 나오면 무결점이 아니라 검수 불가이므로 자동 확정을 차단한다.
+    # 판독 커버리지 게이트: 전 컷 책 미식별 + MINT는 검수 불가이므로 자동 확정을 막는다.
     book_regions = state.get("book_regions")
     if (
         type(book_regions) is list
@@ -347,8 +333,7 @@ def _decide_next_node(
 
     if reason_code == "OK":
         if is_mint is True:
-            # MINT 별도 출구(auto_refund_agent)를 제거하고 report_agent로 단일화.
-            # 자동 매입 자격은 auto_refund_eligible 플래그로 보존해 워커가 집행한다.
+            # MINT도 동일 출구를 쓴다. 자동 매입 자격은 auto_refund_eligible로 전달.
             return route(
                 "report_agent",
                 "Policy와 Critic을 통과한 MINT — 단일 검증 경로로 보고서 발급",
@@ -371,14 +356,10 @@ def _decide_next_node(
 
 
 def supervisor_node(state: WMSInspectionState) -> WMSInspectionState:
-    """Supervisor 중앙 지휘 노드 — 하위 에이전트 보고를 종합해 다음 행동을 결정한다.
-
-    결정(supervisor_decision)과 근거(supervisor_rationale)를 state에 남겨
-    관리자 화면과 감사 추적에서 "왜 이 경로로 갔는가"를 재구성할 수 있게 한다.
-    """
+    """하위 에이전트 보고를 종합해 다음 행동을 결정하고, 결정과 근거를 state에 남긴다."""
     node, reason = _decide_next_node(state)
 
-    # MINT 자동 매입 자격: 단일 검증 경로(Policy→Critic)를 전부 통과한 무결함 건만 인정
+    # 자동 매입 자격: Policy·Critic을 통과한 무결함 건만
     auto_refund_eligible = (
         node == "report_agent"
         and state.get("human_feedback") is None
@@ -395,7 +376,7 @@ def supervisor_node(state: WMSInspectionState) -> WMSInspectionState:
     }
 
 
-# supervisor_node의 결정 -> 그래프 노드 매핑 (라우팅 함수는 집행만 한다)
+# 지휘 결정 -> 그래프 노드 매핑
 _DECISION_TO_NODE = {
     "book_detector": "book_detector",
     "vision_agent": "vision_agent",
@@ -408,11 +389,7 @@ _DECISION_TO_NODE = {
 
 
 def route_from_supervisor(state: WMSInspectionState) -> str:
-    """supervisor_node가 내린 결정을 집행하는 매핑 함수.
-
-    결정이 비어 있으면(개편 이전에 저장된 체크포인트 재개 등) 판단 본체를
-    직접 호출해 폴백한다 — 구 체크포인트가 technical_failure로 오배송되지 않게.
-    """
+    """supervisor_node의 결정을 노드로 매핑한다. 결정이 없으면 직접 판단한다."""
     decision = state.get("supervisor_decision")
     if decision is None:
         decision, _ = _decide_next_node(state)
@@ -420,15 +397,10 @@ def route_from_supervisor(state: WMSInspectionState) -> str:
 
 
 def build_supervisor_graph():
-    """
-    LangGraph Supervisor 파이프라인 (Star Topology) 구성
-    TODO: 노드와 엣지(Edge), 조건부 엣지를 연결하여 다이어그램과 동일한 그래프를 만드세요.
-    """
+    """LangGraph Supervisor 파이프라인(Star Topology)을 구성한다."""
     builder = StateGraph(WMSInspectionState)
 
-    # 1. 노드 등록 (add_node)
-    # 계측 래퍼로 감싼다 — 구간 지연과 LLM 토큰을 노드 단위로 수집한다.
-    # 노드 구현은 그대로 두고 등록 시점에만 감싸므로 파이프라인 구조·모델 배정은 불변이다.
+    # 1. 노드 등록 (add_node). instrument()는 노드별 지연·토큰을 수집한다.
     from app.ai.instrumentation import instrument
 
     builder.add_node("book_detector", instrument("book_detector", book_detector_node))
@@ -443,13 +415,10 @@ def build_supervisor_graph():
     )
     builder.add_node("report_agent", instrument("report_agent", report_agent))
 
-    # TODO: 나머지 6개의 에이전트 노드 등록
-
     # 2. 시작 시 무조건 supervisor로 이동 (add_edge)
     builder.add_edge(START, "supervisor")
 
     # 3. Supervisor 라우팅 엣지 (supervisor -> 각 에이전트)
-    # TODO: builder.add_conditional_edges() 구현
     builder.add_conditional_edges(
         "supervisor",
         route_from_supervisor,
@@ -465,7 +434,6 @@ def build_supervisor_graph():
     )
 
     # 4. Star Topology: 워커 에이전트 작업 후 다시 supervisor로 반환
-    # TODO: 모든 일반 노드의 종료 엣지를 supervisor로 연결
     builder.add_edge("book_detector", "supervisor")
     builder.add_edge("vision_agent", "supervisor")
     builder.add_edge("policy_agent", "supervisor")
@@ -473,7 +441,7 @@ def build_supervisor_graph():
     builder.add_edge("human_node", "supervisor")
     builder.add_edge("technical_failure_node", END)
 
-    # 5. End 엣지 (종료) — MINT 포함 전 건이 report_agent 단일 출구로 종료
+    # 5. End 엣지 (종료)
     builder.add_edge("report_agent", END)
 
     # 6. MemorySaver 연동 (HITL 중단점)
@@ -490,7 +458,6 @@ except NotImplementedError:
 
 
 # WMS 등급 표기(EXCELLENT/NORMAL)를 AI 내부 표기(A/B)로 정규화한다.
-# 값 타입을 Literal로 좁혀야 판례 저장 함수의 target_grade 계약과 맞는다.
 TARGET_GRADE_ALIASES: dict[str, Literal["A", "B"]] = {
     "A": "A",
     "EXCELLENT": "A",
@@ -633,8 +600,7 @@ def resume_hitl(
             stored_case_id = upsert_authoritative_hitl_case(
                 final_state,
                 case_id=f"hitl-{thread_id}",
-                # decision은 위에서 HITLAction으로 검증을 통과한 값이라
-                # FinalDecision Literal 범위임이 보장된다.
+                # HITLAction 검증을 통과했으므로 FinalDecision 범위가 보장된다.
                 final_decision=cast(FinalDecision, decision),
                 primary_reason_code=reason,
                 target_grade=normalized_target_grade,

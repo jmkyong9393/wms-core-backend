@@ -151,12 +151,12 @@ class WMSInspectionState(TypedDict, total=False):
     final_grade: Optional[Grade]  # AI 또는 관리자가 최종 확정한 등급
     final_report: Optional[str]  # 후속 시스템에 제공하는 JSON 문자열
 
-    # 6. Supervisor 지휘 기록 (판단 주체화 — 라우팅 결정과 근거를 감사 추적)
+    # 6. Supervisor 지휘 기록
     supervisor_decision: Optional[str]
     supervisor_rationale: Optional[str]
-    # MINT 자동 매입 자격 (Fast-track 경로 단일화 후 워커가 집행)
+    # MINT 자동 매입 자격. 워커가 집행한다
     auto_refund_eligible: Optional[bool]
 
-    # 7. 노드 계측 (재검수 루프 시 같은 노드가 여러 번 누적되도록 리듀서 사용)
+    # 7. 노드 계측. 재검수 루프에서 같은 노드가 누적되도록 리듀서를 쓴다
     node_timings: Annotated[List[dict], operator.add]
     node_tokens: Annotated[List[dict], operator.add]

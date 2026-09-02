@@ -40,9 +40,7 @@ def test_execute_dynamic_pricing_builds_agent_request_and_saves_result(
         return_value=PricingRecommendationResponse(
             final_price=15300,
             discount_rate=15,
-            pricing_reason=(
-                "도서 상태와 카테고리 수요를 반영한 가격입니다."
-            ),
+            pricing_reason=("도서 상태와 카테고리 수요를 반영한 가격입니다."),
         )
     )
     monkeypatch.setattr(
@@ -112,9 +110,7 @@ def test_execute_dynamic_pricing_does_not_manage_transaction(monkeypatch):
             return_value=PricingRecommendationResponse(
                 final_price=18000,
                 discount_rate=10,
-                pricing_reason=(
-                    "도서 상태와 카테고리 수요를 반영한 가격입니다."
-                ),
+                pricing_reason=("도서 상태와 카테고리 수요를 반영한 가격입니다."),
             )
         ),
     )

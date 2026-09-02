@@ -86,9 +86,7 @@ def build_proposal(
 
     return SimpleNamespace(
         id=UUID("00000000-0000-4000-8000-000000000020"),
-        tenant_id=UUID(
-            "00000000-0000-4000-8000-000000000001"
-        ),
+        tenant_id=UUID("00000000-0000-4000-8000-000000000001"),
         book_id=UUID("00000000-0000-4000-8000-000000000010"),
         status=status,
         recommended_order_quantity=recommended_order_quantity,
@@ -175,22 +173,10 @@ def test_approve_creates_auto_po_and_immediately_admits_new_stock(
     assert proposal.status == OrderProposalStatus.APPROVED
     assert proposal.auto_po_order_id is not None
 
-    auto_po_order = next(
-        item for item in session.added_items
-        if isinstance(item, Order)
-    )
-    auto_po_item = next(
-        item for item in session.added_items
-        if isinstance(item, OrderItem)
-    )
-    inbound_job = next(
-        item for item in session.added_items
-        if isinstance(item, InboundJob)
-    )
-    inbound_item = next(
-        item for item in session.added_items
-        if isinstance(item, InboundItem)
-    )
+    auto_po_order = next(item for item in session.added_items if isinstance(item, Order))
+    auto_po_item = next(item for item in session.added_items if isinstance(item, OrderItem))
+    inbound_job = next(item for item in session.added_items if isinstance(item, InboundJob))
+    inbound_item = next(item for item in session.added_items if isinstance(item, InboundItem))
 
     assert auto_po_order.status == OrderStatus.RECEIVED
     assert auto_po_order.total_price == Decimal("45000")
@@ -249,20 +235,12 @@ def test_approve_marks_not_required_when_pending_auto_po_increased(
     assert result.ordered_quantity == 0
     assert proposal.status == OrderProposalStatus.NOT_REQUIRED
     assert proposal.auto_po_order_id is None
-    assert "추가 발주가 필요하지 않습니다." in (
-        proposal.review_comment
-    )
-    assert not any(
-        isinstance(item, Order)
-        for item in session.added_items
-    )
-    assert any(
-        "FROM books" in statement
-        and "FOR UPDATE" in statement
-        for statement in session.executed_statements
-    )
+    assert "추가 발주가 필요하지 않습니다." in (proposal.review_comment)
+    assert not any(isinstance(item, Order) for item in session.added_items)
+    assert any("FROM books" in statement and "FOR UPDATE" in statement for statement in session.executed_statements)
     assert session.flush_count == 0
     assert session.commit_count == 1
+
 
 def test_approve_marks_not_required_when_available_stock_increased(
     monkeypatch,
@@ -305,11 +283,9 @@ def test_approve_marks_not_required_when_available_stock_increased(
     assert result.ordered_quantity == 0
     assert proposal.status == OrderProposalStatus.NOT_REQUIRED
     assert proposal.auto_po_order_id is None
-    assert not any(
-        isinstance(item, Order)
-        for item in session.added_items
-    )
+    assert not any(isinstance(item, Order) for item in session.added_items)
     assert session.commit_count == 1
+
 
 def test_reject_marks_proposal_rejected_without_auto_po():
     proposal = build_proposal()
@@ -334,9 +310,7 @@ def test_reject_marks_proposal_rejected_without_auto_po():
     assert result.ordered_quantity == 0
     assert proposal.status == OrderProposalStatus.REJECTED
     assert proposal.reviewer_id == reviewer.id
-    assert proposal.review_comment == (
-        "현재 발주가 필요하지 않습니다."
-    )
+    assert proposal.review_comment == ("현재 발주가 필요하지 않습니다.")
     assert proposal.auto_po_order_id is None
     assert session.flush_count == 0
     assert session.commit_count == 1

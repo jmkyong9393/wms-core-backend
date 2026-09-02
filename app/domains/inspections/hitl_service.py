@@ -176,9 +176,7 @@ def apply_hitl_final_decision(
         raise ValueError(f"최종 HITL 판단으로 처리할 수 없는 action입니다: {action}")
 
     if action == HITLAction.APPROVE_NORMAL:
-        # AI가 UBCI 점수를 산출한 건은 WMS가 점수로 등급을 유도한다(final_grade=None 허용).
-        # Vision 단계에서 점수 없이 HITL로 직행한 건은 점수·등급이 모두 비어 WMS가 422를
-        # 반환하므로, 관리자 정상 승인 의미 그대로 MINT를 확정한다.
+        # 점수가 있으면 WMS가 등급을 유도한다. 점수도 등급도 없으면 MINT로 확정한다.
         final_grade = updated_logs.get("final_grade")
         if final_grade is None and return_job.ubci_score is None:
             final_grade = ConditionGrade.MINT.value
@@ -279,7 +277,7 @@ def apply_hitl_recheck_decision(
 
 
 # 관리자 HITL 판단을 검증하고 ReturnJob에 저장
-# HITL 등급 표기(WMS)를 판례 저장용 AI 내부 표기로 변환
+# WMS 등급 표기를 AI 내부 표기로 변환
 _HITL_TO_AI_GRADE = {
     "EXCELLENT": "A",
     "NORMAL": "B",
@@ -292,11 +290,7 @@ def store_hitl_precedent_safely(
     action: HITLAction,
     target_grade: HITLTargetGrade | None,
 ) -> None:
-    """관리자 확정 판단을 Critic RAG 권위 판례로 축적한다.
-
-    판례 저장 실패가 HITL 처리 자체를 막으면 안 되므로 fail-open이며,
-    점수·등급 근거가 불완전한 건(Vision 직행 HITL 등)은 저장 함수가 스스로 건너뛴다.
-    """
+    """관리자 확정 판단을 Critic RAG 판례로 축적한다. 실패해도 HITL 처리는 계속한다."""
     if action == HITLAction.RE_CHECK:
         return
 
@@ -435,7 +429,7 @@ def save_hitl_decision(
         return_job=return_job,
     )
 
-    # 8. 확정 판단을 Critic RAG 권위 판례로 축적 (fail-open)
+    # 8. 확정 판단을 Critic RAG 판례로 축적
     store_hitl_precedent_safely(
         return_job=return_job,
         action=action,

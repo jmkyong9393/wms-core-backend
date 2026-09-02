@@ -34,13 +34,9 @@ class FakeSession:
 
     def exec(self, _statement):
         if not self.exec_results:
-            raise AssertionError(
-                "Unexpected database query was executed"
-            )
+            raise AssertionError("Unexpected database query was executed")
 
-        return FakeResult(
-            self.exec_results.pop(0)
-        )
+        return FakeResult(self.exec_results.pop(0))
 
     def get(self, _model, object_id):
         return self.books_by_id.get(object_id)
@@ -102,6 +98,7 @@ def test_creates_new_stock_order_when_virtual_quantity_remains():
     assert session.added_items[1].condition_grade is None
     assert session.added_items[1].quantity == 1
 
+
 def test_creates_new_stock_order_up_to_three_items(
     monkeypatch,
 ):
@@ -140,6 +137,7 @@ def test_creates_new_stock_order_up_to_three_items(
     assert order_item.quantity == 3
     assert order_item.final_price == Decimal("54000")
     assert result.total_price == Decimal("54000")
+
 
 def test_does_not_create_new_stock_order_when_pending_orders_use_all_stock():
     book = build_book(
@@ -202,10 +200,7 @@ def test_creates_used_lpn_order_when_pending_count_is_lower_than_available_lpns(
 
     assert len(session.added_items) == 2
     assert isinstance(session.added_items[1], OrderItem)
-    assert (
-        session.added_items[1].condition_grade
-        == ConditionGrade.EXCELLENT
-    )
+    assert session.added_items[1].condition_grade == ConditionGrade.EXCELLENT
     assert session.added_items[1].quantity == 1
 
 

@@ -12,9 +12,7 @@ def test_used_inventory_has_lpn_sale_pricing_columns():
 
 def test_used_inventory_pricing_constraints_are_registered():
     check_names = {
-        constraint.name
-        for constraint in InventoryUsedItem.__table__.constraints
-        if constraint.name is not None
+        constraint.name for constraint in InventoryUsedItem.__table__.constraints if constraint.name is not None
     }
 
     assert "ck_inventory_used_items_discount_rate" in check_names

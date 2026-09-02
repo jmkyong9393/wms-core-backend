@@ -83,10 +83,7 @@ def test_rejects_invalid_bulk_excel_headers():
     ) as exc_info:
         parse_employee_bulk_create_xlsx(content)
 
-    assert any(
-        "헤더" in error
-        for error in exc_info.value.errors
-    )
+    assert any("헤더" in error for error in exc_info.value.errors)
 
 
 def test_collects_invalid_role_and_date_errors():
@@ -141,10 +138,7 @@ def test_builds_result_xlsx_with_issued_credentials():
     )
     worksheet = workbook.active
 
-    assert [
-        cell.value
-        for cell in worksheet[1]
-    ] == [
+    assert [cell.value for cell in worksheet[1]] == [
         "이름",
         "입사일",
         "역할",
@@ -153,10 +147,7 @@ def test_builds_result_xlsx_with_issued_credentials():
         "최초 비밀번호",
     ]
 
-    result_row = [
-        cell.value
-        for cell in worksheet[2]
-    ]
+    result_row = [cell.value for cell in worksheet[2]]
 
     assert result_row[0] == "김가나"
     assert result_row[2] == "WORKER"
@@ -164,4 +155,3 @@ def test_builds_result_xlsx_with_issued_credentials():
     assert result_row[5] == "TempPassword123!"
 
     workbook.close()
-    

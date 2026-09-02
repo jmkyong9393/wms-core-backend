@@ -44,8 +44,7 @@ class _CertificateSession:
     ("final_report", "expected"),
     [
         (
-            '{"message": "경미한 모서리 찍힘이 있습니다.", '
-            '"result": "INSPECTION_COMPLETED"}',
+            '{"message": "경미한 모서리 찍힘이 있습니다.", "result": "INSPECTION_COMPLETED"}',
             "경미한 모서리 찍힘이 있습니다.",
         ),
         (

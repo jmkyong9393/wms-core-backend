@@ -24,9 +24,7 @@ def test_returns_sent_when_initial_lpn_label_is_transmitted(
         certificate_token,
     ):
         captured_zpl_arguments["lpn_barcode"] = lpn_barcode
-        captured_zpl_arguments["certificate_token"] = (
-            certificate_token
-        )
+        captured_zpl_arguments["certificate_token"] = certificate_token
         return "^XA^XZ"
 
     def fake_send_zpl_to_label_printer(_zpl):
@@ -43,11 +41,7 @@ def test_returns_sent_when_initial_lpn_label_is_transmitted(
         fake_send_zpl_to_label_printer,
     )
 
-    label_print_status, label_print_error = (
-        used_inbound._try_print_initial_lpn_label(
-            inbound_item
-        )
-    )
+    label_print_status, label_print_error = used_inbound._try_print_initial_lpn_label(inbound_item)
 
     assert captured_zpl_arguments == {
         "lpn_barcode": "LPN-TEST-0001",
@@ -71,11 +65,7 @@ def test_returns_skipped_when_label_printer_is_disabled(
         fake_send_zpl_to_label_printer,
     )
 
-    label_print_status, label_print_error = (
-        used_inbound._try_print_initial_lpn_label(
-            inbound_item
-        )
-    )
+    label_print_status, label_print_error = used_inbound._try_print_initial_lpn_label(inbound_item)
 
     assert label_print_status == "SKIPPED"
     assert label_print_error is None
@@ -95,13 +85,7 @@ def test_returns_failed_without_raising_when_printer_send_fails(
         fail_to_send_zpl,
     )
 
-    label_print_status, label_print_error = (
-        used_inbound._try_print_initial_lpn_label(
-            inbound_item
-        )
-    )
+    label_print_status, label_print_error = used_inbound._try_print_initial_lpn_label(inbound_item)
 
     assert label_print_status == "FAILED"
-    assert label_print_error == (
-        "LPN 라벨 출력에 실패했습니다. 수동 출력이 필요합니다."
-    )
+    assert label_print_error == ("LPN 라벨 출력에 실패했습니다. 수동 출력이 필요합니다.")

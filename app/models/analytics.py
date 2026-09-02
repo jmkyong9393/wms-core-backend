@@ -47,7 +47,7 @@ class WeeklyInsight(SQLModel, table=True):
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    # 다른 도메인과 동일하게 테넌트로 격리한다. 주차 유일성도 테넌트 단위다.
+    # 주차 유일성은 테넌트 단위다.
     tenant_id: uuid.UUID = Field(foreign_key="tenants.id", index=True)
     report_week: str = Field(nullable=False)
     saved_labor_cost_krw: int = Field(default=0)

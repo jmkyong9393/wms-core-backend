@@ -3,32 +3,55 @@ from datetime import datetime, timedelta
 from sqlmodel import Session, SQLModel, text, select
 from app.core.database import engine
 from app.models.wms import (
-    Tenant, Book, Location, Order, OrderItem, ReturnJob, Inventory,
-    InboundItem, InboundJob, FdsPolicy, RejectedItem, InventoryLog,
-    StandardSize, InboundType, InboundStatus, ConditionGrade, BookCategory,
-    OrderType, OrderStatus, ReturnJobStatus, InspectionMode, InventoryTransactionType
+    Tenant,
+    Book,
+    Location,
+    Order,
+    OrderItem,
+    ReturnJob,
+    Inventory,
+    InboundItem,
+    InboundJob,
+    FdsPolicy,
+    RejectedItem,
+    InventoryLog,
+    StandardSize,
+    InboundType,
+    InboundStatus,
+    ConditionGrade,
+    BookCategory,
+    OrderType,
+    OrderStatus,
+    ReturnJobStatus,
+    InspectionMode,
+    InventoryTransactionType,
 )
+
 
 def seed_db():
     with Session(engine) as session:
         # 0. Clean up transaction and master tables to ensure idempotence
-        session.execute(text("TRUNCATE TABLE rejected_items, inbound_items, inbound_jobs, return_jobs, order_items, orders, inventory_logs, inventory, weekly_insights, fds_reports, fds_policies, books, locations CASCADE"))
+        session.execute(
+            text(
+                "TRUNCATE TABLE rejected_items, inbound_items, inbound_jobs, return_jobs, order_items, orders, inventory_logs, inventory, weekly_insights, fds_reports, fds_policies, books, locations CASCADE"
+            )
+        )
         session.commit()
-        
+
         # 1. Tenant
         tenant = session.exec(select(Tenant).where(Tenant.code == "AIVLE_WMS")).first()
         if not tenant:
             tenant = Tenant(id=uuid.uuid4(), code="AIVLE_WMS", name="AIVLE WMS")
             session.add(tenant)
             session.flush()
-        
+
         # 2. FdsPolicy
         session.execute(text("DELETE FROM fds_policies"))
         policies = [
             FdsPolicy(policy_key="MAX_RETURN_30D", policy_value=3),
             FdsPolicy(policy_key="MIN_UBCI_SCORE", policy_value=30.0),
             FdsPolicy(policy_key="MAX_RETURN_90D", policy_value=5),
-            FdsPolicy(policy_key="MAX_REFUND_AMT", policy_value=500000)
+            FdsPolicy(policy_key="MAX_REFUND_AMT", policy_value=500000),
         ]
         session.add_all(policies)
 
@@ -48,7 +71,7 @@ def seed_db():
             base_price=20000,
         )
         session.add_all([book1, book2])
-        
+
         # 4. Locations
         def get_or_create_location(zone, rack, shelf, barcode):
             loc = session.exec(select(Location).where(Location.barcode == barcode)).first()
@@ -62,106 +85,195 @@ def seed_db():
         loc2 = get_or_create_location("B", "2", "2", "B-2-2")
         loc3 = get_or_create_location("C", "1", "1", "C-1-1")
         session.commit()
-        
+
         # 5. Inventory (for fetch_inventory_stats & auto_po_batch)
         # Auto-PO 테스트를 위해 재고 수량을 안전재고(10권) 미만으로 설정합니다.
         inv1 = Inventory(id=uuid.uuid4(), book_id=book1.id, location_id=loc1.id, quantity=3)
         inv2 = Inventory(id=uuid.uuid4(), book_id=book2.id, location_id=loc2.id, quantity=2)
         session.add_all([inv1, inv2])
-        
+
         # 6. InboundJobs (for fetch_order_stats)
-        inbound1 = InboundJob(id=uuid.uuid4(), inbound_type=InboundType.NEW_STOCK, status=InboundStatus.RECEIVED, supplier_name="A출판사")
-        inbound2 = InboundJob(id=uuid.uuid4(), inbound_type=InboundType.NEW_STOCK, status=InboundStatus.RECEIVED, supplier_name="B비전북스")
+        inbound1 = InboundJob(
+            id=uuid.uuid4(), inbound_type=InboundType.NEW_STOCK, status=InboundStatus.RECEIVED, supplier_name="A출판사"
+        )
+        inbound2 = InboundJob(
+            id=uuid.uuid4(),
+            inbound_type=InboundType.NEW_STOCK,
+            status=InboundStatus.RECEIVED,
+            supplier_name="B비전북스",
+        )
         session.add_all([inbound1, inbound2])
-        
+
         # 7. Orders (Logistics Hotspots & Outbound stats)
         # 7-1 악성 유저 (홍길동)
         bad_customer_id = uuid.uuid4()
         order_bad = Order(
-            id=uuid.uuid4(), customer_id=bad_customer_id, customer_name="홍길동", 
-            type=OrderType.B2B_ORDER, total_price=550000, status=OrderStatus.SHIPPED, logistics_center="서초_3센터"
+            id=uuid.uuid4(),
+            customer_id=bad_customer_id,
+            customer_name="홍길동",
+            type=OrderType.B2B_ORDER,
+            total_price=550000,
+            status=OrderStatus.SHIPPED,
+            logistics_center="서초_3센터",
         )
-        
+
         # 7-2 주의 유저 (김철수)
         watch_customer_id = uuid.uuid4()
         order_watch = Order(
-            id=uuid.uuid4(), customer_id=watch_customer_id, customer_name="김철수", 
-            type=OrderType.B2B_ORDER, total_price=600000, status=OrderStatus.SHIPPED, logistics_center="경기_광주센터"
+            id=uuid.uuid4(),
+            customer_id=watch_customer_id,
+            customer_name="김철수",
+            type=OrderType.B2B_ORDER,
+            total_price=600000,
+            status=OrderStatus.SHIPPED,
+            logistics_center="경기_광주센터",
         )
-        
+
         # 7-3 정상 유저 (이영희)
         good_customer_id = uuid.uuid4()
         order_good = Order(
-            id=uuid.uuid4(), customer_id=good_customer_id, customer_name="이영희", 
-            type=OrderType.B2B_ORDER, total_price=20000, status=OrderStatus.SHIPPED, logistics_center="서초_3센터"
+            id=uuid.uuid4(),
+            customer_id=good_customer_id,
+            customer_name="이영희",
+            type=OrderType.B2B_ORDER,
+            total_price=20000,
+            status=OrderStatus.SHIPPED,
+            logistics_center="서초_3센터",
         )
-        
+
         # 대량 출고 건수 반영용 더미 오더들 (weekly_outbound_orders)
-        dummy_orders = [Order(id=uuid.uuid4(), type=OrderType.B2B_ORDER, total_price=10000, status=OrderStatus.SHIPPED) for _ in range(50)]
+        dummy_orders = [
+            Order(id=uuid.uuid4(), type=OrderType.B2B_ORDER, total_price=10000, status=OrderStatus.SHIPPED)
+            for _ in range(50)
+        ]
         session.add_all([order_bad, order_watch, order_good] + dummy_orders)
         session.commit()
-        
+
         # 8. Order Items
-        oi_bad1 = OrderItem(id=uuid.uuid4(), order_id=order_bad.id, book_id=book1.id, location_id=loc1.id, quantity=1, unit_price=15000, final_price=150000)
-        oi_bad2 = OrderItem(id=uuid.uuid4(), order_id=order_bad.id, book_id=book2.id, location_id=loc2.id, quantity=1, unit_price=20000, final_price=400000)
-        
-        oi_watch = OrderItem(id=uuid.uuid4(), order_id=order_watch.id, book_id=book1.id, location_id=loc2.id, quantity=1, unit_price=15000, final_price=600000)
-        
-        oi_good = OrderItem(id=uuid.uuid4(), order_id=order_good.id, book_id=book2.id, location_id=loc1.id, quantity=1, unit_price=20000, final_price=20000)
-        
+        oi_bad1 = OrderItem(
+            id=uuid.uuid4(),
+            order_id=order_bad.id,
+            book_id=book1.id,
+            location_id=loc1.id,
+            quantity=1,
+            unit_price=15000,
+            final_price=150000,
+        )
+        oi_bad2 = OrderItem(
+            id=uuid.uuid4(),
+            order_id=order_bad.id,
+            book_id=book2.id,
+            location_id=loc2.id,
+            quantity=1,
+            unit_price=20000,
+            final_price=400000,
+        )
+
+        oi_watch = OrderItem(
+            id=uuid.uuid4(),
+            order_id=order_watch.id,
+            book_id=book1.id,
+            location_id=loc2.id,
+            quantity=1,
+            unit_price=15000,
+            final_price=600000,
+        )
+
+        oi_good = OrderItem(
+            id=uuid.uuid4(),
+            order_id=order_good.id,
+            book_id=book2.id,
+            location_id=loc1.id,
+            quantity=1,
+            unit_price=20000,
+            final_price=20000,
+        )
+
         session.add_all([oi_bad1, oi_bad2, oi_watch, oi_good])
         session.commit()
-        
+
         # 9. Return Jobs (for FDS & Hotspots)
         now = datetime.now()
-        
+
         # 홍길동: 최근 30일 4회 반품, 90일 5회. 평균 UBCI 매우 낮음 (파손) -> REJECTED로 처리되어 불량 도서 통계에 잡힘
         bad_returns = []
         for i in range(4):
             created_time = now - timedelta(days=2, hours=i)
             rj = ReturnJob(
-                id=uuid.uuid4(), tenant_id=tenant.id, order_id=order_bad.id, book_id=book1.id, 
-                mode=InspectionMode.RETURN, status=ReturnJobStatus.REJECTED, condition_grade=ConditionGrade.REJECT,
-                ubci_score=25.5, final_report="파손", created_at=created_time,
-                ai_inspection_started_at=created_time, ai_inspection_completed_at=created_time + timedelta(seconds=1.5)
+                id=uuid.uuid4(),
+                tenant_id=tenant.id,
+                order_id=order_bad.id,
+                book_id=book1.id,
+                mode=InspectionMode.RETURN,
+                status=ReturnJobStatus.REJECTED,
+                condition_grade=ConditionGrade.REJECT,
+                ubci_score=25.5,
+                final_report="파손",
+                created_at=created_time,
+                ai_inspection_started_at=created_time,
+                ai_inspection_completed_at=created_time + timedelta(seconds=1.5),
             )
             bad_returns.append(rj)
-        
+
         # 김철수: 최근 30일 2회, 90일 6회. 환불 금액 과다. UBCI는 양호(단순변심) -> 정상(APPROVED)
         watch_returns = []
         for i in range(2):
             created_time = now - timedelta(days=5, hours=i)
             rj = ReturnJob(
-                id=uuid.uuid4(), tenant_id=tenant.id, order_id=order_watch.id, book_id=book1.id, 
-                mode=InspectionMode.RETURN, status=ReturnJobStatus.APPROVED, condition_grade=ConditionGrade.EXCELLENT,
-                ubci_score=85.0, final_report="단순변심", created_at=created_time,
-                ai_inspection_started_at=created_time, ai_inspection_completed_at=created_time + timedelta(seconds=2.1)
+                id=uuid.uuid4(),
+                tenant_id=tenant.id,
+                order_id=order_watch.id,
+                book_id=book1.id,
+                mode=InspectionMode.RETURN,
+                status=ReturnJobStatus.APPROVED,
+                condition_grade=ConditionGrade.EXCELLENT,
+                ubci_score=85.0,
+                final_report="단순변심",
+                created_at=created_time,
+                ai_inspection_started_at=created_time,
+                ai_inspection_completed_at=created_time + timedelta(seconds=2.1),
             )
             watch_returns.append(rj)
-            
+
         # 이영희: 정상(오주문 1회) -> 정상(APPROVED)
         created_time = now - timedelta(days=1)
         good_return = ReturnJob(
-            id=uuid.uuid4(), tenant_id=tenant.id, order_id=order_good.id, book_id=book2.id, 
-            mode=InspectionMode.RETURN, status=ReturnJobStatus.APPROVED, condition_grade=ConditionGrade.MINT,
-            ubci_score=95.0, final_report="오주문", created_at=created_time,
-            ai_inspection_started_at=created_time, ai_inspection_completed_at=created_time + timedelta(seconds=1.8)
+            id=uuid.uuid4(),
+            tenant_id=tenant.id,
+            order_id=order_good.id,
+            book_id=book2.id,
+            mode=InspectionMode.RETURN,
+            status=ReturnJobStatus.APPROVED,
+            condition_grade=ConditionGrade.MINT,
+            ubci_score=95.0,
+            final_report="오주문",
+            created_at=created_time,
+            ai_inspection_started_at=created_time,
+            ai_inspection_completed_at=created_time + timedelta(seconds=1.8),
         )
-        
+
         # 검수시간 0 방지용: 최근 7일간 매일 1건씩 정상(APPROVED) 반품 건 추가
         daily_returns = []
         for day_offset in range(7):
             created_time = now - timedelta(days=day_offset, hours=12)
             rj = ReturnJob(
-                id=uuid.uuid4(), tenant_id=tenant.id, order_id=order_good.id, book_id=book2.id, 
-                mode=InspectionMode.RETURN, status=ReturnJobStatus.APPROVED, condition_grade=ConditionGrade.MINT,
-                ubci_score=99.0, final_report="단순변심", created_at=created_time,
-                ai_inspection_started_at=created_time, ai_inspection_completed_at=created_time + timedelta(seconds=1.7 + (day_offset % 3)*0.2)
+                id=uuid.uuid4(),
+                tenant_id=tenant.id,
+                order_id=order_good.id,
+                book_id=book2.id,
+                mode=InspectionMode.RETURN,
+                status=ReturnJobStatus.APPROVED,
+                condition_grade=ConditionGrade.MINT,
+                ubci_score=99.0,
+                final_report="단순변심",
+                created_at=created_time,
+                ai_inspection_started_at=created_time,
+                ai_inspection_completed_at=created_time + timedelta(seconds=1.7 + (day_offset % 3) * 0.2),
             )
             daily_returns.append(rj)
 
         session.add_all(bad_returns + watch_returns + [good_return] + daily_returns)
-        
+
         # 10. RejectedItem (for REJECT/SCRAP items count)
         rejected_inbound = InboundJob(
             inbound_type=InboundType.USED_PURCHASE,
@@ -189,28 +301,32 @@ def seed_db():
                     lpn_barcode=lpn_barcode,
                 )
             )
-            
+
         # 11. InventoryLogs (for Flow Trend Dashboard)
         # 입출고 추이 그래프용 더미 데이터
         for day_offset in range(7):
             log_date = now - timedelta(days=day_offset)
             # 입고 로그 (일별 5~15권 임의 지정)
-            session.add(InventoryLog(
-                transaction_type=InventoryTransactionType.INBOUND,
-                book_id=book1.id,
-                condition_grade=ConditionGrade.MINT,
-                quantity_change=10 + (day_offset % 3),
-                created_at=log_date
-            ))
+            session.add(
+                InventoryLog(
+                    transaction_type=InventoryTransactionType.INBOUND,
+                    book_id=book1.id,
+                    condition_grade=ConditionGrade.MINT,
+                    quantity_change=10 + (day_offset % 3),
+                    created_at=log_date,
+                )
+            )
             # 출고 로그 (일별 3~10권 임의 지정, 출고는 음수로 기록됨)
-            session.add(InventoryLog(
-                transaction_type=InventoryTransactionType.OUTBOUND,
-                book_id=book1.id,
-                condition_grade=ConditionGrade.MINT,
-                quantity_change=-(5 + (day_offset % 2)),
-                created_at=log_date
-            ))
-        
+            session.add(
+                InventoryLog(
+                    transaction_type=InventoryTransactionType.OUTBOUND,
+                    book_id=book1.id,
+                    condition_grade=ConditionGrade.MINT,
+                    quantity_change=-(5 + (day_offset % 2)),
+                    created_at=log_date,
+                )
+            )
+
         # 테스트용 HITL_REQUIRED 검수 건 생성 (Recheck 테스트 가능)
         hitl_inbound = InboundJob(
             inbound_type=InboundType.CUSTOMER_RETURN,
@@ -256,11 +372,13 @@ def seed_db():
             ai_inspection_completed_at=now - timedelta(minutes=5),
         )
         session.add(hitl_return_job)
-        
+
         session.commit()
         print("[SUCCESS] DB Seed Data Insertion Completed!")
 
+
 if __name__ == "__main__":
     import sys
-    sys.stdout.reconfigure(encoding='utf-8')
+
+    sys.stdout.reconfigure(encoding="utf-8")
     seed_db()

@@ -33,9 +33,7 @@ def test_dispatches_restock_task_for_rejected_job(
     monkeypatch.setattr(
         worker,
         "uuid4",
-        lambda: UUID(
-            "00000000-0000-4000-8000-000000000010"
-        ),
+        lambda: UUID("00000000-0000-4000-8000-000000000010"),
     )
 
     return_job = build_return_job(
@@ -46,22 +44,16 @@ def test_dispatches_restock_task_for_rejected_job(
         return_job=return_job,
     )
 
-    assert captured["task_name"] == (
-        worker.RESTOCK_PROPOSAL_TASK_NAME
-    )
+    assert captured["task_name"] == (worker.RESTOCK_PROPOSAL_TASK_NAME)
     assert captured["args"] == [str(return_job.id)]
-    assert captured["task_id"] == (
-        "00000000-0000-4000-8000-000000000010"
-    )
+    assert captured["task_id"] == ("00000000-0000-4000-8000-000000000010")
 
 
 def test_does_not_dispatch_restock_task_for_approved_job(
     monkeypatch,
 ):
     def fail_if_called(*_args, **_kwargs):
-        raise AssertionError(
-            "Restock task must not be dispatched"
-        )
+        raise AssertionError("Restock task must not be dispatched")
 
     monkeypatch.setattr(
         worker.celery_app,
@@ -99,6 +91,7 @@ def test_does_not_raise_when_restock_task_dispatch_fails(
         return_job=return_job,
     )
 
+
 class FakeSessionContext:
     def __init__(self, book=None):
         self.book = book
@@ -117,18 +110,12 @@ def build_proposal(
     *,
     recommended_order_quantity: int,
     risk_level: str,
-    proposal_source: RestockProposalSource = (
-        RestockProposalSource.RETURN_REJECTION
-    ),
+    proposal_source: RestockProposalSource = (RestockProposalSource.RETURN_REJECTION),
 ):
     return SimpleNamespace(
         id=UUID("00000000-0000-4000-8000-000000000020"),
-        tenant_id=UUID(
-            "00000000-0000-4000-8000-000000000021"
-        ),
-        book_id=UUID(
-            "00000000-0000-4000-8000-000000000022"
-        ),
+        tenant_id=UUID("00000000-0000-4000-8000-000000000021"),
+        book_id=UUID("00000000-0000-4000-8000-000000000022"),
         recommended_order_quantity=recommended_order_quantity,
         risk_level=risk_level,
         proposal_source=proposal_source,
@@ -159,9 +146,7 @@ def test_zero_quantity_proposal_does_not_publish_notification(
     )
 
     def fail_if_notification_is_created(**_kwargs):
-        raise AssertionError(
-            "0권 추천안은 알림을 생성하면 안 됩니다."
-        )
+        raise AssertionError("0권 추천안은 알림을 생성하면 안 됩니다.")
 
     monkeypatch.setattr(
         worker,
@@ -252,19 +237,16 @@ def test_positive_quantity_proposal_publishes_notification(
     assert result["created"] is True
     assert result["notification_published"] is True
     assert published["event_name"] == "RESTOCK_ALERT"
-    assert published["kwargs"]["tenant_id"] == str(
-        proposal.tenant_id
-    )
+    assert published["kwargs"]["tenant_id"] == str(proposal.tenant_id)
     assert notification["payload"] == {
         "order_proposal_id": str(proposal.id),
-        "return_job_id": (
-            "00000000-0000-4000-8000-000000000001"
-        ),
+        "return_job_id": ("00000000-0000-4000-8000-000000000001"),
         "book_id": str(proposal.book_id),
         "proposal_source": "RETURN_REJECTION",
         "recommended_order_quantity": 11,
         "risk_level": "HIGH",
     }
+
 
 def test_safety_stock_proposal_publishes_notification(
     monkeypatch,
@@ -310,14 +292,12 @@ def test_safety_stock_proposal_publishes_notification(
         lambda **_kwargs: True,
     )
 
-    task_result = (
-        worker.process_safety_stock_restock_proposal.apply(
-            args=[
-                str(proposal.tenant_id),
-                str(proposal.book_id),
-                20,
-            ],
-        )
+    task_result = worker.process_safety_stock_restock_proposal.apply(
+        args=[
+            str(proposal.tenant_id),
+            str(proposal.book_id),
+            20,
+        ],
     )
 
     assert task_result.successful()

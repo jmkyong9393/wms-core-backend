@@ -194,11 +194,7 @@ class CombinedVisionReview(BaseModel):
 
 
 class CustomerCertificateNarrative(BaseModel):
-    """고객 공개용 품질 보증서 서술 (Report Agent LLM 출력).
-
-    [고객 노출 경계] 귀책(누구 잘못인지)을 단정하지 않고, 내부 코드·조항 전문을
-    노출하지 않는다. 심각도에 따라 어조를 달리하되 사실만 서술한다.
-    """
+    """고객 공개용 품질 보증서 서술. 귀책과 내부 코드는 담지 않는다."""
 
     model_config = ConfigDict(strict=True)
 

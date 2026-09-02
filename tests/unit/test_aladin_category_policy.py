@@ -31,10 +31,7 @@ def test_maps_aladin_category_path_to_internal_category(
 
 
 def test_prioritizes_parent_category_over_keyword_in_lower_segment():
-    assert (
-        map_aladin_category("국내도서>인문학>만화로 읽는 철학")
-        == BookCategory.HUMANITIES
-    )
+    assert map_aladin_category("국내도서>인문학>만화로 읽는 철학") == BookCategory.HUMANITIES
 
 
 @pytest.mark.parametrize("category_name", ["", "  ", "국내도서>기타"])

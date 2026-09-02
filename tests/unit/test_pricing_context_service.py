@@ -85,9 +85,7 @@ def test_rejects_lpn_without_confirmed_ubci_score():
 def test_rejects_book_without_positive_base_price():
     with pytest.raises(PricingContextIncompleteError):
         get_dynamic_pricing_context(
-            _session_returning(
-                (_inventory_item(), _book(base_price=Decimal("0")))
-            ),
+            _session_returning((_inventory_item(), _book(base_price=Decimal("0")))),
             "LPN-12345678123456781234567812345678",
         )
 

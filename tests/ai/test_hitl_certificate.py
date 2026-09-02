@@ -141,7 +141,6 @@ def test_resume_normal_approval_creates_mint_certificate():
     assert report["final_grade"] == "S"
 
 
-
 # 관리자 반려 결과 검증
 def test_resume_rejection_sets_reject_grade():
     thread_id, config = make_config()
@@ -196,45 +195,69 @@ def test_resume_rejects_unknown_thread():
 
 # 재촬영 결정의 Vision 재진입 검증
 def test_recheck_routes_to_book_detector():
-    assert route_from_supervisor({
-        "human_feedback": "RE_CHECK",
-        "revision_count": 0,
-    }) == "book_detector"
+    assert (
+        route_from_supervisor(
+            {
+                "human_feedback": "RE_CHECK",
+                "revision_count": 0,
+            }
+        )
+        == "book_detector"
+    )
+
 
 def test_initial_inspection_routes_to_book_detector():
-    assert route_from_supervisor({
-        "revision_count": 0,
-    }) == "book_detector"
+    assert (
+        route_from_supervisor(
+            {
+                "revision_count": 0,
+            }
+        )
+        == "book_detector"
+    )
 
 
 def test_completed_book_detector_routes_to_vision():
-    assert route_from_supervisor({
-        "revision_count": 0,
-        "book_regions": [
-            {"image_index": 0},
-            {"image_index": 1},
-            {"image_index": 2},
-        ],
-    }) == "vision_agent"
+    assert (
+        route_from_supervisor(
+            {
+                "revision_count": 0,
+                "book_regions": [
+                    {"image_index": 0},
+                    {"image_index": 1},
+                    {"image_index": 2},
+                ],
+            }
+        )
+        == "vision_agent"
+    )
 
 
 def test_failed_book_detector_routes_to_technical_failure():
-    assert route_from_supervisor({
-        "revision_count": 0,
-        "book_regions": [],
-        "repair_directive": "책 영역 탐지 실패",
-    }) == "technical_failure_node"
+    assert (
+        route_from_supervisor(
+            {
+                "revision_count": 0,
+                "book_regions": [],
+                "repair_directive": "책 영역 탐지 실패",
+            }
+        )
+        == "technical_failure_node"
+    )
 
 
 def test_failed_vision_routes_to_technical_failure():
-    assert route_from_supervisor({
-        "revision_count": 1,
-        "vision_status": "FAILED",
-        "vision_reason_code": "QUALITY_ERROR",
-        "repair_directive": (
-            "FileNotFoundError: 검수 이미지를 찾을 수 없습니다."
-        ),
-    }) == "technical_failure_node"
+    assert (
+        route_from_supervisor(
+            {
+                "revision_count": 1,
+                "vision_status": "FAILED",
+                "vision_reason_code": "QUALITY_ERROR",
+                "repair_directive": ("FileNotFoundError: 검수 이미지를 찾을 수 없습니다."),
+            }
+        )
+        == "technical_failure_node"
+    )
 
 
 def test_technical_failure_is_raised_for_worker_retry():
@@ -242,12 +265,11 @@ def test_technical_failure_is_raised_for_worker_retry():
         RuntimeError,
         match="FileNotFoundError",
     ):
-        technical_failure_node({
-            "repair_directive": (
-                "FileNotFoundError: 검수 이미지를 찾을 수 없습니다."
-            ),
-        })
-
+        technical_failure_node(
+            {
+                "repair_directive": ("FileNotFoundError: 검수 이미지를 찾을 수 없습니다."),
+            }
+        )
 
 
 # 정의되지 않은 관리자 사유 차단 검증
@@ -266,22 +288,23 @@ def test_resume_rejects_invalid_reason_code():
             primary_reason_code="UNKNOWN_REASON",
         )
 
-    assert app_graph.get_state(config).next == (
-        "human_node",
-    )
+    assert app_graph.get_state(config).next == ("human_node",)
+
 
 # MINT 자동 환불 승인 사유서 검증
 def test_fast_track_creates_refund_report():
-    result = auto_refund_agent({
-        "vision_status": "COMPLETED",
-        "image_quality_ok": True,
-        "missed_defect_suspected": False,
-        "uncertain_candidates": [],
-        "human_feedback": None,
-        "is_mint": True,
-        "defects": [],
-        "vision_confidence": 0.95,
-    })
+    result = auto_refund_agent(
+        {
+            "vision_status": "COMPLETED",
+            "image_quality_ok": True,
+            "missed_defect_suspected": False,
+            "uncertain_candidates": [],
+            "human_feedback": None,
+            "is_mint": True,
+            "defects": [],
+            "vision_confidence": 0.95,
+        }
+    )
     report = json.loads(result["final_report"])
 
     assert report["result"] == "AUTO_REFUND_APPROVED"
@@ -296,74 +319,96 @@ def test_fast_track_creates_refund_report():
     assert report["final_grade"] == "S"
 
     with pytest.raises(ValueError):
-        auto_refund_agent({
-            "is_mint": False,
-            "defects": [
-                {
-                    "type": "WATER_DAMAGE",
-                }
-            ],
-            "vision_confidence": 0.95,
-        })
+        auto_refund_agent(
+            {
+                "is_mint": False,
+                "defects": [
+                    {
+                        "type": "WATER_DAMAGE",
+                    }
+                ],
+                "vision_confidence": 0.95,
+            }
+        )
 
 
 # Policy 처리 이후 Auto Refund 재진입 차단 검증
 def test_policy_result_does_not_route_to_auto_refund():
-    assert route_from_supervisor({
-        "revision_count": 0,
-        "is_mint": True,
-        "defects": [],
-        "vision_confidence": 0.95,
-        "ubci_score": 100.0,
-        "predicted_grade": "S",
-        "score_breakdown": [],
-        "fatal_defect_detected": False,
-        "grade_reason_code": "NO_VISIBLE_DEFECT",
-        "rule_reference": "UBCI_SPEC_V2.0.0.0",
-        "policy_confidence": 0.98,
-        "reason_code": None,
-    }) == "critic_agent"
+    assert (
+        route_from_supervisor(
+            {
+                "revision_count": 0,
+                "is_mint": True,
+                "defects": [],
+                "vision_confidence": 0.95,
+                "ubci_score": 100.0,
+                "predicted_grade": "S",
+                "score_breakdown": [],
+                "fatal_defect_detected": False,
+                "grade_reason_code": "NO_VISIBLE_DEFECT",
+                "rule_reference": "UBCI_SPEC_V2.0.0.0",
+                "policy_confidence": 0.98,
+                "reason_code": None,
+            }
+        )
+        == "critic_agent"
+    )
 
 
 # 재촬영 후 MINT 결과의 Auto Refund 진입 차단 검증
 def test_rechecked_mint_does_not_route_to_auto_refund():
-    assert route_from_supervisor({
-        "revision_count": 0,
-        "is_mint": True,
-        "defects": [],
-        "vision_confidence": 0.95,
-        "primary_reason_code": "SYS_BLURRY",
-        "reason_code": None,
-    }) == "policy_agent"
+    assert (
+        route_from_supervisor(
+            {
+                "revision_count": 0,
+                "is_mint": True,
+                "defects": [],
+                "vision_confidence": 0.95,
+                "primary_reason_code": "SYS_BLURRY",
+                "reason_code": None,
+            }
+        )
+        == "policy_agent"
+    )
 
 
 # 재촬영 검증 완료 후 관리자 재확인 경로 검증
 def test_rechecked_result_returns_to_human():
-    assert route_from_supervisor({
-        "revision_count": 0,
-        "is_mint": True,
-        "defects": [],
-        "vision_confidence": 0.95,
-        "ubci_score": 100.0,
-        "predicted_grade": "S",
-        "rule_reference": "UBCI_SPEC_V2.0.0.0",
-        "policy_confidence": 0.98,
-        "reason_code": "OK",
-        "primary_reason_code": "SYS_BLURRY",
-        "human_feedback": None,
-    }) == "human_node"
+    assert (
+        route_from_supervisor(
+            {
+                "revision_count": 0,
+                "is_mint": True,
+                "defects": [],
+                "vision_confidence": 0.95,
+                "ubci_score": 100.0,
+                "predicted_grade": "S",
+                "rule_reference": "UBCI_SPEC_V2.0.0.0",
+                "policy_confidence": 0.98,
+                "reason_code": "OK",
+                "primary_reason_code": "SYS_BLURRY",
+                "human_feedback": None,
+            }
+        )
+        == "human_node"
+    )
 
 
 # REVIEW_REQUIRED 결과의 Vision 재호출 차단 검증
 def test_review_required_routes_directly_to_human():
-    assert route_from_supervisor({
-        "revision_count": 1,
-        "vision_status": "REVIEW_REQUIRED",
-        "vision_reason_code": "VISION_UNCERTAIN_CANDIDATE",
-        "is_mint": None,
-        "defects": [],
-        "vision_confidence": 0.85,
-    }) == "human_node"
+    assert (
+        route_from_supervisor(
+            {
+                "revision_count": 1,
+                "vision_status": "REVIEW_REQUIRED",
+                "vision_reason_code": "VISION_UNCERTAIN_CANDIDATE",
+                "is_mint": None,
+                "defects": [],
+                "vision_confidence": 0.85,
+            }
+        )
+        == "human_node"
+    )
 
 
 # 낮은 신뢰도의 확정 후보를 판정보류로 전환하는지 검증
@@ -380,10 +425,7 @@ def test_low_confidence_candidate_becomes_uncertain():
     assert review.decision == "UNCERTAIN"
     assert review.confirmed_type is None
     assert review.location is None
-    assert (
-        review.reject_reason
-        == "INSUFFICIENT_EVIDENCE"
-    )
+    assert review.reject_reason == "INSUFFICIENT_EVIDENCE"
 
 
 def test_local_image_loader_requires_configured_root(
@@ -401,9 +443,7 @@ def test_local_image_loader_requires_configured_root(
         ValueError,
         match="비활성화",
     ):
-        agents._load_inspection_image(
-            str(image_path)
-        )
+        agents._load_inspection_image(str(image_path))
 
 
 def test_local_image_loader_blocks_path_escape(
@@ -423,9 +463,7 @@ def test_local_image_loader_blocks_path_escape(
         ValueError,
         match="허용된 로컬",
     ):
-        agents._load_inspection_image(
-            str(outside_image)
-        )
+        agents._load_inspection_image(str(outside_image))
 
 
 def test_local_image_loader_enforces_pixel_limit(
@@ -448,9 +486,7 @@ def test_local_image_loader_enforces_pixel_limit(
         ValueError,
         match="픽셀 수",
     ):
-        agents._load_inspection_image(
-            str(image_path)
-        )
+        agents._load_inspection_image(str(image_path))
 
 
 def test_book_detector_exception_is_not_hidden_by_fallback(
@@ -486,14 +522,14 @@ def test_book_detector_exception_is_not_hidden_by_fallback(
         lambda *args, **kwargs: None,
     )
 
-    result = book_detector_node({
-        "image_paths": ["front", "back", "inner"],
-    })
+    result = book_detector_node(
+        {
+            "image_paths": ["front", "back", "inner"],
+        }
+    )
 
     assert result["book_regions"] == []
-    assert result["repair_directive"] == (
-        "책 영역 탐지 중 기술 오류가 발생했습니다."
-    )
+    assert result["repair_directive"] == ("책 영역 탐지 중 기술 오류가 발생했습니다.")
 
 
 # 동일 사진의 중첩 결함만 하나로 합치는지 검증
@@ -546,14 +582,9 @@ def test_duplicate_confirmed_defects_are_deduplicated():
         },
     ]
 
-    result = deduplicate_confirmed_defects(
-        defects
-    )
+    result = deduplicate_confirmed_defects(defects)
 
-    assert [
-        item["candidate_id"]
-        for item in result
-    ] == [0, 2]
+    assert [item["candidate_id"] for item in result] == [0, 2]
 
 
 # 확정된 내지 훼손의 자동 감점 및 Critic/Report 라우팅 검증
@@ -619,11 +650,7 @@ def test_policy_scores_confirmed_inner_page_damage(
     assert result["provisional_score_breakdown"] is None
     assert result["reason_code"] is None
     policy_message = result["messages"][-1].content
-    assert (
-        "감점=CORNER_CRUSH -3.0점, "
-        "INNER_PAGE_DAMAGE -10.0점"
-        in policy_message
-    )
+    assert "감점=CORNER_CRUSH -3.0점, INNER_PAGE_DAMAGE -10.0점" in policy_message
     assert "Policy RAG=RULE_ENGINE_FALLBACK" in policy_message
     assert "근거=0건" in policy_message
 
@@ -632,42 +659,51 @@ def test_policy_scores_confirmed_inner_page_damage(
         **result,
     }
     assert route_from_supervisor(policy_state) == "critic_agent"
-    assert route_from_supervisor({
-        **policy_state,
-        "reason_code": "OK",
-    }) == "report_agent"
+    assert (
+        route_from_supervisor(
+            {
+                **policy_state,
+                "reason_code": "OK",
+            }
+        )
+        == "report_agent"
+    )
 
 
 def test_inner_page_damage_is_penalized_only_once():
-    score, breakdown, fatal = agents.calculate_ubci_score([
-        {
-            "type": defect_type,
-            "ratio": 4.0,
-            "text_overlap": False,
-            "morphology_severe": False,
-        }
-        for defect_type in (
-            "WRITING",
-            "HIGHLIGHTING",
-            "PAGE_FOLD",
-        )
-    ])
+    score, breakdown, fatal = agents.calculate_ubci_score(
+        [
+            {
+                "type": defect_type,
+                "ratio": 4.0,
+                "text_overlap": False,
+                "morphology_severe": False,
+            }
+            for defect_type in (
+                "WRITING",
+                "HIGHLIGHTING",
+                "PAGE_FOLD",
+            )
+        ]
+    )
 
     assert score == 90.0
     assert fatal is False
-    assert breakdown == [{
-        "type": "INNER_PAGE_DAMAGE",
-        "detected_types": [
-            "HIGHLIGHTING",
-            "PAGE_FOLD",
-            "WRITING",
-        ],
-        "total_ratio": 12.0,
-        "severity": "OBSERVED_LE_5_PAGES",
-        "text_overlap": False,
-        "applied_penalty": 10.0,
-        "fatal": False,
-    }]
+    assert breakdown == [
+        {
+            "type": "INNER_PAGE_DAMAGE",
+            "detected_types": [
+                "HIGHLIGHTING",
+                "PAGE_FOLD",
+                "WRITING",
+            ],
+            "total_ratio": 12.0,
+            "severity": "OBSERVED_LE_5_PAGES",
+            "text_overlap": False,
+            "applied_penalty": 10.0,
+            "fatal": False,
+        }
+    ]
 
 
 def test_policy_unknown_penalty_still_requires_hitl(
@@ -678,24 +714,26 @@ def test_policy_unknown_penalty_still_requires_hitl(
         lambda **_: [],
     )
 
-    result = policy_agent({
-        "vision_status": "COMPLETED",
-        "revision_count": 0,
-        "defects": [
-            {
-                "type": "CORNER_CRUSH",
-                "ratio": 0.85,
-                "text_overlap": False,
-                "morphology_severe": False,
-            },
-            {
-                "type": "BARCODE_DAMAGE",
-                "ratio": 3.22,
-                "text_overlap": False,
-                "morphology_severe": False,
-            },
-        ],
-    })
+    result = policy_agent(
+        {
+            "vision_status": "COMPLETED",
+            "revision_count": 0,
+            "defects": [
+                {
+                    "type": "CORNER_CRUSH",
+                    "ratio": 0.85,
+                    "text_overlap": False,
+                    "morphology_severe": False,
+                },
+                {
+                    "type": "BARCODE_DAMAGE",
+                    "ratio": 3.22,
+                    "text_overlap": False,
+                    "morphology_severe": False,
+                },
+            ],
+        }
+    )
 
     assert result["ubci_score"] is None
     assert result["provisional_ubci_score"] == 97.0
@@ -712,24 +750,26 @@ def test_fatal_defect_takes_priority_over_manual_defect(
         lambda **_: [],
     )
 
-    result = policy_agent({
-        "vision_status": "COMPLETED",
-        "revision_count": 0,
-        "defects": [
-            {
-                "type": "WATER_DAMAGE",
-                "ratio": 1.0,
-                "text_overlap": False,
-                "morphology_severe": False,
-            },
-            {
-                "type": "WRITING",
-                "ratio": 3.22,
-                "text_overlap": False,
-                "morphology_severe": False,
-            },
-        ],
-    })
+    result = policy_agent(
+        {
+            "vision_status": "COMPLETED",
+            "revision_count": 0,
+            "defects": [
+                {
+                    "type": "WATER_DAMAGE",
+                    "ratio": 1.0,
+                    "text_overlap": False,
+                    "morphology_severe": False,
+                },
+                {
+                    "type": "WRITING",
+                    "ratio": 3.22,
+                    "text_overlap": False,
+                    "morphology_severe": False,
+                },
+            ],
+        }
+    )
 
     assert result["ubci_score"] == 0.0
     assert result["provisional_ubci_score"] is None
@@ -741,28 +781,30 @@ def test_fatal_defect_takes_priority_over_manual_defect(
 
 # 같은 물리 영역의 일반 결함보다 구체 결함을 우선하는지 검증
 def test_specific_defect_replaces_overlapping_generic_defect():
-    result = deduplicate_confirmed_defects([
-        {
-            "image_index": 0,
-            "candidate_id": 0,
-            "type": "OTHER_VISIBLE_DAMAGE",
-            "defect_type": "OTHER_VISIBLE_DAMAGE",
-            "bbox": [0.10, 0.10, 0.30, 0.30],
-            "vlm_confidence": 0.99,
-            "ensemble_confidence": 0.90,
-            "yolo_confidence": 0.90,
-        },
-        {
-            "image_index": 0,
-            "candidate_id": 1,
-            "type": "COVER_TEAR",
-            "defect_type": "COVER_TEAR",
-            "bbox": [0.11, 0.11, 0.31, 0.31],
-            "vlm_confidence": 0.85,
-            "ensemble_confidence": 0.80,
-            "yolo_confidence": 0.80,
-        },
-    ])
+    result = deduplicate_confirmed_defects(
+        [
+            {
+                "image_index": 0,
+                "candidate_id": 0,
+                "type": "OTHER_VISIBLE_DAMAGE",
+                "defect_type": "OTHER_VISIBLE_DAMAGE",
+                "bbox": [0.10, 0.10, 0.30, 0.30],
+                "vlm_confidence": 0.99,
+                "ensemble_confidence": 0.90,
+                "yolo_confidence": 0.90,
+            },
+            {
+                "image_index": 0,
+                "candidate_id": 1,
+                "type": "COVER_TEAR",
+                "defect_type": "COVER_TEAR",
+                "bbox": [0.11, 0.11, 0.31, 0.31],
+                "vlm_confidence": 0.85,
+                "ensemble_confidence": 0.80,
+                "yolo_confidence": 0.80,
+            },
+        ]
+    )
 
     assert len(result) == 1
     assert result[0]["candidate_id"] == 1
@@ -794,9 +836,7 @@ def test_two_track_vision_uses_full_vlm_only_for_inner(
             if self.schema is agents.FullImageVisionReview:
                 invoke_counts["full"] += 1
                 full_request_texts.extend(
-                    block["text"]
-                    for block in messages[-1].content
-                    if block.get("type") == "text"
+                    block["text"] for block in messages[-1].content if block.get("type") == "text"
                 )
                 return agents.FullImageVisionReview(
                     image_quality_ok=True,
@@ -824,9 +864,7 @@ def test_two_track_vision_uses_full_vlm_only_for_inner(
                         decision="CONFIRMED",
                         review_confidence=0.95,
                         explanation="원본 증거와 일치",
-                        printed_content_only=(
-                            index == 2
-                        ),
+                        printed_content_only=(index == 2),
                     )
                     for index in range(3)
                 ],
@@ -835,11 +873,7 @@ def test_two_track_vision_uses_full_vlm_only_for_inner(
             )
 
     def fake_candidates(image, image_index, book_region):
-        defect_type = (
-            "WRITING"
-            if image_index == 2
-            else "COVER_TEAR"
-        )
+        defect_type = "WRITING" if image_index == 2 else "COVER_TEAR"
         candidate = {
             "candidate_id": 0,
             "image_view": agents.IMAGE_VIEWS[image_index],
@@ -870,10 +904,7 @@ def test_two_track_vision_uses_full_vlm_only_for_inner(
         lambda: [
             {
                 "name": "general_binary",
-                "path": (
-                    "/app/models/"
-                    "general_binary_team_s3_v2_best.pt"
-                ),
+                "path": ("/app/models/general_binary_team_s3_v2_best.pt"),
             },
             {
                 "name": "doodle",
@@ -907,21 +938,21 @@ def test_two_track_vision_uses_full_vlm_only_for_inner(
         lambda *args, **kwargs: None,
     )
 
-    result = agents.vision_agent({
-        "image_paths": ["front", "back", "inner"],
-        "book_regions": [
-            {
-                "image_index": index,
-                "image_view": view,
-                "bbox": [0.0, 0.0, 1.0, 1.0],
-                "fallback_used": False,
-            }
-            for index, view in enumerate(
-                agents.IMAGE_VIEWS
-            )
-        ],
-        "revision_count": 0,
-    })
+    result = agents.vision_agent(
+        {
+            "image_paths": ["front", "back", "inner"],
+            "book_regions": [
+                {
+                    "image_index": index,
+                    "image_view": view,
+                    "bbox": [0.0, 0.0, 1.0, 1.0],
+                    "fallback_used": False,
+                }
+                for index, view in enumerate(agents.IMAGE_VIEWS)
+            ],
+            "revision_count": 0,
+        }
+    )
 
     assert model_calls == ["gpt-4o", "gpt-4o-mini"]
     assert invoke_counts == {"full": 1, "combined": 1}
@@ -929,28 +960,17 @@ def test_two_track_vision_uses_full_vlm_only_for_inner(
     assert '"candidate_id": 0' in full_request_text
     assert '"proposed_type"' not in full_request_text
     assert result["vision_status"] == "COMPLETED"
-    assert [
-        region["analysis_mode"]
-        for region in result["book_regions"]
-    ] == [
+    assert [region["analysis_mode"] for region in result["book_regions"]] == [
         "TRAINED_DETERMINISTIC_YOLO",
         "TRAINED_DETERMINISTIC_YOLO",
         "UNTRAINED_FULL_IMAGE_VLM",
     ]
     assert len(result["defects"]) == 2
     assert len(result["rejected_candidates"]) == 1
+    assert all("image_url" not in defect and "source_predictions" not in defect for defect in result["defects"])
+    assert all("source_predictions" not in candidate for candidate in result["ensemble_candidates"])
     assert all(
-        "image_url" not in defect
-        and "source_predictions" not in defect
-        for defect in result["defects"]
-    )
-    assert all(
-        "source_predictions" not in candidate
-        for candidate in result["ensemble_candidates"]
-    )
-    assert all(
-        "image_url" not in candidate
-        and "source_predictions" not in candidate
+        "image_url" not in candidate and "source_predictions" not in candidate
         for candidate in result["rejected_candidates"]
     )
     assert result["vision_observations"] == [
@@ -964,27 +984,28 @@ def test_two_track_vision_uses_full_vlm_only_for_inner(
     vision_message = result["messages"][-1].content
     assert "결함=COVER_TEAR×2" in vision_message
     assert "WRITING" not in vision_message
-    assert (
-        "general_binary="
-        "general_binary_team_s3_v2_best.pt"
-        in vision_message
-    )
+    assert "general_binary=general_binary_team_s3_v2_best.pt" in vision_message
     assert "doodle=doodle_best.pt" in vision_message
     assert "INNER→Doodle+GPT-4o" in vision_message
 
 
 def test_mint_routes_to_report_after_critic():
-    assert route_from_supervisor({
-        "revision_count": 0,
-        "is_mint": True,
-        "defects": [],
-        "vision_confidence": 0.95,
-        "ubci_score": 100.0,
-        "predicted_grade": "S",
-        "score_breakdown": [],
-        "fatal_defect_detected": False,
-        "grade_reason_code": "NO_VISIBLE_DEFECT",
-        "rule_reference": "UBCI_SPEC_V2.0.0.0",
-        "policy_confidence": 1.0,
-        "reason_code": "OK",
-    }) == "report_agent"
+    assert (
+        route_from_supervisor(
+            {
+                "revision_count": 0,
+                "is_mint": True,
+                "defects": [],
+                "vision_confidence": 0.95,
+                "ubci_score": 100.0,
+                "predicted_grade": "S",
+                "score_breakdown": [],
+                "fatal_defect_detected": False,
+                "grade_reason_code": "NO_VISIBLE_DEFECT",
+                "rule_reference": "UBCI_SPEC_V2.0.0.0",
+                "policy_confidence": 1.0,
+                "reason_code": "OK",
+            }
+        )
+        == "report_agent"
+    )

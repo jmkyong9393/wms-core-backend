@@ -38,10 +38,7 @@ def test_build_lpn_label_uses_shared_scan_qr_url(
 
     assert "^PW400" in zpl
     assert "^LL240" in zpl
-    assert (
-        "https://wms.example.com/"
-        "scan/test-certificate-token"
-    ) in zpl
+    assert ("https://wms.example.com/scan/test-certificate-token") in zpl
     assert "LPN-TEST-0001" in zpl
     assert "^BQN" in zpl
     assert "^BC" not in zpl
@@ -65,10 +62,7 @@ def test_build_ubci_label_includes_grade_and_score(
 
     assert "GRADE: EXCELLENT" in zpl
     assert "UBCI: 91.50" in zpl
-    assert (
-        "https://wms.example.com/"
-        "scan/test-certificate-token"
-    ) in zpl
+    assert ("https://wms.example.com/scan/test-certificate-token") in zpl
 
 
 def test_skips_printer_connection_when_printer_is_disabled(
@@ -80,11 +74,7 @@ def test_skips_printer_connection_when_printer_is_disabled(
         False,
     )
 
-    result = (
-        label_printer_service.send_zpl_to_label_printer(
-            "^XA^XZ"
-        )
-    )
+    result = label_printer_service.send_zpl_to_label_printer("^XA^XZ")
 
     assert result.sent is False
     assert result.skipped is True
@@ -135,11 +125,7 @@ def test_sends_zpl_over_raw_tcp_when_printer_is_enabled(
         fake_create_connection,
     )
 
-    result = (
-        label_printer_service.send_zpl_to_label_printer(
-            "^XA^FDTEST^FS^XZ"
-        )
-    )
+    result = label_printer_service.send_zpl_to_label_printer("^XA^FDTEST^FS^XZ")
 
     assert captured_connection["address"] == (
         "192.168.0.10",
@@ -170,6 +156,4 @@ def test_raises_when_enabled_printer_host_is_missing(
         label_printer_service.LabelPrinterError,
         match="LABEL_PRINTER_HOST",
     ):
-        label_printer_service.send_zpl_to_label_printer(
-            "^XA^XZ"
-        )
+        label_printer_service.send_zpl_to_label_printer("^XA^XZ")

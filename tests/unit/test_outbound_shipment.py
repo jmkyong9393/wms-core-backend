@@ -168,10 +168,7 @@ def test_confirm_new_stock_shipment_deducts_quantity_and_reservation():
     )
 
     assert response.status == OrderStatus.SHIPPED
-    assert response.waybill_number == (
-        f"WB-{order.shipped_at:%Y%m%d}-"
-        f"{ORDER_ID.hex[:12].upper()}"
-    )
+    assert response.waybill_number == (f"WB-{order.shipped_at:%Y%m%d}-{ORDER_ID.hex[:12].upper()}")
     assert response.waybill_barcode == response.waybill_number
     assert response.shipping_carrier == "MOCK_COURIER"
     assert response.shipping_label.is_demo is True
@@ -186,16 +183,9 @@ def test_confirm_new_stock_shipment_deducts_quantity_and_reservation():
     assert inventory.quantity == 1
     assert inventory.reserved_quantity == 0
     assert book.virtual_stock == 4
-    inventory_logs = [
-        item
-        for item in session.added_items
-        if isinstance(item, InventoryLog)
-    ]
+    inventory_logs = [item for item in session.added_items if isinstance(item, InventoryLog)]
     assert len(inventory_logs) == 1
-    assert (
-        inventory_logs[0].condition_grade
-        == ConditionGrade.MINT
-    )
+    assert inventory_logs[0].condition_grade == ConditionGrade.MINT
     assert inventory_logs[0].target_lpn is None
     assert session.committed is True
 
@@ -285,6 +275,7 @@ def test_confirm_shipment_rejects_non_picking_order():
     assert exc_info.value.status_code == 409
     assert session.rolled_back is True
 
+
 def test_confirm_shipment_rejects_incomplete_picking():
     order = build_order()
     order_item = build_order_item()
@@ -312,15 +303,7 @@ def test_confirm_shipment_rejects_incomplete_picking():
         )
 
     assert exc_info.value.status_code == 409
-    assert (
-        exc_info.value.detail["message"]
-        == "Shipment cannot be confirmed until all "
-        "reserved items are scanned."
-    )
-    assert (
-        exc_info.value.detail["incomplete_new_allocations"][0]
-        ["allocation_id"]
-        == str(allocation.id)
-    )
+    assert exc_info.value.detail["message"] == "Shipment cannot be confirmed until all reserved items are scanned."
+    assert exc_info.value.detail["incomplete_new_allocations"][0]["allocation_id"] == str(allocation.id)
     assert session.committed is False
     assert session.rolled_back is True

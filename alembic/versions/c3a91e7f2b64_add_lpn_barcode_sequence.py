@@ -5,6 +5,7 @@ Revises: 8f6b1c2d4e5a
 Create Date: 2026-08-07
 
 """
+
 from collections.abc import Sequence
 
 from alembic import op
@@ -33,8 +34,4 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Remove the global LPN barcode sequence."""
-    op.execute(
-        sa.text(
-            "DROP SEQUENCE IF EXISTS lpn_barcode_sequence"
-        )
-    )
+    op.execute(sa.text("DROP SEQUENCE IF EXISTS lpn_barcode_sequence"))

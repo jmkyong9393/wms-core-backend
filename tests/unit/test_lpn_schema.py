@@ -29,9 +29,7 @@ def test_lpn_detail_response_preserves_inventory_metadata():
             "shelf": "3",
         },
         stocked_at=datetime(2026, 7, 27, 10, 0, 0),
-        certificate_url=(
-            "https://wms.example.com/certificate/public-certificate-token"
-        ),
+        certificate_url=("https://wms.example.com/certificate/public-certificate-token"),
     )
 
     assert response.ubci_score == Decimal("91.50")

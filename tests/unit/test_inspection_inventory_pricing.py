@@ -17,11 +17,7 @@ def _request(decision: str = "APPROVE") -> InspectionInventoryRequest:
         decision=decision,
         ubci_score="91.50" if decision == "APPROVE" else None,
         defects=[],
-        rejection_disposition=(
-            None
-            if decision == "APPROVE"
-            else "REJECT_DISCARD"
-        ),
+        rejection_disposition=(None if decision == "APPROVE" else "REJECT_DISCARD"),
     )
 
 
@@ -34,11 +30,7 @@ def _admission_result(
         return_job_id=uuid4(),
         inbound_item_id=uuid4(),
         decision=decision,
-        condition_grade=(
-            ConditionGrade.EXCELLENT
-            if decision == "APPROVE"
-            else ConditionGrade.REJECT
-        ),
+        condition_grade=(ConditionGrade.EXCELLENT if decision == "APPROVE" else ConditionGrade.REJECT),
         lpn_barcode="LPN-PRICING-001",
         location_id=uuid4(),
         location_barcode="B-3-1" if decision == "APPROVE" else "C-3-1",

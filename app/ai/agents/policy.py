@@ -251,12 +251,10 @@ def calculate_ubci_grade(
 
 
 def policy_agent(state: WMSInspectionState) -> WMSInspectionState:
-    """
-    2. Policy Agent (RAG 적용)
-    TODO: Vision이 넘겨준 상대 비율(예: 가로 15% 찢김)을 바탕으로 Vector DB(RAG)를 검색하여 UBCI 규정을 찾아오세요.
-    - 핵심: RAG로 검색된 규정(ex. 10~20% 찢김 감점)을 기반으로 수학적인 감점 점수를 계산하고 사유를 작성합니다.
-    - 입력: state["defects"] (상대 비율 데이터)
-    - 출력: ubci_score (int), rule_reference (str)
+    """2. Policy Agent — 결함 면적비로 UBCI 감점을 계산하고 근거 규정을 붙인다.
+
+    감점은 결정적 매트릭스로 계산하며, RAG는 근거 조항을 찾는 데만 쓴다.
+    입력: state["defects"] / 출력: ubci_score, rule_reference
     """
     logger.info("[Agent] Policy Agent 실행...")
 
